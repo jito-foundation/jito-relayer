@@ -1,0 +1,10 @@
+[workspace]
+members = [
+    "fetch_verify",
+    "jito-transaction-relayer",
+    "jito-protos",
+]
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true

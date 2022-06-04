@@ -1,0 +1,22 @@
+[package]
+name = "jito-fetch-verify"
+version = "0.1.0"
+description = "Solana TPU fetch and sigverify"
+authors = ["Jito Team <team@jito.wtf>"]
+homepage = "https://jito.wtf/"
+edition = "2021"
+publish = false
+
+[dependencies]
+crossbeam-channel = "0.5.4"
+itertools = "0.10.3"
+histogram = "0.6.9"
+log = "0.4.14"
+solana-measure = "1.10.11"
+solana-metrics = "1.10.11"
+solana-perf = "1.10.11"
+solana-sdk = "1.10.11"
+solana-streamer = "1.10.11"
+solana-core = "1.10.11, <1.10.12"
+thiserror = "1.0.30"
+tokio = "1.12.0"
