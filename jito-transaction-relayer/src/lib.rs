@@ -130,7 +130,12 @@ impl SubscribePackets for SubscribePacketsServiceImpl {
         tokio::spawn(async move {
             // info!("validator connected [pubkey={:?}]", pubkey);
             loop {
-                match self.verified_rx.lock().unwrap().blocking_recv() {
+                let mut maybe_batch: Option<Vec<PacketBatch>>;
+                {
+                    let mut lock = self.verified_rx.lock().unwrap();
+                    maybe_batch = lock.blocking_recv();
+                }
+                match maybe_batch {
                     None => {
                         error!("channel closed");
                         break;
