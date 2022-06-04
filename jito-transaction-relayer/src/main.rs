@@ -6,8 +6,8 @@ use std::{
         atomic::{AtomicBool},
         Arc,
     },
-    thread::{sleep},
-    time::{Duration},
+    // thread::{sleep},
+    // time::{Duration},
 };
 use jito_fetch_verify::fetch_verify::FetchVerify;
 use solana_net_utils::multi_bind_in_range;
@@ -58,6 +58,7 @@ fn main() {
     let (fetch_verify, verified_rx) =
         FetchVerify::new(tpu_sockets, tpu_fwd_sockets, &exit, COALESCE_MS);
 
+    let packet_sub_service = SubscribePacketsServiceImpl::new(verified_rx);
 
     // sleep(Duration::from_secs(5));
     // test_fetch_verify(verified_rx, &exit, args.tpu_ip, args.tpu_port);

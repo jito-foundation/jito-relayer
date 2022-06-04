@@ -18,25 +18,32 @@ use itertools::Itertools;
 use bincode::serialize;
 use solana_perf::{packet::PacketBatch, test_tx::test_tx};
 
-use tokio::runtime::Builder as tokio_Builder;
-use tokio::sync::mpsc::{channel as tokio_channel, unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tokio::task::JoinHandle as tokio_JoinHandle;
+// use tokio::runtime::Builder as tokio_Builder;
+use tokio::sync::mpsc::{channel as tokio_channel,
+                        // unbounded_channel,
+                        UnboundedReceiver,
+                        // UnboundedSender
+                        };
+// use tokio::task::JoinHandle as tokio_JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::Stream;
 
-use tonic::transport::Server;
+// use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 
 use jito_protos::{
-    shared::Header,
+    // shared::Header,
     packet::{Meta as PbMeta, Packet as PbPacket, PacketBatch as PbPacketBatch, PacketFlags as PbPacketFlags,
              PacketBatchWrapper, },
     relayer::{ValPacketSubRequest,
               // AoiPacketSubRequest,
               SubscribePacketsResponse,
               subscribe_packets_response::Msg,
-              subscribe_packets_server::{SubscribePackets, SubscribePacketsServer},
-              subscribe_packets_client::SubscribePacketsClient,
+              subscribe_packets_server::{
+                  SubscribePackets,
+                  // SubscribePacketsServer
+              },
+              // subscribe_packets_client::SubscribePacketsClient,
     },
 };
 
@@ -58,12 +65,12 @@ impl<T> Stream for ValidatorSubscriberStream<T> {
     }
 }
 
-struct SubscribePacketsServiceImpl {
+pub struct SubscribePacketsServiceImpl {
     verified_rx: Arc<Mutex<UnboundedReceiver<Vec<PacketBatch>>>>,
 }
 
 impl SubscribePacketsServiceImpl {
-    pub fn new(mut verified_receiver: UnboundedReceiver<Vec<PacketBatch>>) -> Self {
+    pub fn new(verified_receiver: UnboundedReceiver<Vec<PacketBatch>>) -> Self {
         let verified_rx = Arc::new(Mutex::new(verified_receiver));
         Self {verified_rx}
     }
@@ -127,12 +134,14 @@ impl SubscribePackets for SubscribePacketsServiceImpl {
 
         let (client_sender, client_receiver) = tokio_channel(1);
         // let (client_sender, client_receiver) = channel(1_000_000);
+
+        let ver_rx = self.verified_rx.clone();
         tokio::spawn(async move {
             // info!("validator connected [pubkey={:?}]", pubkey);
             loop {
-                let mut maybe_batch: Option<Vec<PacketBatch>>;
+                let maybe_batch: Option<Vec<PacketBatch>>;
                 {
-                    let mut lock = self.verified_rx.lock().unwrap();
+                    let mut lock = ver_rx.lock().unwrap();
                     maybe_batch = lock.blocking_recv();
                 }
                 match maybe_batch {
@@ -141,9 +150,9 @@ impl SubscribePackets for SubscribePacketsServiceImpl {
                         break;
                     }
                     Some(batch_list) => {
-                        let start = Instant::now();
+                        // let start = Instant::now();
                         let mut batches = batch_list;
-                        while let Ok(batch_list) = self.verified_rx.lock().unwrap().try_recv() {
+                        while let Ok(batch_list) = ver_rx.lock().unwrap().try_recv() {
                             batches.extend(batch_list);
                         }
 
@@ -241,15 +250,6 @@ impl SubscribePackets for SubscribePacketsServiceImpl {
             // inner: ReceiverStream::new(self.verified_rx),
         }))
     }
-}
-
-
-pub fn publish_verified_grpc(mut verified_rx: UnboundedReceiver<Vec<PacketBatch>>,
-                             exit: &Arc<AtomicBool>,
-                             bind_ip: IpAddr)
-    -> () {
-
-
 }
 
 
