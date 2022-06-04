@@ -173,6 +173,7 @@ impl SubscribePackets for SubscribePacketsServiceImpl {
 
 
                         // publish in batches + publish excess
+                        let mut response_vec = Vec::new();
                         let mut batches = Vec::with_capacity(max_batches_per_msg);
                         for chunk in &pb_packets.into_iter().chunks(batch_size) {
                             if batches.len() < max_batches_per_msg {
@@ -187,7 +188,7 @@ impl SubscribePackets for SubscribePacketsServiceImpl {
                                 // ) {
                                 //     error!("error publishing packet batch [error={}]", e);
                                 // }
-                                if let Ok(permit) = client_sender.reserve().await {
+                                // if let Ok(permit) = client_sender.reserve().await {
                                     let response = SubscribePacketsResponse {
                                         // header: Some(Header {
                                         //     ts: Some(prost_types::Timestamp::from(SystemTime::now())),
@@ -196,15 +197,16 @@ impl SubscribePackets for SubscribePacketsServiceImpl {
                                             batch_list: batches.clone(),
                                         })),
                                     };
-                                    permit.send(Ok(response));
-                                } else {
-                                    break;
-                                }
+                                    response_vec.push(response);
+                                //     permit.send(Ok(response));
+                                // } else {
+                                //     break;
+                                // }
 
                                 batches = Vec::with_capacity(max_batches_per_msg);
                             }
                         }
-                        if let Ok(permit) = client_sender.reserve().await {
+                        // if let Ok(permit) = client_sender.reserve().await {
                             let response = SubscribePacketsResponse {
                                 // header: Some(Header {
                                 //     ts: Some(prost_types::Timestamp::from(SystemTime::now())),
@@ -213,12 +215,21 @@ impl SubscribePackets for SubscribePacketsServiceImpl {
                                     batch_list: batches.clone(),
                                 })),
                             };
-                            permit.send(Ok(response));
-                        } else {
-                            break;
-                        }
+                        response_vec.push(response);
+
+                        //     permit.send(Ok(response));
+                        // } else {
+                        //     break;
+                        // }
 
                         // debug!("publish took {} ns", start.elapsed().as_nanos());
+                        for response in response_vec {
+                            if let Ok(permit) = client_sender.reserve().await {
+                                permit.send(Ok(response));
+                            } else {
+                                break;
+                            }
+                        }
                     }
 
                 }
