@@ -7,18 +7,15 @@ homepage = "https://jito.wtf/"
 edition = "2021"
 publish = false
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 clap = { version = "3.1.12", features = ["derive", "env"] }
 bincode = "1.3.3"
 log = "0.4.14"
 itertools = "0.10.3"
-jito-fetch-verify = { path = "../fetch_verify", version = "=0.1.0" }
 jito-protos = { path = "../jito-protos" }
-solana-net-utils = "1.10.11"
-solana-perf = "1.10.11"
-tokio = { version = "1.17.0", features = ["rt-multi-thread"] }
+solana-net-utils = "1.10.24"
+solana-perf = "1.10.24"
+tokio = { version = "1.14.1", features = ["rt-multi-thread"] }
 tokio-stream = "0.1.8"
 tonic = "0.7.2"
 prost-types = "0.10.1"

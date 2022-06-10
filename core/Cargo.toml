@@ -1,0 +1,24 @@
+[package]
+name = "jito-core"
+version = "0.1.0"
+description = "Core Code"
+authors = ["Jito Team <team@jito.wtf>"]
+homepage = "https://jito.wtf/"
+edition = "2021"
+publish = false
+
+[dependencies]
+crossbeam-channel = "0.5.4"
+lazy_static = "1.4.0"
+log = "0.4.17"
+rayon = "1.5.3"
+solana-core = "1.10.24"
+solana-gossip = "1.10.24"
+solana-measure = "1.10.24"
+solana-metrics = "1.10.24"
+solana-perf = "1.10.24"
+solana-runtime = "1.10.24"
+solana-sdk = "1.10.24"
+solana-streamer = "1.10.24"
+solana-rayon-threadlimit = "1.10.24"
+thiserror = "1.0.31"
