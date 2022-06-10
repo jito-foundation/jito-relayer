@@ -20,7 +20,6 @@ const NUM_SOCKETS: usize = 32;
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-
     /// IP address to bind to for transaction packets
     #[clap( long, env)]
     tpu_ip: IpAddr,
