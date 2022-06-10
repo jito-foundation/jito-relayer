@@ -21,4 +21,3 @@ pub mod shared {
 pub mod validator_interface_service {
     tonic::include_proto!("validator_interface");
 }
-

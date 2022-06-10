@@ -4,9 +4,7 @@ use crossbeam_channel::RecvError;
 use {
     crossbeam_channel::{unbounded, RecvTimeoutError},
     solana_perf::{packet::PacketBatchRecycler, recycler::Recycler},
-    solana_sdk::{
-        packet::{Packet, PacketFlags},
-    },
+    solana_sdk::packet::{Packet, PacketFlags},
     solana_streamer::streamer::{
         self, PacketBatchReceiver, PacketBatchSender, StreamerReceiveStats,
     },
@@ -200,9 +198,7 @@ impl FetchStage {
         let fwd_thread_hdl = Builder::new()
             .name("solana-fetch-stage-fwd-rcvr".to_string())
             .spawn(move || loop {
-                if let Err(e) =
-                Self::handle_forwarded_packets(&forward_receiver, &sender)
-                {
+                if let Err(e) = Self::handle_forwarded_packets(&forward_receiver, &sender) {
                     match e {
                         Error::RecvTimeout(RecvTimeoutError::Disconnected) => break,
                         Error::RecvTimeout(RecvTimeoutError::Timeout) => (),
@@ -236,9 +232,9 @@ impl FetchStage {
                 tpu_vote_threads,
                 vec![fwd_thread_hdl, metrics_thread_hdl],
             ]
-                .into_iter()
-                .flatten()
-                .collect(),
+            .into_iter()
+            .flatten()
+            .collect(),
         }
     }
 

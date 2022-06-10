@@ -1,6 +1,6 @@
-mod find_packet_sender_stake_stage;
 mod fetch_stage;
-mod tpu;
+mod staked_nodes_updater_service;
+pub mod tpu;
 
 #[macro_use]
 extern crate log;
