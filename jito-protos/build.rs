@@ -4,9 +4,13 @@ fn main() {
     configure()
         .compile(
             &[
-                "protos/shared.proto",
+                "protos/block.proto",
+                "protos/bundle.proto",
                 "protos/packet.proto",
                 "protos/relayer.proto",
+                "protos/searcher.proto",
+                "protos/shared.proto",
+                "protos/validator_interface_service.proto",
             ],
             &["protos"],
         )
