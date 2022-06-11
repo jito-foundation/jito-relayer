@@ -13,7 +13,6 @@ use std::time::Duration;
 
 pub struct LoadBalancer {
     // (http, websocket)
-    servers: Vec<(String, String)>,
     server_to_slot: Arc<Mutex<HashMap<String, Slot>>>,
     server_to_rpc_client: Arc<Mutex<HashMap<String, Arc<RpcClient>>>>,
     subscription_threads: Vec<JoinHandle<()>>,
@@ -21,10 +20,10 @@ pub struct LoadBalancer {
 
 impl LoadBalancer {
     pub fn new(servers: &[(String, String)], exit: &Arc<AtomicBool>) -> LoadBalancer {
-        let server_to_slot = HashMap::from_iter(servers.iter().map(|(http, _)| (http.clone(), 0)));
+        let server_to_slot = HashMap::from_iter(servers.iter().map(|(_, ws)| (ws.clone(), 0)));
         let server_to_slot = Arc::new(Mutex::new(server_to_slot));
 
-        let server_to_rpc_client = HashMap::from_iter(servers.iter().map(|(http, _)| {
+        let server_to_rpc_client = HashMap::from_iter(servers.iter().map(|(http, ws)| {
             // warm up the connection
             let rpc_client = Arc::new(RpcClient::new_with_timeout_and_commitment(
                 http,
@@ -34,9 +33,10 @@ impl LoadBalancer {
                 },
             ));
             if let Err(e) = rpc_client.get_slot() {
-                error!("error warming up http: {}", http)
+                error!("error warming up http: {} error: {}", http, e);
             }
-            (http.clone(), rpc_client)
+            // store as ws instead of http so we can lookup by furthest ahead ws subscription
+            (ws.clone(), rpc_client)
         }));
         let server_to_rpc_client = Arc::new(Mutex::new(server_to_rpc_client));
 
@@ -47,7 +47,6 @@ impl LoadBalancer {
             exit,
         );
         LoadBalancer {
-            servers: servers.to_vec(),
             server_to_slot,
             server_to_rpc_client,
             subscription_threads,
@@ -57,16 +56,15 @@ impl LoadBalancer {
     fn start_subscription_threads(
         servers: Vec<(String, String)>,
         server_to_slot: &Arc<Mutex<HashMap<String, Slot>>>,
-        server_to_rpc_client: &Arc<Mutex<HashMap<String, Arc<RpcClient>>>>,
+        _server_to_rpc_client: &Arc<Mutex<HashMap<String, Arc<RpcClient>>>>,
         exit: &Arc<AtomicBool>,
     ) -> Vec<JoinHandle<()>> {
         servers
             .iter()
-            .map(|(http_url, websocket_url)| {
+            .map(|(_, websocket_url)| {
                 let exit = exit.clone();
                 let websocket_url = websocket_url.clone();
                 let server_to_slot = server_to_slot.clone();
-                let server_to_rpc_client = server_to_rpc_client.clone();
 
                 Builder::new()
                     .name(format_args!("rpc-thread({})", websocket_url).to_string())

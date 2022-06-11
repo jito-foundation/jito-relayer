@@ -17,11 +17,9 @@ use std::net::{IpAddr, UdpSocket};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 use std::thread;
+use std::thread::JoinHandle;
 
 pub const DEFAULT_TPU_COALESCE_MS: u64 = 5;
-
-/// Timeout interval when joining threads during TPU close
-const TPU_THREADS_JOIN_TIMEOUT_SECONDS: u64 = 10;
 
 // allow multiple connections for NAT and any open/close overlap
 pub const MAX_QUIC_CONNECTIONS_PER_IP: usize = 8;
@@ -38,6 +36,8 @@ pub struct Tpu {
     staked_nodes_updater_service: StakedNodesUpdaterService,
     find_packet_sender_stake_stage: FindPacketSenderStakeStage,
     sigverify_stage: SigVerifyStage,
+    tpu_quic_t: JoinHandle<()>,
+    tpu_forwards_quic_t: JoinHandle<()>,
 }
 
 impl Tpu {
@@ -128,6 +128,8 @@ impl Tpu {
                 staked_nodes_updater_service,
                 find_packet_sender_stake_stage,
                 sigverify_stage,
+                tpu_quic_t,
+                tpu_forwards_quic_t,
             },
             verified_receiver,
         )
@@ -138,6 +140,8 @@ impl Tpu {
         self.staked_nodes_updater_service.join()?;
         self.find_packet_sender_stake_stage.join()?;
         self.sigverify_stage.join()?;
+        self.tpu_quic_t.join()?;
+        self.tpu_forwards_quic_t.join()?;
         Ok(())
     }
 }

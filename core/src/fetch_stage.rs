@@ -2,7 +2,7 @@
 
 use crossbeam_channel::RecvError;
 use {
-    crossbeam_channel::{unbounded, RecvTimeoutError},
+    crossbeam_channel::RecvTimeoutError,
     solana_perf::{packet::PacketBatchRecycler, recycler::Recycler},
     solana_sdk::packet::{Packet, PacketFlags},
     solana_streamer::streamer::{
@@ -36,35 +36,6 @@ pub struct FetchStage {
 }
 
 impl FetchStage {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(
-        sockets: Vec<UdpSocket>,
-        tpu_forwards_sockets: Vec<UdpSocket>,
-        tpu_vote_sockets: Vec<UdpSocket>,
-        exit: &Arc<AtomicBool>,
-        coalesce_ms: u64,
-    ) -> (Self, PacketBatchReceiver, PacketBatchReceiver) {
-        let (sender, receiver) = unbounded();
-        let (vote_sender, vote_receiver) = unbounded();
-        let (forward_sender, forward_receiver) = unbounded();
-        (
-            Self::new_with_sender(
-                sockets,
-                tpu_forwards_sockets,
-                tpu_vote_sockets,
-                exit,
-                &sender,
-                &vote_sender,
-                &forward_sender,
-                forward_receiver,
-                coalesce_ms,
-                None,
-            ),
-            receiver,
-            vote_receiver,
-        )
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_sender(
         sockets: Vec<UdpSocket>,

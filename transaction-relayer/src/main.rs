@@ -2,7 +2,7 @@ use clap::Parser;
 use jito_core::tpu::{Tpu, TpuSockets};
 use jito_rpc::load_balancer::LoadBalancer;
 use solana_net_utils::multi_bind_in_range;
-use solana_sdk::signature::Keypair;
+use solana_sdk::signature::{Keypair, Signer};
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -118,6 +118,7 @@ fn main() {
     let sockets = get_sockets(&args);
 
     let keypair = Keypair::new();
+    solana_metrics::set_host_id(keypair.pubkey().to_string());
 
     let exit = Arc::new(AtomicBool::new(false));
 

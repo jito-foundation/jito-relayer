@@ -16,6 +16,7 @@ itertools = "0.10.3"
 jito-core = { path = "../core" }
 jito-protos = { path = "../jito-protos" }
 jito-rpc = { path = "../rpc" }
+solana-metrics = "1.10.24"
 solana-net-utils = "1.10.24"
 solana-perf = "1.10.24"
 solana-sdk = "1.10.24"
