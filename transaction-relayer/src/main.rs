@@ -136,7 +136,9 @@ fn main() {
         .into_iter()
         .zip(args.websocket_servers.into_iter())
         .collect();
-    let rpc_load_balancer = Arc::new(Mutex::new(LoadBalancer::new(&servers, &exit)));
+
+    let (rpc_load_balancer, slot_receiver) = LoadBalancer::new(&servers, &exit);
+    let rpc_load_balancer = Arc::new(Mutex::new(rpc_load_balancer));
 
     let (tpu, packet_receiver) = Tpu::new(
         sockets.tpu_sockets,
@@ -154,7 +156,7 @@ fn main() {
         let addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
         println!("Relayer listening on: {}", addr);
 
-        let relayer = Relayer {};
+        let relayer = Relayer::new();
 
         let svc = RelayerServiceServer::new(relayer);
         Server::builder()

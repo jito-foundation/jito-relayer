@@ -16,3 +16,4 @@ solana-client = "1.10.24"
 tokio-stream = "0.1.9"
 tokio = "1.14.1"
 tonic = "0.7.2"
+uuid = { version = "1.1.2", features = ["v4"] }
