@@ -5,8 +5,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    thread::sleep,
-    time::Duration,
 };
 
 use clap::Parser;
@@ -16,7 +14,7 @@ use jito_relayer::relayer::Relayer;
 use jito_rpc::load_balancer::LoadBalancer;
 use solana_net_utils::multi_bind_in_range;
 use solana_sdk::signature::{Keypair, Signer};
-use tokio::runtime::{Builder, Runtime};
+use tokio::runtime::Builder;
 use tonic::transport::Server;
 
 #[derive(Parser, Debug)]
@@ -131,6 +129,13 @@ fn main() {
 
     let exit = Arc::new(AtomicBool::new(false));
 
+    assert_eq!(
+        args.rpc_servers.len(),
+        args.websocket_servers.len(),
+        "num rpc servers = num websocket servers"
+    );
+    assert!(args.rpc_servers.len() >= 1, "num rpc servers >= 1");
+
     let servers: Vec<(String, String)> = args
         .rpc_servers
         .into_iter()
@@ -151,12 +156,11 @@ fn main() {
     );
 
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();
-
     rt.block_on(async {
         let addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
         println!("Relayer listening on: {}", addr);
 
-        let relayer = Relayer::new();
+        let relayer = Relayer::new(slot_receiver, packet_receiver);
 
         let svc = RelayerServiceServer::new(relayer);
         Server::builder()

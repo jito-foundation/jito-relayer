@@ -1,12 +1,16 @@
+use std::time::Duration;
+
+use crossbeam_channel::Receiver;
 use jito_protos::relayer::{
     relayer_service_server::RelayerService, HeartbeatResponse, HeartbeatSubscriptionRequest,
     PacketSubscriptionRequest, PacketSubscriptionResponse,
 };
-use solana_sdk::pubkey::Pubkey;
-use tokio::sync::mpsc::{channel, Sender};
+use log::error;
+use solana_core::banking_stage::BankingPacketBatch;
+use solana_sdk::clock::Slot;
+use tokio::{sync::mpsc::channel, time::sleep};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
-use uuid::Uuid;
 
 use crate::router::Router;
 
@@ -15,22 +19,12 @@ pub struct Relayer {
 }
 
 impl Relayer {
-    pub fn new() -> Relayer {
-        let router = Router::new();
+    pub fn new(
+        slot_receiver: Receiver<Slot>,
+        packet_receiver: Receiver<BankingPacketBatch>,
+    ) -> Relayer {
+        let router = Router::new(slot_receiver, packet_receiver);
         Relayer { router }
-    }
-
-    pub fn subscribe_heartbeat(
-        &self,
-        pubkey: Pubkey,
-        sender: Sender<Result<HeartbeatResponse, Status>>,
-        uuid: Uuid,
-    ) -> Result<(), Status> {
-        Ok(())
-    }
-
-    pub fn unsubscribe(&mut self, pubkey: Pubkey, uuid: Uuid) -> Result<(), Status> {
-        Ok(())
     }
 }
 
@@ -40,10 +34,16 @@ impl RelayerService for Relayer {
 
     async fn subscribe_heartbeat(
         &self,
-        request: Request<HeartbeatSubscriptionRequest>,
+        _request: Request<HeartbeatSubscriptionRequest>,
     ) -> Result<Response<Self::SubscribeHeartbeatStream>, Status> {
         let (sender, receiver) = channel(2);
-        self.subscribe_heartbeat(Pubkey::new_unique(), sender, Uuid::new_v4())?;
+
+        tokio::spawn(async move {
+            if let Err(e) = sender.send(Ok(HeartbeatResponse::default())).await {
+                error!("subscribe_heartbeat error sending response: {:?}", e);
+            }
+            sleep(Duration::from_millis(500)).await;
+        });
 
         Ok(Response::new(ReceiverStream::new(receiver)))
     }
@@ -52,9 +52,16 @@ impl RelayerService for Relayer {
 
     async fn subscribe_packets(
         &self,
-        request: Request<PacketSubscriptionRequest>,
+        _request: Request<PacketSubscriptionRequest>,
     ) -> Result<Response<Self::SubscribePacketsStream>, Status> {
         let (sender, receiver) = channel(100);
+
+        tokio::spawn(async move {
+            if let Err(e) = sender.send(Ok(PacketSubscriptionResponse::default())).await {
+                error!("subscribe_packets error sending response: {:?}", e);
+            }
+            sleep(Duration::from_millis(500)).await;
+        });
 
         Ok(Response::new(ReceiverStream::new(receiver)))
     }
