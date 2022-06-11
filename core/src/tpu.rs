@@ -1,24 +1,26 @@
 //! The `tpu` module implements the Transaction Processing Unit, a
 //! multi-stage transaction processing pipeline in software.
 
-use crate::fetch_stage::FetchStage;
-use crate::staked_nodes_updater_service::StakedNodesUpdaterService;
+use std::{
+    collections::HashMap,
+    net::{IpAddr, UdpSocket},
+    sync::{atomic::AtomicBool, Arc, Mutex, RwLock},
+    thread,
+    thread::JoinHandle,
+};
+
 use crossbeam_channel::{unbounded, Receiver};
 use jito_rpc::load_balancer::LoadBalancer;
-use solana_core::banking_stage::BankingPacketBatch;
-use solana_core::find_packet_sender_stake_stage::FindPacketSenderStakeStage;
-use solana_core::sigverify::TransactionSigVerifier;
-use solana_core::sigverify_stage::SigVerifyStage;
+use solana_core::{
+    banking_stage::BankingPacketBatch, find_packet_sender_stake_stage::FindPacketSenderStakeStage,
+    sigverify::TransactionSigVerifier, sigverify_stage::SigVerifyStage,
+};
 use solana_sdk::signature::Keypair;
 use solana_streamer::quic::{
     spawn_server, StreamStats, MAX_STAKED_CONNECTIONS, MAX_UNSTAKED_CONNECTIONS,
 };
-use std::collections::HashMap;
-use std::net::{IpAddr, UdpSocket};
-use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex, RwLock};
-use std::thread;
-use std::thread::JoinHandle;
+
+use crate::{fetch_stage::FetchStage, staked_nodes_updater_service::StakedNodesUpdaterService};
 
 pub const DEFAULT_TPU_COALESCE_MS: u64 = 5;
 

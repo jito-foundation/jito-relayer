@@ -1,15 +1,21 @@
+use std::{
+    net::{IpAddr, SocketAddr},
+    str::FromStr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+};
+
 use clap::Parser;
 use jito_core::tpu::{Tpu, TpuSockets};
+use jito_protos::relayer::relayer_service_server::RelayerServiceServer;
+use jito_relayer::relayer::Relayer;
 use jito_rpc::load_balancer::LoadBalancer;
-use log::info;
 use solana_net_utils::multi_bind_in_range;
 use solana_sdk::signature::{Keypair, Signer};
-use std::net::IpAddr;
-use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread::sleep;
-use std::time::Duration;
+use tokio::runtime::Builder;
+use tonic::transport::Server;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -36,11 +42,11 @@ struct Args {
 
     /// Bind IP address for GRPC server
     #[clap(long, env, default_value_t = IpAddr::from_str("0.0.0.0").unwrap())]
-    server_bind_ip: IpAddr,
+    grpc_bind_ip: IpAddr,
 
     /// Bind port address for GRPC server
     #[clap(long, env, default_value_t = 42069)]
-    server_bind_port: u16,
+    grpc_bind_port: u16,
 
     /// Number of TPU threads
     #[clap(long, env, default_value_t = 32)]
@@ -123,12 +129,21 @@ fn main() {
 
     let exit = Arc::new(AtomicBool::new(false));
 
+    assert_eq!(
+        args.rpc_servers.len(),
+        args.websocket_servers.len(),
+        "num rpc servers = num websocket servers"
+    );
+    assert!(args.rpc_servers.len() >= 1, "num rpc servers >= 1");
+
     let servers: Vec<(String, String)> = args
         .rpc_servers
         .into_iter()
         .zip(args.websocket_servers.into_iter())
         .collect();
-    let rpc_load_balancer = Arc::new(Mutex::new(LoadBalancer::new(&servers, &exit)));
+
+    let (rpc_load_balancer, slot_receiver) = LoadBalancer::new(&servers, &exit);
+    let rpc_load_balancer = Arc::new(Mutex::new(rpc_load_balancer));
 
     let (tpu, packet_receiver) = Tpu::new(
         sockets.tpu_sockets,
@@ -140,7 +155,20 @@ fn main() {
         &rpc_load_balancer,
     );
 
-    sleep(Duration::from_secs(20));
+    let rt = Builder::new_multi_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
+        println!("Relayer listening on: {}", addr);
+
+        let relayer = Relayer::new(slot_receiver, packet_receiver);
+
+        let svc = RelayerServiceServer::new(relayer);
+        Server::builder()
+            .add_service(svc)
+            .serve(addr)
+            .await
+            .expect("serve server");
+    });
 
     exit.store(true, Ordering::Relaxed);
     tpu.join().unwrap();

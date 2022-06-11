@@ -1,15 +1,21 @@
-use crossbeam_channel::RecvTimeoutError;
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+    thread,
+    thread::{sleep, Builder, JoinHandle},
+    time::Duration,
+};
+
+use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use log::{error, info};
-use solana_client::pubsub_client::PubsubClient;
-use solana_client::rpc_client::RpcClient;
-use solana_sdk::clock::Slot;
-use solana_sdk::commitment_config::{CommitmentConfig, CommitmentLevel};
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::thread::{sleep, Builder, JoinHandle};
-use std::time::Duration;
+use solana_client::{pubsub_client::PubsubClient, rpc_client::RpcClient};
+use solana_sdk::{
+    clock::Slot,
+    commitment_config::{CommitmentConfig, CommitmentLevel},
+};
 
 pub struct LoadBalancer {
     // (http, websocket)
@@ -19,7 +25,10 @@ pub struct LoadBalancer {
 }
 
 impl LoadBalancer {
-    pub fn new(servers: &[(String, String)], exit: &Arc<AtomicBool>) -> LoadBalancer {
+    pub fn new(
+        servers: &[(String, String)],
+        exit: &Arc<AtomicBool>,
+    ) -> (LoadBalancer, Receiver<Slot>) {
         let server_to_slot = HashMap::from_iter(servers.iter().map(|(_, ws)| (ws.clone(), 0)));
         let server_to_slot = Arc::new(Mutex::new(server_to_slot));
 
@@ -40,17 +49,22 @@ impl LoadBalancer {
         }));
         let server_to_rpc_client = Arc::new(Mutex::new(server_to_rpc_client));
 
+        let (slot_sender, slot_receiver) = unbounded();
         let subscription_threads = Self::start_subscription_threads(
             servers.to_vec(),
             &server_to_slot,
             &server_to_rpc_client,
             exit,
+            slot_sender,
         );
-        LoadBalancer {
-            server_to_slot,
-            server_to_rpc_client,
-            subscription_threads,
-        }
+        (
+            LoadBalancer {
+                server_to_slot,
+                server_to_rpc_client,
+                subscription_threads,
+            },
+            slot_receiver,
+        )
     }
 
     fn start_subscription_threads(
@@ -58,13 +72,18 @@ impl LoadBalancer {
         server_to_slot: &Arc<Mutex<HashMap<String, Slot>>>,
         _server_to_rpc_client: &Arc<Mutex<HashMap<String, Arc<RpcClient>>>>,
         exit: &Arc<AtomicBool>,
+        slot_sender: Sender<Slot>,
     ) -> Vec<JoinHandle<()>> {
+        let highest_slot = Arc::new(Mutex::new(Slot::default()));
+
         servers
             .iter()
             .map(|(_, websocket_url)| {
                 let exit = exit.clone();
                 let websocket_url = websocket_url.clone();
                 let server_to_slot = server_to_slot.clone();
+                let slot_sender = slot_sender.clone();
+                let highest_slot = highest_slot.clone();
 
                 Builder::new()
                     .name(format_args!("rpc-thread({})", websocket_url).to_string())
@@ -85,6 +104,18 @@ impl LoadBalancer {
                                                     .lock()
                                                     .unwrap()
                                                     .insert(websocket_url.clone(), slot.slot);
+                                                {
+                                                    let mut highest_slot_l =
+                                                        highest_slot.lock().unwrap();
+                                                    if slot.slot > *highest_slot_l {
+                                                        *highest_slot_l = slot.slot;
+                                                        if let Err(e) = slot_sender.send(slot.slot)
+                                                        {
+                                                            error!("error sending slot: {}", e);
+                                                            break;
+                                                        }
+                                                    }
+                                                }
                                             }
                                             Err(RecvTimeoutError::Timeout) => {}
                                             Err(RecvTimeoutError::Disconnected) => {

@@ -1,22 +1,20 @@
 //! The `fetch_stage` batches input from a UDP socket and sends it to a channel.
 
-use crossbeam_channel::RecvError;
-use {
-    crossbeam_channel::RecvTimeoutError,
-    solana_perf::{packet::PacketBatchRecycler, recycler::Recycler},
-    solana_sdk::packet::{Packet, PacketFlags},
-    solana_streamer::streamer::{
-        self, PacketBatchReceiver, PacketBatchSender, StreamerReceiveStats,
+use std::{
+    net::UdpSocket,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
     },
-    std::{
-        net::UdpSocket,
-        sync::{
-            atomic::{AtomicBool, Ordering},
-            Arc,
-        },
-        thread::{self, sleep, Builder, JoinHandle},
-        time::Duration,
-    },
+    thread::{self, sleep, Builder, JoinHandle},
+    time::Duration,
+};
+
+use crossbeam_channel::{RecvError, RecvTimeoutError};
+use solana_perf::{packet::PacketBatchRecycler, recycler::Recycler};
+use solana_sdk::packet::{Packet, PacketFlags};
+use solana_streamer::streamer::{
+    self, PacketBatchReceiver, PacketBatchSender, StreamerReceiveStats,
 };
 
 #[derive(Debug, thiserror::Error)]
