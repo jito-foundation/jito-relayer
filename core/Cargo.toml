@@ -9,9 +9,11 @@ publish = false
 
 [dependencies]
 crossbeam-channel = "0.5.4"
+jito-rpc = { path = "../rpc" }
 lazy_static = "1.4.0"
 log = "0.4.17"
 rayon = "1.5.3"
+solana-client = "1.10.24"
 solana-core = "1.10.24"
 solana-gossip = "1.10.24"
 solana-measure = "1.10.24"

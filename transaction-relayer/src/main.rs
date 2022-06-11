@@ -1,12 +1,13 @@
 use clap::Parser;
 use jito_core::tpu::{Tpu, TpuSockets};
 use jito_rpc::load_balancer::LoadBalancer;
+use log::info;
 use solana_net_utils::multi_bind_in_range;
 use solana_sdk::signature::{Keypair, Signer};
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -122,6 +123,13 @@ fn main() {
 
     let exit = Arc::new(AtomicBool::new(false));
 
+    let servers: Vec<(String, String)> = args
+        .rpc_servers
+        .into_iter()
+        .zip(args.websocket_servers.into_iter())
+        .collect();
+    let rpc_load_balancer = Arc::new(Mutex::new(LoadBalancer::new(&servers, &exit)));
+
     let (tpu, packet_receiver) = Tpu::new(
         sockets.tpu_sockets,
         &exit,
@@ -129,19 +137,11 @@ fn main() {
         &keypair,
         &sockets.tpu_ip,
         &sockets.tpu_fwd_ip,
+        &rpc_load_balancer,
     );
 
-    let servers: Vec<(String, String)> = args
-        .rpc_servers
-        .into_iter()
-        .zip(args.websocket_servers.into_iter())
-        .collect();
-
-    let rpc_load_balancer = LoadBalancer::new(&servers, &exit);
-
-    sleep(Duration::from_secs(10));
+    sleep(Duration::from_secs(20));
 
     exit.store(true, Ordering::Relaxed);
     tpu.join().unwrap();
-    rpc_load_balancer.join().unwrap();
 }

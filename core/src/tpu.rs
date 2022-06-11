@@ -4,6 +4,7 @@
 use crate::fetch_stage::FetchStage;
 use crate::staked_nodes_updater_service::StakedNodesUpdaterService;
 use crossbeam_channel::{unbounded, Receiver};
+use jito_rpc::load_balancer::LoadBalancer;
 use solana_core::banking_stage::BankingPacketBatch;
 use solana_core::find_packet_sender_stake_stage::FindPacketSenderStakeStage;
 use solana_core::sigverify::TransactionSigVerifier;
@@ -15,7 +16,7 @@ use solana_streamer::quic::{
 use std::collections::HashMap;
 use std::net::{IpAddr, UdpSocket};
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::thread::JoinHandle;
 
@@ -48,6 +49,7 @@ impl Tpu {
         keypair: &Keypair,
         tpu_ip: &IpAddr,
         tpu_fwd_ip: &IpAddr,
+        rpc_load_balancer: &Arc<Mutex<LoadBalancer>>,
     ) -> (Self, Receiver<BankingPacketBatch>) {
         let TpuSockets {
             transactions_sockets,
@@ -75,7 +77,7 @@ impl Tpu {
 
         let staked_nodes = Arc::new(RwLock::new(HashMap::new()));
         let staked_nodes_updater_service =
-            StakedNodesUpdaterService::new(exit.clone(), staked_nodes.clone());
+            StakedNodesUpdaterService::new(exit.clone(), staked_nodes.clone(), rpc_load_balancer);
 
         let (find_packet_sender_stake_sender, find_packet_sender_stake_receiver) = unbounded();
 
