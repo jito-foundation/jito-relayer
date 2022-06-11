@@ -1,5 +1,5 @@
 use jito_rpc::load_balancer::LoadBalancer;
-use log::{error, info};
+use log::error;
 use solana_client::client_error;
 use solana_client::rpc_response::RpcContactInfo;
 use std::sync::Mutex;
@@ -81,6 +81,7 @@ impl StakedNodesUpdaterService {
                     }
                 })
                 .collect();
+            *last_stakes = Instant::now();
             Ok(true)
         } else {
             sleep(Duration::from_millis(1));

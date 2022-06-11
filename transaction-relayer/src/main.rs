@@ -1,7 +1,6 @@
 use clap::Parser;
 use jito_core::tpu::{Tpu, TpuSockets};
 use jito_rpc::load_balancer::LoadBalancer;
-use log::info;
 use solana_net_utils::multi_bind_in_range;
 use solana_sdk::signature::{Keypair, Signer};
 use std::net::IpAddr;
