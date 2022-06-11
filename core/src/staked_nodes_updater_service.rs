@@ -1,18 +1,17 @@
-use jito_rpc::load_balancer::LoadBalancer;
-use log::error;
-use solana_client::client_error;
-use solana_client::rpc_response::RpcContactInfo;
-use std::sync::Mutex;
 use std::{
     collections::HashMap,
     net::IpAddr,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, RwLock,
+        Arc, Mutex, RwLock,
     },
     thread::{self, sleep, Builder, JoinHandle},
     time::{Duration, Instant},
 };
+
+use jito_rpc::load_balancer::LoadBalancer;
+use log::error;
+use solana_client::{client_error, rpc_response::RpcContactInfo};
 
 const IP_TO_STAKE_REFRESH_DURATION: Duration = Duration::from_secs(5);
 

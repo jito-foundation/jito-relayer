@@ -1,15 +1,21 @@
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+    thread,
+    thread::{sleep, Builder, JoinHandle},
+    time::Duration,
+};
+
 use crossbeam_channel::RecvTimeoutError;
 use log::{error, info};
-use solana_client::pubsub_client::PubsubClient;
-use solana_client::rpc_client::RpcClient;
-use solana_sdk::clock::Slot;
-use solana_sdk::commitment_config::{CommitmentConfig, CommitmentLevel};
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::thread::{sleep, Builder, JoinHandle};
-use std::time::Duration;
+use solana_client::{pubsub_client::PubsubClient, rpc_client::RpcClient};
+use solana_sdk::{
+    clock::Slot,
+    commitment_config::{CommitmentConfig, CommitmentLevel},
+};
 
 pub struct LoadBalancer {
     // (http, websocket)
