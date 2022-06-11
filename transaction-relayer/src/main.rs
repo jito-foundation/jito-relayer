@@ -1,11 +1,14 @@
 use clap::Parser;
 use jito_core::tpu::{Tpu, TpuSockets};
+use jito_rpc::load_balancer::LoadBalancer;
 use solana_net_utils::multi_bind_in_range;
 use solana_sdk::signature::Keypair;
 use std::net::IpAddr;
 use std::str::FromStr;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::thread::sleep;
+use std::time::Duration;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -45,9 +48,14 @@ struct Args {
     /// Number of TPU forward threads
     #[clap(long, env, default_value_t = 16)]
     num_tpu_fwd_binds: usize,
-    // /// RPC server list
-    // #[clap(long, env)]
-    // rpc_servers: Vec<String>,
+
+    /// RPC server list
+    #[clap(long, env)]
+    rpc_servers: Vec<String>,
+
+    /// Websocket server list
+    #[clap(long, env)]
+    websocket_servers: Vec<String>,
 }
 
 struct Sockets {
@@ -103,6 +111,8 @@ fn get_sockets(args: &Args) -> Sockets {
 }
 
 fn main() {
+    env_logger::init();
+
     let args: Args = Args::parse();
 
     let sockets = get_sockets(&args);
@@ -119,4 +129,18 @@ fn main() {
         &sockets.tpu_ip,
         &sockets.tpu_fwd_ip,
     );
+
+    let servers: Vec<(String, String)> = args
+        .rpc_servers
+        .into_iter()
+        .zip(args.websocket_servers.into_iter())
+        .collect();
+
+    let rpc_load_balancer = LoadBalancer::new(&servers, &exit);
+
+    sleep(Duration::from_secs(10));
+
+    exit.store(true, Ordering::Relaxed);
+    tpu.join().unwrap();
+    rpc_load_balancer.join().unwrap();
 }

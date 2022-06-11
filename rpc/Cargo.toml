@@ -1,0 +1,14 @@
+[package]
+name = "jito-rpc"
+version = "0.1.0"
+description = "Code to communicate with RPC servers"
+authors = ["Jito Team <team@jito.wtf>"]
+homepage = "https://jito.wtf/"
+edition = "2021"
+publish = false
+
+[dependencies]
+crossbeam-channel = "0.5.4"
+log = "0.4.17"
+solana-sdk = "1.10.24"
+solana-client = "1.10.24"

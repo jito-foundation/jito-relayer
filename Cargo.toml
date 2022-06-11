@@ -1,6 +1,7 @@
 [workspace]
 members = [
-    "transaction-relayer",
-    "jito-protos",
     "core",
+    "jito-protos",
+    "transaction-relayer",
+    "rpc"
 ]

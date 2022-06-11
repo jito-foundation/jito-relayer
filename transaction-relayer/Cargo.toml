@@ -10,10 +10,12 @@ publish = false
 [dependencies]
 clap = { version = "3.1.12", features = ["derive", "env"] }
 bincode = "1.3.3"
+env_logger = "0.9.0"
 log = "0.4.14"
 itertools = "0.10.3"
 jito-core = { path = "../core" }
 jito-protos = { path = "../jito-protos" }
+jito-rpc = { path = "../rpc" }
 solana-net-utils = "1.10.24"
 solana-perf = "1.10.24"
 solana-sdk = "1.10.24"
