@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "client",
     "core",
     "jito-protos",
     "transaction-relayer",

@@ -1,0 +1,15 @@
+[package]
+name = "jito-transaction-relayer-client"
+version = "0.1.0"
+description = "Solana Transaction Relayer Client"
+authors = ["Jito Team <team@jito.wtf>"]
+homepage = "https://jito.wtf/"
+edition = "2021"
+publish = false
+
+[dependencies]
+crossbeam-channel = "0.5.4"
+jito-protos = { path = "../jito-protos" }
+log = "0.4.17"
+tokio = { version = "1.14.1", features = ["rt-multi-thread"] }
+tonic = "0.7.2"
