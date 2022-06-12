@@ -18,7 +18,7 @@ jobs:
           ssh-key: ${{ secrets.DEPLOYER_SSH_KEY }}
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: nightly
           override: true
           components: clippy
       - uses: actions-rs/clippy-check@v1
