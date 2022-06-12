@@ -1,0 +1,17 @@
+name: Test
+on:
+  workflow_call:
+    secrets:
+      DOCKERHUB_ORG:
+        required: true
+    inputs:
+      TAG:
+        required: true
+        type: string
+
+jobs:
+  test:
+    runs-on: self-hosted
+    steps:
+    - name: Run tests
+      run: RUST_LOG=info cargo test

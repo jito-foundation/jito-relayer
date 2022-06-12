@@ -1,0 +1,42 @@
+name: Build
+on:
+  workflow_call:
+    secrets:
+      ACCESS_TOKEN:
+        required: true
+      DOCKERHUB_ORG:
+        required: true
+    inputs:
+      TAG:
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v2
+      # https://github.com/actions/checkout/issues/116#issuecomment-573880976
+      # Very hacky, but tells .gitmodules to pull from HTTPS instead of SSH
+      - name: Checkout submodules using a PAT
+        run: |
+          git config --file .gitmodules --get-regexp url | while read url; do
+          git config --file=.gitmodules $(echo "$url" | sed -E "s/org-87542516@github.com:|https:\/\/github.com\//https:\/\/${{ secrets.ACCESS_TOKEN }}:${{ secrets.ACCESS_TOKEN }}@github.com\//")
+          done
+          git submodule sync
+          git submodule update --init --recursive
+      # https://github.com/moby/buildkit/issues/1368#issuecomment-731466205
+      # Seeing conflicting build caching between this and other repos in CI
+      - name: Docker prune
+        if: always()
+        run: docker builder prune -f
+      - name: Docker image prune
+        if: always()
+        run: docker image prune -f
+      - name: Build containers
+        run: docker build --progress=plain
+        env:
+          COMPOSE_DOCKER_CLI_BUILD: 1
+          DOCKER_BUILDKIT: 1
+          ORG: ${{ secrets.DOCKERHUB_ORG }}
+          TAG: ${{ inputs.TAG }}

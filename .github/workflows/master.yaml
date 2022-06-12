@@ -1,0 +1,39 @@
+name: Master
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  clean_code_check:
+    uses: ./.github/workflows/clean_code.yaml
+    secrets:
+      GHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+
+  build_images:
+    needs: clean_code_check
+    uses: ./.github/workflows/build.yaml
+    with:
+      TAG: "latest"
+    secrets:
+      ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+      DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
+
+  run_tests:
+    needs: build_images
+    uses: ./.github/workflows/test.yaml
+    secrets:
+      DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
+    with:
+      TAG: "latest"
+
+  push_images:
+    needs: run_tests
+    uses: ./.github/workflows/push_images.yaml
+    secrets:
+      DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+      DOCKERHUB_PWD: ${{ secrets.DOCKERHUB_PWD }}
+      DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
+    with:
+      TAG: "latest"
