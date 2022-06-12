@@ -12,6 +12,11 @@ use tonic::{Response, Streaming};
 pub struct Client {}
 
 impl Client {
+    /// Subscribes to packets from the relayer across `max_connections` connections.
+    /// `max_throughput_mbps` contains the max throughput of packets the client wants
+    /// sent over the channel.
+    ///
+    /// Does best effort to keep the number of connections at `max_connections`
     pub fn subscribe_packets(
         rt: Runtime,
         url: &str,
@@ -54,6 +59,7 @@ impl Client {
         receiver
     }
 
+    /// Subscribes to heartbeat from the relayer. Attempts to keep a connection
     pub fn subscribe_heartbeat(rt: Runtime, url: &str) -> Receiver<HeartbeatResponse> {
         let (sender, receiver) = unbounded();
 
