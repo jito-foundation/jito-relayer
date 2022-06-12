@@ -25,12 +25,11 @@ jobs:
         with:
           token: ${{ secrets.GHUB_TOKEN }}
           args: --all-features
-# TODO: add this back, but at the moment it requires +nightly to run which breaks from Solana deps
-#      - uses: actions-rs/cargo@v1
-#        with:
-#          command: install
-#          args: cargo-udeps --locked
-#      - name: cargo udeps
-#        uses: actions-rs/cargo@v1
-#        with:
-#          command: udeps
+      - uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: cargo-udeps --locked
+      - name: cargo udeps
+        uses: actions-rs/cargo@v1
+        with:
+          command: udeps
