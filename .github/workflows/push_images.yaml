@@ -25,4 +25,4 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_PWD }}
       - name: Push relayer image
-        run: docker push ${{ secrets.DOCKERHUB_ORG }}/jito-relayer:${{ inputs.TAG }}
+        run: docker push ${{ secrets.DOCKERHUB_ORG }}/jito-transaction-relayer:${{ inputs.TAG }}
