@@ -6,6 +6,8 @@ on:
         required: true
       DOCKERHUB_ORG:
         required: true
+      DEPLOYER_SSH_KEY:
+        required: true
     inputs:
       TAG:
         required: true
