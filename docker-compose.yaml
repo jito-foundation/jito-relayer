@@ -1,0 +1,30 @@
+# See ./b for running instructions
+version: "3.8"
+services:
+  transaction_relayer:
+    image: $ORG/jito-transaction-relayer:$TAG
+    container_name: jito-transaction-relayer
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: jito-transaction-relayer
+    environment:
+      - RUST_LOG=info
+      - TPU_BIND_IP=0.0.0.0
+      - TPU_PORT=$TPU_PORT
+      - TPU_FWD_PORT=$TPU_FWD_PORT
+      - TPU_QUIC_PORT=$TPU_QUIC_PORT
+      - TPU_QUIC_FWD_PORT=$TPU_QUIC_FWD_PORT
+      - GRPC_BIND_IP=0.0.0.0
+      - GRPC_BIND_PORT=$GRPC_BIND_PORT
+      - NUM_TPU_BINDS=32
+      - NUM_TPU_FWD_BINDS=16
+      - RPC_SERVERS=$RPC_SERVERS
+      - WEBSOCKET_SERVERS=$WEBSOCKET_SERVERS
+    restart: on-failure
+    ports:
+      - "$TPU_PORT:$TPU_PORT/udp"
+      - "$TPU_FWD_PORT:$TPU_FWD_PORT/udp"
+      - "$TPU_QUIC_PORT:$TPU_QUIC_PORT/udp"
+      - "$TPU_QUIC_FWD_PORT:$TPU_QUIC_FWD_PORT/udp"
+      - "$GRPC_BIND_PORT:$GRPC_BIND_PORT/tcp"

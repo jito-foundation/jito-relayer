@@ -1,0 +1,29 @@
+name: Pull Request
+on:
+  pull_request:
+
+jobs:
+  clean_code_check:
+    uses: ./.github/workflows/clean_code.yaml
+    secrets:
+      GHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+      DEPLOYER_SSH_KEY: ${{ secrets.DEPLOYER_SSH_KEY }}
+
+  build_images:
+    needs: clean_code_check
+    uses: ./.github/workflows/build.yaml
+    with:
+      TAG: ${{ github.sha }}
+    secrets:
+      ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+      DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
+      DEPLOYER_SSH_KEY: ${{ secrets.DEPLOYER_SSH_KEY }}
+
+  run_tests:
+    needs: build_images
+    uses: ./.github/workflows/test.yaml
+    secrets:
+      DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
+    with:
+      TAG: ${{ github.sha }}
