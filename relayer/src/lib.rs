@@ -2,4 +2,5 @@ mod manager;
 pub mod relayer;
 mod router;
 mod active_subscriptions;
-mod auth;
+pub mod auth;
+pub mod leader_schedule;

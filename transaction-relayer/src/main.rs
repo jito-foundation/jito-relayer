@@ -17,6 +17,9 @@ use solana_sdk::signature::{Keypair, Signer};
 use tokio::runtime::Builder;
 use tonic::transport::Server;
 
+use jito_relayer::leader_schedule::LeaderScheduleCache;
+use jito_relayer::auth::AuthenticationInterceptor;
+
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
@@ -157,14 +160,18 @@ fn main() {
         &rpc_load_balancer,
     );
 
+    let leader_cache = Arc::new(LeaderScheduleCache::new());
+
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();
     rt.block_on(async {
         let addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
         println!("Relayer listening on: {}", addr);
 
-        let relayer = Relayer::new(slot_receiver, packet_receiver, rpc_list, &exit);
+        let relayer = Relayer::new(slot_receiver, packet_receiver, leader_cache.clone(), &exit);
 
-        let svc = RelayerServiceServer::new(relayer);
+        let cache = leader_cache.clone();
+        let auth_interceptor = AuthenticationInterceptor { cache };
+        let svc = RelayerServiceServer::with_interceptor(relayer, auth_interceptor);
         Server::builder()
             .add_service(svc)
             .serve(addr)

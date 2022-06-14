@@ -21,48 +21,11 @@ use tokio::task::spawn_blocking;
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{Request, Response, Status};
 
-use crate::router::Router;
-use crate::{active_subscriptions::ActiveSubscriptions, auth::extract_pubkey};
+use crate::{active_subscriptions::ActiveSubscriptions, auth::{extract_pubkey,AuthenticationInterceptor}};
+use crate::leader_schedule::LeaderScheduleCache;
 
-// ToDo Implement this
-pub struct LeaderScheduleCache {
-    /// Maps slots to scheduled pubkey, used to index into the contact_infos map.
-    schedules: Arc<RwLock<HashMap<Slot, Pubkey>>>,
-    /// RPC Client
-    client: RpcClient,
-}
-
-impl LeaderScheduleCache {
-    // ToDo: Feed in rpc server address
-    pub fn new() -> LeaderScheduleCache {
-        LeaderScheduleCache {
-            schedules: Arc::new(RwLock::new(HashMap::new())),
-            client: RpcClient::new("http://localhost:8899".to_string())
-        }
-    }
-
-    pub fn update_leader_cache(&self) -> () {
-        let leader_schedule = self.client.get_leader_schedule(None).unwrap().unwrap();
-        let mut schedules = self.schedules.write().unwrap();
-
-        for (key, slots) in leader_schedule.iter() {
-            for slot in slots.iter() {
-                schedules.insert(*slot as Slot, key.parse().unwrap());
-            }
-        }
-    }
-
-    pub fn fetch_scheduled_validator(&self, slot: &Slot) -> Option<Pubkey> {
-        let schedules = self.schedules.read().unwrap();
-        let pk = schedules.get(slot).clone()?;
-        Some(*pk)
-
-    }
-
-}
 
 pub struct Relayer {
-    router: Router,
     active_subscriptions: Arc<ActiveSubscriptions>,
     client_disconnect_sender: Sender<Pubkey>,
     disconnects_hdl: JoinHandle<()>,
@@ -72,12 +35,10 @@ impl Relayer {
     pub fn new(
         slot_receiver: Receiver<Slot>,
         packet_receiver: Receiver<BankingPacketBatch>,
-        rpc_list: Vec<String>,
+        leader_sched: Arc<LeaderScheduleCache>,
         exit: &Arc<AtomicBool>,
     ) -> Relayer {
-        let router = Router::new(slot_receiver, packet_receiver, rpc_list);
-        // ToDo: New LeaderScheduleCache here from rpc
-        let active_subscriptions = Arc::new(ActiveSubscriptions::new(Arc::new(LeaderScheduleCache::new())));
+        let active_subscriptions = Arc::new(ActiveSubscriptions::new(leader_sched.clone()));
 
         //********* Broadcast Heartbeats ***************
         let active_subs = active_subscriptions.clone();
@@ -85,7 +46,7 @@ impl Relayer {
         spawn(move || {
             while !finished.load(Ordering::Relaxed) {
                 let failed_heartbeats = active_subs.send_heartbeat();
-                active_subscriptions.disconnect(&failed_heartbeats);
+                active_subs.disconnect(&failed_heartbeats);
 
                 std::thread::sleep(Duration::from_millis(500));
             }
@@ -98,7 +59,6 @@ impl Relayer {
             Self::handle_disconnects_loop(closed_disconnect_receiver, active_subscriptions.clone());
 
         Relayer {
-            router,
             active_subscriptions,
             client_disconnect_sender,
             disconnects_hdl
@@ -163,6 +123,7 @@ impl RelayerService for Relayer {
         req: Request<HeartbeatSubscriptionRequest>,
     ) -> Result<Response<Self::SubscribeHeartbeatStream>, Status> {
 
+        // ToDo: Fix this in auth.rs
         let pubkey = extract_pubkey(req.metadata())?;
         let (subscription_sender, mut subscription_receiver) = unbounded_channel();
 

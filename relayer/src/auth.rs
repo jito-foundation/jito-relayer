@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use ed25519_dalek::{PublicKey, Signature, Verifier};
-use jito_cache::{contact_info::PubkeyK, leader_schedule::cache::LeaderScheduleCache};
+// use jito_cache::{contact_info::PubkeyK, leader_schedule::cache::LeaderScheduleCache};
 use solana_sdk::pubkey::Pubkey;
 use tonic::{metadata::MetadataMap, service::Interceptor, Request, Status};
+use crate::leader_schedule::LeaderScheduleCache;
 
 #[derive(Clone)]
 pub struct AuthenticationInterceptor {
@@ -13,7 +14,7 @@ pub struct AuthenticationInterceptor {
 impl AuthenticationInterceptor {
     pub fn auth(
         req: &mut tonic::Request<()>,
-        cache: &Arc<LeaderScheduleCache>,
+        cache: Arc<LeaderScheduleCache>,
     ) -> Result<(), Status> {
         let meta = req.metadata();
         let pubkey = extract_signer_pubkey(meta)?;
@@ -26,7 +27,7 @@ impl AuthenticationInterceptor {
         let validator_pubkey = Pubkey::new(&pubkey.to_bytes());
 
         // TODO: is this called in async runtime?
-        if !cache.is_validator_scheduled(&PubkeyK(validator_pubkey)) {
+        if !cache.is_validator_scheduled(validator_pubkey) {
             return Err(Status::permission_denied(
                 "not a validator scheduled for this epoch",
             ));
@@ -68,7 +69,7 @@ impl Interceptor for AuthenticationInterceptor {
         &mut self,
         mut request: tonic::Request<()>,
     ) -> std::result::Result<Request<()>, Status> {
-        Self::auth(&mut request, &self.cache)?;
+        Self::auth(&mut request, self.cache.clone())?;
         Ok(request)
     }
 }
