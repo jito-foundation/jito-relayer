@@ -37,6 +37,17 @@ impl Relayer {
         let router = Router::new(slot_receiver, packet_receiver, rpc_list);
         // ToDo: New LeaderScheduleCache here from rpc
         let active_subscriptions = Arc::new(ActiveSubscriptions::new(Arc::new(LeaderScheduleCache {})));
+        // Broadcast Heartbeats
+        let active_subs = active_subscriptions.clone();
+        spawn(move || {
+            // ToDo: add proper exit here
+            loop {
+                let failed_heartbeats = active_subs.send_heartbeat();
+                active_subscriptions.disconnect(&failed_heartbeats);
+
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        });
 
         let (client_disconnect_sender, closed_disconnect_receiver) = unbounded();
         let disconnects_hdl =
@@ -101,6 +112,7 @@ impl<T> Drop for ValidatorSubscriberStream<T> {
 #[tonic::async_trait]
 impl RelayerService for Relayer {
 
+    // type HeartbeatSender = UnboundedSender<Result<HeartbeatResponse, Status>>
     type SubscribeHeartbeatStream = ValidatorSubscriberStream<HeartbeatResponse>;
 
     async fn subscribe_heartbeat(
