@@ -136,6 +136,8 @@ fn main() {
     );
     assert!(args.rpc_servers.len() >= 1, "num rpc servers >= 1");
 
+    let rpc_list = args.rpc_servers.clone();
+
     let servers: Vec<(String, String)> = args
         .rpc_servers
         .into_iter()
@@ -160,7 +162,7 @@ fn main() {
         let addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
         println!("Relayer listening on: {}", addr);
 
-        let relayer = Relayer::new(slot_receiver, packet_receiver);
+        let relayer = Relayer::new(slot_receiver, packet_receiver, rpc_list);
 
         let svc = RelayerServiceServer::new(relayer);
         Server::builder()

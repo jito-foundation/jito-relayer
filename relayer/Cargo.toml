@@ -10,7 +10,9 @@ publish = false
 [dependencies]
 crossbeam-channel = "0.5.4"
 jito-protos = { path = "../jito-protos" }
+jito-rpc = { path = "../rpc" }
 log = "0.4.17"
+prost-types = "0.10.1"
 solana-sdk = "1.10.24"
 solana-client = "1.10.24"
 solana-core = "1.10.24"
