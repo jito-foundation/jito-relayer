@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use std::task::{Context, Poll};
 use std::thread::{JoinHandle, spawn};
@@ -10,6 +12,7 @@ use jito_protos::relayer::{
     PacketSubscriptionRequest, PacketSubscriptionResponse,
 };
 use log::{debug, error, info, warn};
+use solana_client::rpc_client::RpcClient;
 use solana_core::banking_stage::BankingPacketBatch;
 use solana_sdk::clock::Slot;
 use solana_sdk::pubkey::Pubkey;
@@ -19,7 +22,44 @@ use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{Request, Response, Status};
 
 use crate::router::Router;
-use crate::{active_subscriptions::{ActiveSubscriptions, LeaderScheduleCache}, auth::extract_pubkey};
+use crate::{active_subscriptions::ActiveSubscriptions, auth::extract_pubkey};
+
+// ToDo Implement this
+pub struct LeaderScheduleCache {
+    /// Maps slots to scheduled pubkey, used to index into the contact_infos map.
+    schedules: Arc<RwLock<HashMap<Slot, Pubkey>>>,
+    /// RPC Client
+    client: RpcClient,
+}
+
+impl LeaderScheduleCache {
+    // ToDo: Feed in rpc server address
+    pub fn new() -> LeaderScheduleCache {
+        LeaderScheduleCache {
+            schedules: Arc::new(RwLock::new(HashMap::new())),
+            client: RpcClient::new("http://localhost:8899".to_string())
+        }
+    }
+
+    pub fn update_leader_cache(&self) -> () {
+        let leader_schedule = self.client.get_leader_schedule(None).unwrap().unwrap();
+        let mut schedules = self.schedules.write().unwrap();
+
+        for (key, slots) in leader_schedule.iter() {
+            for slot in slots.iter() {
+                schedules.insert(*slot as Slot, key.parse().unwrap());
+            }
+        }
+    }
+
+    pub fn fetch_scheduled_validator(&self, slot: &Slot) -> Option<Pubkey> {
+        let schedules = self.schedules.read().unwrap();
+        let pk = schedules.get(slot).clone()?;
+        Some(*pk)
+
+    }
+
+}
 
 pub struct Relayer {
     router: Router,
@@ -33,21 +73,25 @@ impl Relayer {
         slot_receiver: Receiver<Slot>,
         packet_receiver: Receiver<BankingPacketBatch>,
         rpc_list: Vec<String>,
+        exit: &Arc<AtomicBool>,
     ) -> Relayer {
         let router = Router::new(slot_receiver, packet_receiver, rpc_list);
         // ToDo: New LeaderScheduleCache here from rpc
-        let active_subscriptions = Arc::new(ActiveSubscriptions::new(Arc::new(LeaderScheduleCache {})));
-        // Broadcast Heartbeats
+        let active_subscriptions = Arc::new(ActiveSubscriptions::new(Arc::new(LeaderScheduleCache::new())));
+
+        //********* Broadcast Heartbeats ***************
         let active_subs = active_subscriptions.clone();
+        let finished = exit.clone();
         spawn(move || {
-            // ToDo: add proper exit here
-            loop {
+            while !finished.load(Ordering::Relaxed) {
                 let failed_heartbeats = active_subs.send_heartbeat();
                 active_subscriptions.disconnect(&failed_heartbeats);
 
                 std::thread::sleep(Duration::from_millis(500));
             }
         });
+        //************************************************
+
 
         let (client_disconnect_sender, closed_disconnect_receiver) = unbounded();
         let disconnects_hdl =
@@ -112,7 +156,6 @@ impl<T> Drop for ValidatorSubscriberStream<T> {
 #[tonic::async_trait]
 impl RelayerService for Relayer {
 
-    // type HeartbeatSender = UnboundedSender<Result<HeartbeatResponse, Status>>
     type SubscribeHeartbeatStream = ValidatorSubscriberStream<HeartbeatResponse>;
 
     async fn subscribe_heartbeat(
@@ -134,7 +177,7 @@ impl RelayerService for Relayer {
             return Err(Status::resource_exhausted("user already connected"));
         }
 
-        let (client_sender, client_receiver) = channel(1_000_000);
+        let (client_sender, client_receiver) = channel(10);
         tokio::spawn(async move {
             info!("validator connected [pubkey={:?}]", pubkey);
             loop {
@@ -162,18 +205,6 @@ impl RelayerService for Relayer {
             client_pubkey: pubkey,
         }))
 
-
-        // let (sender, receiver) = channel(2);
-        //
-        //
-        // tokio::spawn(async move {
-        //     if let Err(e) = sender.send(Ok(HeartbeatResponse::default())).await {
-        //         error!("subscribe_heartbeat error sending response: {:?}", e);
-        //     }
-        //     sleep(Duration::from_millis(500)).await;
-        // });
-        //
-        // Ok(Response::new(ReceiverStream::new(receiver)))
     }
 
     type SubscribePacketsStream = ValidatorSubscriberStream<PacketSubscriptionResponse>;
@@ -200,6 +231,9 @@ impl RelayerService for Relayer {
             return Err(Status::resource_exhausted("user already connected"));
         }
 
+        // Jed Note: Replace this with shared hashmap of senders
+        // see tokio shared state documentation
+
         let (client_sender, client_receiver) = channel(1_000_000);
         tokio::spawn(async move {
             info!("validator connected [pubkey={:?}]", pubkey);
@@ -228,22 +262,5 @@ impl RelayerService for Relayer {
             client_pubkey: pubkey,
         }))
 
-
-        // let (sender, receiver) = channel(100);
-        //
-        //
-        // // Jed Note: Replace this with shared hashmap of senders
-        // // see tokio
-        //
-        //
-        //
-        // tokio::spawn(async move {
-        //     if let Err(e) = sender.send(Ok(PacketSubscriptionResponse::default())).await {
-        //         error!("subscribe_packets error sending response: {:?}", e);
-        //     }
-        //     sleep(Duration::from_millis(500)).await;
-        // });
-        //
-        // Ok(Response::new(ReceiverStream::new(receiver)))
     }
 }

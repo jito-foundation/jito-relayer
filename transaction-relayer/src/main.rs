@@ -162,7 +162,7 @@ fn main() {
         let addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
         println!("Relayer listening on: {}", addr);
 
-        let relayer = Relayer::new(slot_receiver, packet_receiver, rpc_list);
+        let relayer = Relayer::new(slot_receiver, packet_receiver, rpc_list, &exit);
 
         let svc = RelayerServiceServer::new(relayer);
         Server::builder()

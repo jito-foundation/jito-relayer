@@ -26,13 +26,13 @@ use solana_sdk::{
 use tokio::sync::mpsc::{UnboundedSender};
 use tonic::Status;
 use prost_types::Timestamp;
-use tonic::transport::Channel;
+// use tonic::transport::Channel;
+use crate::relayer::LeaderScheduleCache;
 
 type PacketsResultSender = UnboundedSender<Result<PacketSubscriptionResponse, Status>>;
 type HeartbeatSender = UnboundedSender<Result<HeartbeatResponse, Status>>;
 
-// ToDo Implement this
-pub struct LeaderScheduleCache {}
+
 
 /// [ActiveSubscriptions] keeps track of data pipes b/w validators and the [ValidatorInterfaceService].
 /// Responsible for sending packets over TCP to connected validators and over UDP to validators not connected.
@@ -239,10 +239,9 @@ impl ActiveSubscriptions {
         let n_leader_slots = NUM_CONSECUTIVE_LEADER_SLOTS as usize;
         let mut validators_to_send = HashMap::new();
         for slot in (start_slot..end_slot).step_by(n_leader_slots) {
-// ToDo: Implement fetch scheduled validator
-            // if let Some(validator) = leader_schedule_cache.fetch_scheduled_validator(&slot) {
-            //     validators_to_send.insert(validator.pubkey, slot);
-            // }
+            if let Some(pubkey) = leader_schedule_cache.fetch_scheduled_validator(&slot) {
+                validators_to_send.insert(pubkey, slot);
+            }
         }
 
         validators_to_send
