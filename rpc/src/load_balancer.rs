@@ -9,9 +9,9 @@ use std::{
     time::Duration,
 };
 
-use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
+use crossbeam_channel::{unbounded, Receiver, /*RecvTimeoutError,*/ Sender};
 use log::{error, info};
-use solana_client::{pubsub_client::PubsubClient, rpc_client::RpcClient};
+use solana_client::{/*pubsub_client::PubsubClient,*/ rpc_client::RpcClient};
 use solana_sdk::{
     clock::Slot,
     commitment_config::{CommitmentConfig, CommitmentLevel},
@@ -141,7 +141,6 @@ impl LoadBalancer {
                                             .unwrap()
                                             .insert(websocket_url.clone(), 0);
 
-                            let mut highest_slot_l = highest_slot.lock().unwrap();
                             if let Err(e) = slot_sender.send(0)
                             {
                                 error!("error sending slot: {}", e);
