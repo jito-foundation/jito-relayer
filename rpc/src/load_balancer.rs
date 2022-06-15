@@ -142,15 +142,11 @@ impl LoadBalancer {
                                             .insert(websocket_url.clone(), 0);
 
                             let mut highest_slot_l = highest_slot.lock().unwrap();
-                            if 0 > *highest_slot_l {
-                                *highest_slot_l = 0;
-                                if let Err(e) = slot_sender.send(0)
-                                {
-                                    error!("error sending slot: {}", e);
-                                    break;
-                                }
+                            if let Err(e) = slot_sender.send(0)
+                            {
+                                error!("error sending slot: {}", e);
+                                break;
                             }
-
                             sleep(Duration::from_secs(1));
                         }
                     })
