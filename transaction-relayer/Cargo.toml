@@ -15,7 +15,7 @@ log = "0.4.14"
 itertools = "0.10.3"
 jito-core = { path = "../core" }
 jito-protos = { path = "../jito-protos" }
-jito-rpc = { path = "../rpc" }
+#jito-rpc = { path = "../rpc" }
 jito-relayer = { path = "../relayer" }
 solana-metrics = "1.10.24"
 solana-net-utils = "1.10.24"
