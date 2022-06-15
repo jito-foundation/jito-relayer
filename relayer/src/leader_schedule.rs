@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use ed25519_dalek::PublicKey;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::clock::Slot;
 use solana_sdk::pubkey::Pubkey;
@@ -15,10 +14,10 @@ pub struct LeaderScheduleCache {
 
 impl LeaderScheduleCache {
     // ToDo: Feed in rpc server address
-    pub fn new() -> LeaderScheduleCache {
+    pub fn new(rpc_list: &Vec<String>) -> LeaderScheduleCache {
         LeaderScheduleCache {
             schedules: Arc::new(RwLock::new(HashMap::new())),
-            client: RpcClient::new("http://localhost:8899".to_string())
+            client: RpcClient::new(&rpc_list[0])
         }
     }
 
@@ -40,7 +39,7 @@ impl LeaderScheduleCache {
         Some(*pk)
     }
 
-    pub fn is_validator_scheduled(&self, pk: Pubkey) -> bool {
+    pub fn is_validator_scheduled(&self, _pk: Pubkey) -> bool {
         // ToDo: Implement this
         true
     }

@@ -60,11 +60,11 @@ struct Args {
     num_tpu_fwd_binds: usize,
 
     /// RPC server list
-    #[clap(long, env)]
+    #[clap(long, env, default_value = "https://api.mainnet-beta.solana.com/")]
     rpc_servers: Vec<String>,
 
     /// Websocket server list
-    #[clap(long, env)]
+    #[clap(long, env, default_value = "https://api.mainnet-beta.solana.com/")]
     websocket_servers: Vec<String>,
 }
 
@@ -139,7 +139,7 @@ fn main() {
     );
     assert!(args.rpc_servers.len() >= 1, "num rpc servers >= 1");
 
-    let rpc_list = args.rpc_servers.clone();
+    let leader_cache = Arc::new(LeaderScheduleCache::new(&args.rpc_servers));
 
     let servers: Vec<(String, String)> = args
         .rpc_servers
@@ -160,14 +160,13 @@ fn main() {
         &rpc_load_balancer,
     );
 
-    let leader_cache = Arc::new(LeaderScheduleCache::new());
 
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();
     rt.block_on(async {
         let addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
         println!("Relayer listening on: {}", addr);
 
-        let relayer = Relayer::new(slot_receiver, packet_receiver, leader_cache.clone(), &exit);
+        let relayer = Relayer::new(slot_receiver, packet_receiver, &leader_cache, &exit);
 
         let cache = leader_cache.clone();
         let auth_interceptor = AuthenticationInterceptor { cache };

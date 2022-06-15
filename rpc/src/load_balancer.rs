@@ -91,48 +91,63 @@ impl LoadBalancer {
                         while !exit.load(Ordering::Relaxed) {
                             info!("slot subscribing to url: {}", websocket_url);
 
-                            match PubsubClient::slot_subscribe(&websocket_url) {
-                                Ok(subscription) => {
-                                    while !exit.load(Ordering::Relaxed) {
-                                        match subscription
-                                            .1
-                                            .recv_timeout(Duration::from_millis(100))
-                                        {
-                                            Ok(slot) => {
-                                                info!("url: {} slot: {:?}", websocket_url, slot);
-                                                server_to_slot
-                                                    .lock()
-                                                    .unwrap()
-                                                    .insert(websocket_url.clone(), slot.slot);
-                                                {
-                                                    let mut highest_slot_l =
-                                                        highest_slot.lock().unwrap();
-                                                    if slot.slot > *highest_slot_l {
-                                                        *highest_slot_l = slot.slot;
-                                                        if let Err(e) = slot_sender.send(slot.slot)
-                                                        {
-                                                            error!("error sending slot: {}", e);
-                                                            break;
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            Err(RecvTimeoutError::Timeout) => {}
-                                            Err(RecvTimeoutError::Disconnected) => {
-                                                info!(
-                                                    "slot subscribe disconnected url: {}",
-                                                    websocket_url
-                                                );
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    error!(
-                                        "slot subscription error client: {}, error: {}",
-                                        websocket_url, e
-                                    );
+                            // match PubsubClient::slot_subscribe(&websocket_url) {
+                            //     Ok(subscription) => {
+                            //         while !exit.load(Ordering::Relaxed) {
+                            //             match subscription
+                            //                 .1
+                            //                 .recv_timeout(Duration::from_millis(100))
+                            //             {
+                            //                 Ok(slot) => {
+                            //                     info!("url: {} slot: {:?}", websocket_url, slot);
+                            //                     server_to_slot
+                            //                         .lock()
+                            //                         .unwrap()
+                            //                         .insert(websocket_url.clone(), slot.slot);
+                            //                     {
+                            //                         let mut highest_slot_l =
+                            //                             highest_slot.lock().unwrap();
+                            //                         if slot.slot > *highest_slot_l {
+                            //                             *highest_slot_l = slot.slot;
+                            //                             if let Err(e) = slot_sender.send(slot.slot)
+                            //                             {
+                            //                                 error!("error sending slot: {}", e);
+                            //                                 break;
+                            //                             }
+                            //                         }
+                            //                     }
+                            //                 }
+                            //                 Err(RecvTimeoutError::Timeout) => {}
+                            //                 Err(RecvTimeoutError::Disconnected) => {
+                            //                     info!(
+                            //                         "slot subscribe disconnected url: {}",
+                            //                         websocket_url
+                            //                     );
+                            //                     break;
+                            //                 }
+                            //             }
+                            //         }
+                            //     }
+                            //     Err(e) => {
+                            //         error!(
+                            //             "slot subscription error client: {}, error: {}",
+                            //             websocket_url, e
+                            //         );
+                            //     }
+                            // }
+
+                            // ***** Mock code for testing with no websocket *****
+                            server_to_slot.lock()
+                                            .unwrap()
+                                            .insert(websocket_url.clone(), 0);
+
+                            let mut highest_slot_l = highest_slot.lock().unwrap();
+                            if 0 > *highest_slot_l {
+                                *highest_slot_l = 0;
+                                if let Err(e) = slot_sender.send(0)
+                                {
+                                    error!("error sending slot: {}", e);
+                                    break;
                                 }
                             }
 

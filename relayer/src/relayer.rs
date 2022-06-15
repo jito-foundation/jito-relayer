@@ -6,18 +6,17 @@ use std::task::{Context, Poll};
 use std::thread::{JoinHandle, spawn};
 
 use crossbeam_channel::{unbounded, Receiver, Sender, select};
-use jito_protos::relayer::{
-    relayer_service_server::RelayerService, HeartbeatResponse, HeartbeatSubscriptionRequest,
-    PacketSubscriptionRequest, PacketSubscriptionResponse,
-};
-use jito_protos::packet::{Meta as PbMeta, Packet as PbPacket, PacketBatch as PbPacketBatch, PacketFlags as PbPacketFlags,
+use jito_protos::{
+    relayer::{relayer_service_server::RelayerService, HeartbeatResponse, HeartbeatSubscriptionRequest,
+                PacketSubscriptionRequest, PacketSubscriptionResponse},
+    packet::{Meta as PbMeta, Packet as PbPacket, PacketBatch as PbPacketBatch, PacketFlags as PbPacketFlags,}
 };
 
 use log::{debug, error, info, warn};
 use solana_core::banking_stage::BankingPacketBatch;
 use solana_sdk::clock::{Slot, NUM_CONSECUTIVE_LEADER_SLOTS};
 use solana_sdk::pubkey::Pubkey;
-use tokio::{sync::mpsc::{channel, unbounded_channel}, time::sleep};
+use tokio::{sync::mpsc::{channel, unbounded_channel}};
 use tokio::task::spawn_blocking;
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{Request, Response, Status};
@@ -38,14 +37,13 @@ impl Relayer {
     pub fn new(
         slot_receiver: Receiver<Slot>,
         packet_receiver: Receiver<BankingPacketBatch>,
-        leader_sched: Arc<LeaderScheduleCache>,
+        leader_sched: &Arc<LeaderScheduleCache>,
         exit: &Arc<AtomicBool>,
     ) -> Relayer {
         let active_subscriptions = Arc::new(ActiveSubscriptions::new(leader_sched.clone()));
 
         let hb_hdl = Self::broadcast_heartbeats(&active_subscriptions, exit);
 
-        // ToDo: Pipe this sender where it needs to go for signalling disconnect
         let (client_disconnect_sender, closed_disconnect_receiver) = unbounded();
         let disconnects_hdl =
             Self::handle_disconnects_loop(closed_disconnect_receiver, &active_subscriptions);
@@ -156,7 +154,8 @@ impl Relayer {
                                 let end_slot =
                                     current_slot + (NUM_CONSECUTIVE_LEADER_SLOTS * look_ahead);
 
-                                let (failed_stream_pks, slots_sent) = active_subs
+                                // ToDo:  What to do with these?
+                                let (_failed_stream_pks, _slots_sent) = active_subs
                                     .stream_batch_list(proto_batch_vec, start_slot, end_slot);
                             }
 
@@ -178,6 +177,7 @@ impl Relayer {
         active_subscriptions: &Arc<ActiveSubscriptions>,
     ) -> JoinHandle<()> {
         let active_subs = active_subscriptions.clone();
+        // ToDo: Perf - this seems suspect
         spawn(move || loop {
             match rx.recv() {
                 Ok(pk) => {

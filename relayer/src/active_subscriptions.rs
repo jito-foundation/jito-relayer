@@ -106,7 +106,7 @@ impl ActiveSubscriptions {
         for (pk, subscription) in iter {
             let slot_to_send = validators_to_send.get(pk);
             if let Some(slot) = slot_to_send {
-                if let Err(e) = subscription.tx.send(Ok(
+                if let Err(_e) = subscription.tx.send(Ok(
                     PacketSubscriptionResponse {
                         batch_list: Some(
                             PbPacketBatchList {
