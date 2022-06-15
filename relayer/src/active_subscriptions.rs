@@ -2,24 +2,16 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, RwLock},
 };
-use std::thread::spawn;
 use std::time::SystemTime;
 
-// use jito_cache::leader_schedule::cache::LeaderScheduleCache;
 use jito_protos::{
     shared::Header,
-    packet::{PacketBatchList as PbPacketBatchList, Packet as PbPacket},
+    packet::{PacketBatchList as PbPacketBatchList, PacketBatch as PbPacketBatch},
     relayer::{
-        HeartbeatResponse, HeartbeatSubscriptionRequest,
-        PacketSubscriptionRequest, PacketSubscriptionResponse,
-    }    // validator_interface::{
-    //     subscribe_packets_response::Msg::{BatchList, Heartbeat},
-    //     SubscribeBundlesResponse, SubscribePacketsResponse,
-    // },
+        HeartbeatResponse, PacketSubscriptionResponse,
+    }
 };
-
 use log::*;
-// use solana_metrics::{datapoint_info, datapoint_warn};
 use solana_sdk::{
     clock::{Slot, NUM_CONSECUTIVE_LEADER_SLOTS},
     pubkey::Pubkey,
@@ -27,8 +19,6 @@ use solana_sdk::{
 use tokio::sync::mpsc::{UnboundedSender};
 use tonic::Status;
 use prost_types::Timestamp;
-use solana_core::banking_stage::BankingPacketBatch;
-// use tonic::transport::Channel;
 use crate::leader_schedule::LeaderScheduleCache;
 
 type PacketsResultSender = UnboundedSender<Result<PacketSubscriptionResponse, Status>>;
@@ -98,7 +88,7 @@ impl ActiveSubscriptions {
     ///     tuple.1 = a set of slots that were streamed for
     pub fn stream_batch_list(
         &self,
-        batch_list: Vec<PbPacket>,
+        batch_list_in: Vec<PbPacketBatch>,
         start_slot: Slot,
         end_slot: Slot,
     ) -> (Vec<Pubkey>, HashSet<Slot>) {
@@ -116,14 +106,16 @@ impl ActiveSubscriptions {
         for (pk, subscription) in iter {
             let slot_to_send = validators_to_send.get(pk);
             if let Some(slot) = slot_to_send {
-                if let Err(e) = subscription.tx.send(Ok(PacketSubscriptionResponse {
-                    batch_list: Some(
-                        PbPacketBatchList {
-                            header: Some(Header {
-                                ts: Some(Timestamp::from(SystemTime::now())),
+                if let Err(e) = subscription.tx.send(Ok(
+                    PacketSubscriptionResponse {
+                        batch_list: Some(
+                            PbPacketBatchList {
+                                header: Some(Header {
+                                    ts: Some(Timestamp::from(SystemTime::now())),
+                                }),
+                                // ToDo: Perf - Clone here?
+                                batch_list: batch_list_in.clone(),
                             }),
-                            batch_list: batch_list.clone(),
-                        }),
                 })) {
                     // datapoint_warn!(
                     //     "validator_interface_stream_batch_list",
