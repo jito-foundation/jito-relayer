@@ -3,6 +3,6 @@ members = [
     "core",
     "jito-protos",
     "transaction-relayer",
-    "rpc",
+#    "rpc",
     "relayer"
 ]
