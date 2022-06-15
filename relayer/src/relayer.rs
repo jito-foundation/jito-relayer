@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::net::{SocketAddr, UdpSocket};
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -6,11 +7,15 @@ use std::time::Duration;
 use std::task::{Context, Poll};
 use std::thread::{JoinHandle, spawn};
 
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{unbounded, Receiver, Sender, select};
 use jito_protos::relayer::{
     relayer_service_server::RelayerService, HeartbeatResponse, HeartbeatSubscriptionRequest,
     PacketSubscriptionRequest, PacketSubscriptionResponse,
 };
+use jito_protos::packet::{Meta as PbMeta, Packet as PbPacket, PacketFlags as PbPacketFlags,
+                              PacketBatchWrapper,
+};
+
 use log::{debug, error, info, warn};
 use solana_client::rpc_client::RpcClient;
 use solana_core::banking_stage::BankingPacketBatch;
@@ -29,6 +34,7 @@ pub struct Relayer {
     active_subscriptions: Arc<ActiveSubscriptions>,
     client_disconnect_sender: Sender<Pubkey>,
     disconnects_hdl: JoinHandle<()>,
+    hb_hdl: JoinHandle<()>,
 }
 
 impl Relayer {
@@ -40,8 +46,37 @@ impl Relayer {
     ) -> Relayer {
         let active_subscriptions = Arc::new(ActiveSubscriptions::new(leader_sched.clone()));
 
-        //********* Broadcast Heartbeats ***************
-        let active_subs = active_subscriptions.clone();
+        let hb_hdl = Self::broadcast_heartbeats(active_subscriptions.clone(), exit);
+
+        let (client_disconnect_sender, closed_disconnect_receiver) = unbounded();
+        let disconnects_hdl =
+            Self::handle_disconnects_loop(closed_disconnect_receiver, active_subscriptions.clone());
+
+        let pkt_hdl = {
+            spawn(move || {
+                Self::packets_receiver_loop(
+                    packet_receiver,
+                    slot_receiver,
+                    active_subscriptions.clone(),
+                    leader_sched.clone(),
+                    3, // Default look_ahead
+                    0, // Default look_behind
+                )
+            })};
+
+        Relayer {
+            active_subscriptions,
+            client_disconnect_sender,
+            disconnects_hdl,
+            hb_hdl
+        }
+    }
+
+    pub fn broadcast_heartbeats(
+        active_subs: Arc<ActiveSubscriptions>,
+        exit: &Arc<AtomicBool>
+    ) -> JoinHandle<()> {
+
         let finished = exit.clone();
         spawn(move || {
             while !finished.load(Ordering::Relaxed) {
@@ -50,23 +85,87 @@ impl Relayer {
 
                 std::thread::sleep(Duration::from_millis(500));
             }
-        });
-        //************************************************
+        })
+    }
+
+    /// Receive packet batches via Receiver and stream them out over UDP or TCP to nodes.
+    #[allow(clippy::too_many_arguments)]
+    fn packets_receiver_loop(
+        packets_rx: Receiver<BankingPacketBatch>,
+        slots_rx: Receiver<Slot>,
+        active_subscriptions: Arc<ActiveSubscriptions>,
+        leader_schedule_cache: Arc<LeaderScheduleCache>,
+        // num leaders ahead to send packets to
+        look_ahead: u64,
+        // num leaders behind to send packets to
+        look_behind: u64,
+    ) {
+        let mut current_slot: Slot = 0;
+
+        loop {
+            // match rx.recv() {
+            //     Ok(pk) => {
+            //         debug!("client [pk={}] disconnected", pk);
+            //         active_subscriptions.disconnect(&[pk]);
+            //     }
+            //     Err(_) => {
+            //         warn!("closed connection channel disconnected");
+            //         break;
+            //     }
+            // }
+            match slots_rx.recv() {
+                Ok(slot) => {
+                    current_slot = slot;
+                        }
+                Err(_) => {
+                    error!("error receiving slot");
+                    break;
+                    }
+                }
+
+            match packets_rx.recv() {
+                Ok(bp_batch) => {
+                    let batches = bp_batch.0;
+
+                    let pb_packets = batches.into_iter().map(|b| {
+                        b.iter()
+                            .filter_map(|p| {
+                                (!p.meta.discard()).then(|| PbPacket {
+                                    data: p.data[0..p.meta.size].to_vec(),
+                                    meta: Some(PbMeta {
+                                        size: p.meta.size as u64,
+                                        addr: p.meta.addr.to_string(),
+                                        port: p.meta.port as u32,
+                                        flags: Some(PbPacketFlags {
+                                            discard: p.meta.discard(),
+                                            forwarded: p.meta.forwarded(),
+                                            repair: p.meta.repair(),
+                                            simple_vote_tx: p.meta.is_simple_vote_tx(),
+                                            // tracer_tx: p.meta.is_tracer_tx(),  // Couldn't get this to work?
+                                            tracer_tx: false,
+                                        }),
+                                    }),
+                                })
+                            })
+                    }).collect::<Vec<PbPacket>>();
 
 
-        let (client_disconnect_sender, closed_disconnect_receiver) = unbounded();
-        let disconnects_hdl =
-            Self::handle_disconnects_loop(closed_disconnect_receiver, active_subscriptions.clone());
 
-        Relayer {
-            active_subscriptions,
-            client_disconnect_sender,
-            disconnects_hdl
+                    let (failed_stream_pks, slots_sent) = active_subscriptions
+                        .stream_batch_list(&pb_packets, start_slot, end_slot);
+                }
+                Err(_) => {
+                    error!("error receiving slot");
+                    break;
+                }
+            }
         }
     }
 
+
     pub fn join(self) {
         self.disconnects_hdl.join().expect("task panicked");
+        self.hb_hdl.join().expect("task panicked");
     }
 
     // listen for client disconnects and remove from subscriptions map
@@ -123,7 +222,6 @@ impl RelayerService for Relayer {
         req: Request<HeartbeatSubscriptionRequest>,
     ) -> Result<Response<Self::SubscribeHeartbeatStream>, Status> {
 
-        // ToDo: Fix this in auth.rs
         let pubkey = extract_pubkey(req.metadata())?;
         let (subscription_sender, mut subscription_receiver) = unbounded_channel();
 
@@ -175,10 +273,7 @@ impl RelayerService for Relayer {
         req: Request<PacketSubscriptionRequest>,
     ) -> Result<Response<Self::SubscribePacketsStream>, Status> {
 
-        let pubkey = *req
-            .extensions()
-            .get::<Pubkey>()
-            .ok_or_else(|| Status::internal("pubkey error"))?;
+        let pubkey = extract_pubkey(req.metadata())?;
         let (subscription_sender, mut subscription_receiver) = unbounded_channel();
 
         let active_subs = self.active_subscriptions.clone();

@@ -8,7 +8,7 @@ use std::time::SystemTime;
 // use jito_cache::leader_schedule::cache::LeaderScheduleCache;
 use jito_protos::{
     shared::Header,
-    packet::{PacketBatchList as PbPacketBatchList},
+    packet::{PacketBatchList as PbPacketBatchList, Packet as PbPacket},
     relayer::{
         HeartbeatResponse, HeartbeatSubscriptionRequest,
         PacketSubscriptionRequest, PacketSubscriptionResponse,
@@ -17,6 +17,7 @@ use jito_protos::{
     //     SubscribeBundlesResponse, SubscribePacketsResponse,
     // },
 };
+
 use log::*;
 // use solana_metrics::{datapoint_info, datapoint_warn};
 use solana_sdk::{
@@ -26,6 +27,7 @@ use solana_sdk::{
 use tokio::sync::mpsc::{UnboundedSender};
 use tonic::Status;
 use prost_types::Timestamp;
+use solana_core::banking_stage::BankingPacketBatch;
 // use tonic::transport::Channel;
 use crate::leader_schedule::LeaderScheduleCache;
 
@@ -96,7 +98,7 @@ impl ActiveSubscriptions {
     ///     tuple.1 = a set of slots that were streamed for
     pub fn stream_batch_list(
         &self,
-        batch_list: &PbPacketBatchList,
+        batch_list: Vec<PbPacket>,
         start_slot: Slot,
         end_slot: Slot,
     ) -> (Vec<Pubkey>, HashSet<Slot>) {
@@ -120,7 +122,7 @@ impl ActiveSubscriptions {
                             header: Some(Header {
                                 ts: Some(Timestamp::from(SystemTime::now())),
                             }),
-                            batch_list: batch_list.batch_list.clone(),
+                            batch_list: batch_list.clone(),
                         }),
                 })) {
                     // datapoint_warn!(
