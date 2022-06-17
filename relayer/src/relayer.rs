@@ -6,9 +6,10 @@ use std::{
 
 use crossbeam_channel::Receiver;
 use jito_protos::validator_interface_service::{
-    validator_interface_server::ValidatorInterface, GetTpuConfigsRequest, GetTpuConfigsResponse,
-    SubscribeBundlesRequest, SubscribeBundlesResponse, SubscribePacketsRequest,
-    SubscribePacketsResponse,
+    subscribe_packets_response::Msg::{BatchList, Heartbeat},
+    validator_interface_server::ValidatorInterface,
+    GetTpuConfigsRequest, GetTpuConfigsResponse, SubscribeBundlesRequest, SubscribeBundlesResponse,
+    SubscribePacketsRequest, SubscribePacketsResponse,
 };
 use log::error;
 use solana_core::banking_stage::BankingPacketBatch;
@@ -81,8 +82,14 @@ impl ValidatorInterface for Relayer {
     ) -> Result<Response<Self::SubscribePacketsStream>, Status> {
         let (sender, receiver) = channel(100);
 
+        // Send Heartbeats
         tokio::spawn(async move {
-            if let Err(e) = sender.send(Ok(SubscribePacketsResponse::default())).await {
+            if let Err(e) = sender
+                .send(Ok(SubscribePacketsResponse {
+                    msg: Some(Heartbeat(true)),
+                }))
+                .await
+            {
                 error!("subscribe_packets error sending response: {:?}", e);
             }
             sleep(Duration::from_millis(500)).await;
