@@ -1,15 +1,20 @@
-use std::time::Duration;
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+    time::Duration,
+};
 
 use crossbeam_channel::Receiver;
-use jito_protos::relayer::{
-    relayer_service_server::RelayerService, HeartbeatResponse, HeartbeatSubscriptionRequest,
-    PacketSubscriptionRequest, PacketSubscriptionResponse,
+use jito_protos::validator_interface_service::{
+    validator_interface_server::ValidatorInterface, GetTpuConfigsRequest, GetTpuConfigsResponse,
+    SubscribeBundlesRequest, SubscribeBundlesResponse, SubscribePacketsRequest,
+    SubscribePacketsResponse,
 };
 use log::error;
 use solana_core::banking_stage::BankingPacketBatch;
 use solana_sdk::clock::Slot;
 use tokio::{sync::mpsc::channel, time::sleep};
-use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{Request, Response, Status};
 
 use crate::router::Router;
@@ -28,41 +33,63 @@ impl Relayer {
     }
 }
 
-#[tonic::async_trait]
-impl RelayerService for Relayer {
-    type SubscribeHeartbeatStream = ReceiverStream<Result<HeartbeatResponse, Status>>;
+pub struct ValidatorSubscriberStream<T> {
+    inner: ReceiverStream<Result<T, Status>>,
+}
 
-    async fn subscribe_heartbeat(
-        &self,
-        _request: Request<HeartbeatSubscriptionRequest>,
-    ) -> Result<Response<Self::SubscribeHeartbeatStream>, Status> {
-        let (sender, receiver) = channel(2);
+impl<T> Stream for ValidatorSubscriberStream<T> {
+    type Item = Result<T, Status>;
 
-        tokio::spawn(async move {
-            if let Err(e) = sender.send(Ok(HeartbeatResponse::default())).await {
-                error!("subscribe_heartbeat error sending response: {:?}", e);
-            }
-            sleep(Duration::from_millis(500)).await;
-        });
-
-        Ok(Response::new(ReceiverStream::new(receiver)))
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.inner).poll_next(cx)
     }
 
-    type SubscribePacketsStream = ReceiverStream<Result<PacketSubscriptionResponse, Status>>;
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl<T> Drop for ValidatorSubscriberStream<T> {
+    fn drop(&mut self) {
+        // ToDo: Need anything here?
+    }
+}
+
+#[tonic::async_trait]
+impl ValidatorInterface for Relayer {
+    type SubscribePacketsStream = ValidatorSubscriberStream<SubscribePacketsResponse>;
+
+    async fn get_tpu_configs(
+        &self,
+        _: Request<GetTpuConfigsRequest>,
+    ) -> Result<Response<GetTpuConfigsResponse>, Status> {
+        unimplemented!();
+    }
+
+    type SubscribeBundlesStream = ValidatorSubscriberStream<SubscribeBundlesResponse>;
+
+    async fn subscribe_bundles(
+        &self,
+        _: Request<SubscribeBundlesRequest>,
+    ) -> Result<Response<Self::SubscribeBundlesStream>, Status> {
+        unimplemented!();
+    }
 
     async fn subscribe_packets(
         &self,
-        _request: Request<PacketSubscriptionRequest>,
+        _request: Request<SubscribePacketsRequest>,
     ) -> Result<Response<Self::SubscribePacketsStream>, Status> {
         let (sender, receiver) = channel(100);
 
         tokio::spawn(async move {
-            if let Err(e) = sender.send(Ok(PacketSubscriptionResponse::default())).await {
+            if let Err(e) = sender.send(Ok(SubscribePacketsResponse::default())).await {
                 error!("subscribe_packets error sending response: {:?}", e);
             }
             sleep(Duration::from_millis(500)).await;
         });
 
-        Ok(Response::new(ReceiverStream::new(receiver)))
+        Ok(Response::new(ValidatorSubscriberStream {
+            inner: ReceiverStream::new(receiver),
+        }))
     }
 }

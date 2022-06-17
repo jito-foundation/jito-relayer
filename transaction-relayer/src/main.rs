@@ -9,7 +9,7 @@ use std::{
 
 use clap::Parser;
 use jito_core::tpu::{Tpu, TpuSockets};
-use jito_protos::relayer::relayer_service_server::RelayerServiceServer;
+use jito_protos::validator_interface_service::validator_interface_server::ValidatorInterfaceServer;
 use jito_relayer::relayer::Relayer;
 use jito_rpc::load_balancer::LoadBalancer;
 use solana_net_utils::multi_bind_in_range;
@@ -162,7 +162,7 @@ fn main() {
 
         let relayer = Relayer::new(slot_receiver, packet_receiver);
 
-        let svc = RelayerServiceServer::new(relayer);
+        let svc = ValidatorInterfaceServer::new(relayer);
         Server::builder()
             .add_service(svc)
             .serve(addr)
