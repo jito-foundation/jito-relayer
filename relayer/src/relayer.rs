@@ -19,8 +19,12 @@ use jito_protos::{
 };
 use log::error;
 use solana_core::banking_stage::BankingPacketBatch;
+use solana_perf::packet::PacketBatch;
 use solana_sdk::clock::Slot;
-use tokio::{sync::mpsc::channel, time::sleep};
+use tokio::{
+    sync::mpsc::{channel, Sender},
+    time::sleep,
+};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{Request, Response, Status};
 
@@ -37,6 +41,53 @@ impl Relayer {
         Relayer {
             _slot_receiver,
             packet_receiver,
+        }
+    }
+
+    async fn stream_batch_list(
+        batches: Vec<PacketBatch>,
+        sender: &Sender<Result<SubscribePacketsResponse, Status>>,
+    ) {
+        // ToDo: Turn this back into a map
+        let mut proto_batch_vec: Vec<PbPacketBatch> = Vec::new();
+        for batch in batches.into_iter() {
+            let mut proto_pkt_vec: Vec<PbPacket> = Vec::new();
+            for p in batch.iter() {
+                if !p.meta.discard() {
+                    proto_pkt_vec.push(PbPacket {
+                        data: p.data[0..p.meta.size].to_vec(),
+                        meta: Some(PbMeta {
+                            size: p.meta.size as u64,
+                            addr: p.meta.addr.to_string(),
+                            port: p.meta.port as u32,
+                            flags: Some(PbPacketFlags {
+                                discard: p.meta.discard(),
+                                forwarded: p.meta.forwarded(),
+                                repair: p.meta.repair(),
+                                simple_vote_tx: p.meta.is_simple_vote_tx(),
+                                // tracer_tx: p.meta.is_tracer_tx(),  // Couldn't get this to work?
+                                tracer_tx: false,
+                            }),
+                        }),
+                    })
+                }
+            }
+            proto_batch_vec.push(PbPacketBatch {
+                packets: proto_pkt_vec,
+            })
+        }
+
+        // Send over Grpc
+        if let Err(e) = sender
+            .send(Ok(SubscribePacketsResponse {
+                msg: Some(BatchList(PbPacketBatchWrapper {
+                    // ToDo: Perf - Clone here?
+                    batch_list: proto_batch_vec.clone(),
+                })),
+            }))
+            .await
+        {
+            error!("subscribe_packets error sending response: {:?}", e);
         }
     }
 }
@@ -87,6 +138,8 @@ impl ValidatorInterface for Relayer {
         &self,
         _request: Request<SubscribePacketsRequest>,
     ) -> Result<Response<Self::SubscribePacketsStream>, Status> {
+        println!("Validator Connected!!!!!!!!!");
+
         let (sender, receiver) = channel(100);
 
         // Send Heartbeats
@@ -114,46 +167,8 @@ impl ValidatorInterface for Relayer {
                         match bp_batch {
                             Ok(bp_batch) => {
                                 let batches = bp_batch.0;
-
-                                // ToDo: Turn this back into a map
-                                let mut proto_batch_vec: Vec<PbPacketBatch> = Vec::new();
-                                for batch in batches.into_iter() {
-                                    let mut proto_pkt_vec: Vec<PbPacket> = Vec::new();
-                                    for p in batch.iter() {
-                                        if !p.meta.discard() {
-                                            proto_pkt_vec.push(PbPacket {
-                                                data: p.data[0..p.meta.size].to_vec(),
-                                                meta: Some(PbMeta {
-                                                    size: p.meta.size as u64,
-                                                    addr: p.meta.addr.to_string(),
-                                                    port: p.meta.port as u32,
-                                                    flags: Some(PbPacketFlags {
-                                                        discard: p.meta.discard(),
-                                                        forwarded: p.meta.forwarded(),
-                                                        repair: p.meta.repair(),
-                                                        simple_vote_tx: p.meta.is_simple_vote_tx(),
-                                                        // tracer_tx: p.meta.is_tracer_tx(),  // Couldn't get this to work?
-                                                        tracer_tx: false,
-                                                    }),
-                                                }),
-                                            })
-                                        }
-                                    }
-                                    proto_batch_vec.push(PbPacketBatch {packets: proto_pkt_vec})
-                                }
-
-                                // Send over Grpc
-                                if let Err(e) = sender_l.send(
-                                    Ok(SubscribePacketsResponse {
-                                        msg: Some(BatchList(PbPacketBatchWrapper {
-                                            // ToDo: Perf - Clone here?
-                                            batch_list: proto_batch_vec.clone()
-                                        })),
-                                    })
-                                ).await {
-                                    error!("subscribe_packets error sending response: {:?}", e);
-                                }
-
+                                // println!("Got Batch of length {}", batches.len());
+                                Self::stream_batch_list(batches, &sender_l).await;
                             }
                             Err(e) => {
                                 error!("packets_receiver channel closed {}", e);

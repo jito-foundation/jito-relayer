@@ -21,7 +21,7 @@ use tonic::transport::Server;
 #[clap(author, version, about, long_about = None)]
 struct Args {
     /// IP address to bind to for transaction packets
-    #[clap(long, env, default_value_t = IpAddr::from_str("0.0.0.0").unwrap())]
+    #[clap(long, env, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
     tpu_bind_ip: IpAddr,
 
     /// Port to bind to for tpu packets
@@ -57,11 +57,11 @@ struct Args {
     num_tpu_fwd_binds: usize,
 
     /// RPC server list
-    #[clap(long, env)]
+    #[clap(long, env, default_value = "https://api.mainnet-beta.solana.com/")]
     rpc_servers: Vec<String>,
 
     /// Websocket server list
-    #[clap(long, env)]
+    #[clap(long, env, default_value = "wss://api.mainnet-beta.solana.com")]
     websocket_servers: Vec<String>,
 }
 
