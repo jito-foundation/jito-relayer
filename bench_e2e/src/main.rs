@@ -3,7 +3,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::{sleep, Builder, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use bincode::serialize;
 // use solana_net_utils::multi_bind_in_range;
@@ -22,8 +22,8 @@ fn main() {
     let exit = Arc::new(AtomicBool::new(false));
 
     const NUM_THREADS: usize = 1;
-    const NUM_PACKETS_PER_ITER: usize = 1;
-    const PACKET_RATE_PER_SEC_PER_SERVER: usize = 1;
+    const NUM_PACKETS_PER_ITER: usize = 10;
+    const PACKET_RATE_PER_SEC_PER_SERVER: usize = 10;
     const PACKET_RATE_PER_THREAD: usize =
         ((PACKET_RATE_PER_SEC_PER_SERVER as f32) / (NUM_THREADS as f32)) as usize;
     const LOOP_DURATION: f32 = (NUM_PACKETS_PER_ITER as f32) / (PACKET_RATE_PER_THREAD as f32);
@@ -60,10 +60,10 @@ fn main() {
                             .checked_sub(exec_start.elapsed())
                             .unwrap_or_else(|| Duration::from_secs(0));
 
-                        println!(
-                            "Sent Packet Batch, sleeping for {} seconds",
-                            sleep_duration.as_secs()
-                        );
+                        // println!(
+                        //     "Sent Packet Batch, sleeping for {} seconds",
+                        //     sleep_duration.as_secs()
+                        // );
 
                         sleep(sleep_duration);
                     }
@@ -89,6 +89,8 @@ fn main() {
         //     server_ip
         // );
 
+        let mut last_hb_time = SystemTime::now();
+        let mut first_iteration = true;
         loop {
             if let Ok(msg) = request.message().await {
                 // let now = SystemTime::now();
@@ -115,16 +117,35 @@ fn main() {
                             // }
                         }
 
+                        Some(subscribe_packets_response::Msg::Heartbeat(_)) => {
+                            // println!("Got Heartbeat !!",)
+                            let hb_time = SystemTime::now();
+                            if first_iteration {
+                                println!(
+                                    "First Heartbeat received from relayer at {:?}!!",
+                                    hb_time
+                                );
+                            }
+                            let hb_elapsed = hb_time
+                                .duration_since(last_hb_time)
+                                .expect("couldn't get elapsded hb");
+                            if !first_iteration && hb_elapsed > Duration::from_millis(1500) {
+                                println!("Missing Heartbeat signal!!  Need appropriate Handler");
+                            }
+                            first_iteration = false;
+                            last_hb_time = hb_time;
+                        }
                         _ => {
-                            // panic!("wtf?");
-                            println!("Got Something Else.  Heartbeat?");
+                            panic!("wtf?");
                         }
                     }
                 } else {
+                    println!("Got something. Not a Message!!");
                     // warn!("done, exiting");
                     break;
                 }
             } else {
+                println!("request failed!!!");
                 // warn!("done, exiting");
                 break;
             }
@@ -135,7 +156,7 @@ fn main() {
     // sleep(Duration::from_secs(5));
 
     exit.store(true, Ordering::Relaxed);
-    for s in send_threads {
-        let _ = s.join();
-    }
+    // for s in send_threads {
+    //     let _ = s.join();
+    // }
 }

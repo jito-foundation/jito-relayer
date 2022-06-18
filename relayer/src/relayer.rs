@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::{
     pin::Pin,
     task::{Context, Poll},
@@ -21,10 +23,7 @@ use log::error;
 use solana_core::banking_stage::BankingPacketBatch;
 use solana_perf::packet::PacketBatch;
 use solana_sdk::clock::Slot;
-use tokio::{
-    sync::mpsc::{channel, Sender},
-    time::sleep,
-};
+use tokio::{sync::mpsc::channel, time::sleep};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{Request, Response, Status};
 
@@ -43,11 +42,134 @@ impl Relayer {
             packet_receiver,
         }
     }
+}
 
-    async fn stream_batch_list(
-        batches: Vec<PacketBatch>,
-        sender: &Sender<Result<SubscribePacketsResponse, Status>>,
-    ) {
+pub struct ValidatorSubscriberStream<T> {
+    inner: ReceiverStream<Result<T, Status>>,
+}
+
+impl<T> Stream for ValidatorSubscriberStream<T> {
+    type Item = Result<T, Status>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.inner).poll_next(cx)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl<T> Drop for ValidatorSubscriberStream<T> {
+    fn drop(&mut self) {
+        // ToDo: Need anything here?
+    }
+}
+
+#[tonic::async_trait]
+impl ValidatorInterface for Relayer {
+    async fn get_tpu_configs(
+        &self,
+        _: Request<GetTpuConfigsRequest>,
+    ) -> Result<Response<GetTpuConfigsResponse>, Status> {
+        unimplemented!();
+    }
+
+    type SubscribeBundlesStream = ValidatorSubscriberStream<SubscribeBundlesResponse>;
+
+    async fn subscribe_bundles(
+        &self,
+        _: Request<SubscribeBundlesRequest>,
+    ) -> Result<Response<Self::SubscribeBundlesStream>, Status> {
+        unimplemented!();
+    }
+
+    type SubscribePacketsStream = ValidatorSubscriberStream<SubscribePacketsResponse>;
+
+    async fn subscribe_packets(
+        &self,
+        _request: Request<SubscribePacketsRequest>,
+    ) -> Result<Response<Self::SubscribePacketsStream>, Status> {
+        println!("Validator Connected!!!!!!!!!");
+
+        let (sender, receiver) = channel(100);
+        let closed = Arc::new(AtomicBool::new(false));
+
+        // Send Heartbeats
+        let sender_l = sender.clone();
+        let closed_l = closed.clone();
+        tokio::spawn(async move {
+            let mut hb_misses = 0u8;
+            while !closed_l.load(Ordering::Relaxed) {
+                if let Err(e) = sender_l
+                    .send(Ok(SubscribePacketsResponse {
+                        msg: Some(Heartbeat(true)),
+                    }))
+                    .await
+                {
+                    error!("subscribe_packets error sending heartbeat: {:?}", e);
+                    hb_misses += 1;
+                    if hb_misses > 3 {
+                        error!("Too many failed heartbeat sends.  Disconnecting");
+                        closed_l.store(true, Ordering::Relaxed);
+                        break;
+                    }
+                } else {
+                    hb_misses = 0;
+                }
+                sleep(Duration::from_millis(500)).await;
+            }
+        });
+
+        // Send Packets
+        // let sender_l = sender.clone();
+        let pkt_receiver = self.packet_receiver.clone();
+        let closed_l = closed.clone();
+        tokio::spawn(async move {
+            let sender_l = sender;
+            while !closed_l.load(Ordering::Relaxed) {
+                // Gonna leave this select for now, in case it's needed for slots later
+                select! {
+                    recv(pkt_receiver) -> bp_batch => {
+                        match bp_batch {
+                            Ok(bp_batch) => {
+                                let batches = bp_batch.0;
+                                // println!("Got Batch of length {}", batches.len());
+                                let proto_bl = Self::sol_batchlist_to_proto(batches);
+
+                                // Send over Grpc
+                                if let Err(_e) = sender_l
+                                    .send_timeout(
+                                        Ok(SubscribePacketsResponse {
+                                            msg: Some(BatchList(proto_bl)),
+                                        }),
+                                        Duration::from_millis(1000),
+                                    )
+                                    .await
+                                {
+                                    // error!("subscribe_packets error sending response: {:?}", e);
+                                    error!("subscribe_packets error sending response!!");
+                                }
+                            }
+                            Err(e) => {
+                                error!("packets_receiver channel closed {}", e);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        Ok(Response::new(ValidatorSubscriberStream {
+            inner: ReceiverStream::new(receiver),
+        }))
+    }
+}
+
+impl Relayer {
+    fn sol_batchlist_to_proto(batches: Vec<PacketBatch>) -> PbPacketBatchWrapper {
+        println!("sending packet batch!!");
         // ToDo: Turn this back into a map
         let mut proto_batch_vec: Vec<PbPacketBatch> = Vec::new();
         for batch in batches.into_iter() {
@@ -77,111 +199,9 @@ impl Relayer {
             })
         }
 
-        // Send over Grpc
-        if let Err(e) = sender
-            .send(Ok(SubscribePacketsResponse {
-                msg: Some(BatchList(PbPacketBatchWrapper {
-                    // ToDo: Perf - Clone here?
-                    batch_list: proto_batch_vec.clone(),
-                })),
-            }))
-            .await
-        {
-            error!("subscribe_packets error sending response: {:?}", e);
+        PbPacketBatchWrapper {
+            // ToDo: Perf - Clone here?
+            batch_list: proto_batch_vec.clone(),
         }
-    }
-}
-
-pub struct ValidatorSubscriberStream<T> {
-    inner: ReceiverStream<Result<T, Status>>,
-}
-
-impl<T> Stream for ValidatorSubscriberStream<T> {
-    type Item = Result<T, Status>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.inner).poll_next(cx)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
-    }
-}
-
-impl<T> Drop for ValidatorSubscriberStream<T> {
-    fn drop(&mut self) {
-        // ToDo: Need anything here?
-    }
-}
-
-#[tonic::async_trait]
-impl ValidatorInterface for Relayer {
-    type SubscribePacketsStream = ValidatorSubscriberStream<SubscribePacketsResponse>;
-
-    async fn get_tpu_configs(
-        &self,
-        _: Request<GetTpuConfigsRequest>,
-    ) -> Result<Response<GetTpuConfigsResponse>, Status> {
-        unimplemented!();
-    }
-
-    type SubscribeBundlesStream = ValidatorSubscriberStream<SubscribeBundlesResponse>;
-
-    async fn subscribe_bundles(
-        &self,
-        _: Request<SubscribeBundlesRequest>,
-    ) -> Result<Response<Self::SubscribeBundlesStream>, Status> {
-        unimplemented!();
-    }
-
-    async fn subscribe_packets(
-        &self,
-        _request: Request<SubscribePacketsRequest>,
-    ) -> Result<Response<Self::SubscribePacketsStream>, Status> {
-        println!("Validator Connected!!!!!!!!!");
-
-        let (sender, receiver) = channel(100);
-
-        // Send Heartbeats
-        let sender_l = sender.clone();
-        tokio::spawn(async move {
-            if let Err(e) = sender_l
-                .send(Ok(SubscribePacketsResponse {
-                    msg: Some(Heartbeat(true)),
-                }))
-                .await
-            {
-                error!("subscribe_packets error sending response: {:?}", e);
-            }
-            sleep(Duration::from_millis(500)).await;
-        });
-
-        // Send Packets
-        let sender_l = sender.clone();
-        let pkt_receiver = self.packet_receiver.clone();
-        tokio::spawn(async move {
-            loop {
-                // Gonna leave this select for now, in case it's needed for slots later
-                select! {
-                    recv(pkt_receiver) -> bp_batch => {
-                        match bp_batch {
-                            Ok(bp_batch) => {
-                                let batches = bp_batch.0;
-                                // println!("Got Batch of length {}", batches.len());
-                                Self::stream_batch_list(batches, &sender_l).await;
-                            }
-                            Err(e) => {
-                                error!("packets_receiver channel closed {}", e);
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        });
-
-        Ok(Response::new(ValidatorSubscriberStream {
-            inner: ReceiverStream::new(receiver),
-        }))
     }
 }
