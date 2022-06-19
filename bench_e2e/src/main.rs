@@ -22,8 +22,8 @@ fn main() {
     let exit = Arc::new(AtomicBool::new(false));
 
     const NUM_THREADS: usize = 1;
-    const NUM_PACKETS_PER_ITER: usize = 10;
-    const PACKET_RATE_PER_SEC_PER_SERVER: usize = 10;
+    const NUM_PACKETS_PER_ITER: usize = 10_000;
+    const PACKET_RATE_PER_SEC_PER_SERVER: usize = 1;
     const PACKET_RATE_PER_THREAD: usize =
         ((PACKET_RATE_PER_SEC_PER_SERVER as f32) / (NUM_THREADS as f32)) as usize;
     const LOOP_DURATION: f32 = (NUM_PACKETS_PER_ITER as f32) / (PACKET_RATE_PER_THREAD as f32);
@@ -56,14 +56,18 @@ fn main() {
                             .map(|tx| udp_sender.send_to(tx, tpu_addr))
                             .collect();
 
-                        let sleep_duration = Duration::from_secs_f32(LOOP_DURATION)
-                            .checked_sub(exec_start.elapsed())
-                            .unwrap_or_else(|| Duration::from_secs(0));
+                        // let sleep_duration = Duration::from_secs_f32(LOOP_DURATION)
+                        //     .checked_sub(exec_start.elapsed())
+                        //     .unwrap_or_else(|| Duration::from_secs(0));
 
-                        // println!(
-                        //     "Sent Packet Batch, sleeping for {} seconds",
-                        //     sleep_duration.as_secs()
-                        // );
+                        let sleep_duration = Duration::from_secs(5);
+                        println!(
+                            "Sent Packet Batch, sleeping for {} seconds",
+                            sleep_duration.as_secs()
+                        );
+
+                        // println!("Sent One Batch and quitting");
+                        // break;
 
                         sleep(sleep_duration);
                     }
@@ -103,7 +107,8 @@ fn main() {
                                 .iter()
                                 .map(|b| b.packets.len())
                                 .sum::<usize>();
-                            println!("Received {} batches with {} txs!!!", batch_count, tx_count)
+                            println!("Received {} batches with {} txs!!!", batch_count, tx_count);
+                            // println!("Received batches !!!")
                             // let _ = stats_sender.send(Stats {
                             //     tx_count,
                             //     batch_count,
@@ -125,6 +130,8 @@ fn main() {
                                     "First Heartbeat received from relayer at {:?}!!",
                                     hb_time
                                 );
+                            } else {
+                                println!("Thump!!");
                             }
                             let hb_elapsed = hb_time
                                 .duration_since(last_hb_time)
@@ -145,7 +152,7 @@ fn main() {
                     break;
                 }
             } else {
-                println!("request failed!!!");
+                println!("Sender Hung Up!!!  Exiting!!!");
                 // warn!("done, exiting");
                 break;
             }

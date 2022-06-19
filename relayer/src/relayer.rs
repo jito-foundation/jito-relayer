@@ -123,43 +123,43 @@ impl ValidatorInterface for Relayer {
 
         // Send Packets
         // let sender_l = sender.clone();
-        let pkt_receiver = self.packet_receiver.clone();
-        let closed_l = closed.clone();
-        tokio::spawn(async move {
-            let sender_l = sender;
-            while !closed_l.load(Ordering::Relaxed) {
-                // Gonna leave this select for now, in case it's needed for slots later
-                select! {
-                    recv(pkt_receiver) -> bp_batch => {
-                        match bp_batch {
-                            Ok(bp_batch) => {
-                                let batches = bp_batch.0;
-                                // println!("Got Batch of length {}", batches.len());
-                                let proto_bl = Self::sol_batchlist_to_proto(batches);
-
-                                // Send over Grpc
-                                if let Err(_e) = sender_l
-                                    .send_timeout(
-                                        Ok(SubscribePacketsResponse {
-                                            msg: Some(BatchList(proto_bl)),
-                                        }),
-                                        Duration::from_millis(1000),
-                                    )
-                                    .await
-                                {
-                                    // error!("subscribe_packets error sending response: {:?}", e);
-                                    error!("subscribe_packets error sending response!!");
-                                }
-                            }
-                            Err(e) => {
-                                error!("packets_receiver channel closed {}", e);
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        });
+        // let pkt_receiver = self.packet_receiver.clone();
+        // let closed_l = closed.clone();
+        // tokio::spawn(async move {
+        //     let sender_l = sender;
+        //     while !closed_l.load(Ordering::Relaxed) {
+        //         // Gonna leave this select for now, in case it's needed for slots later
+        //         select! {
+        //             recv(pkt_receiver) -> bp_batch => {
+        //                 match bp_batch {
+        //                     Ok(bp_batch) => {
+        //                         let batches = bp_batch.0;
+        //                         println!("Got Batch of length {} x {}", batches.len(), batches[0].len());
+        //                         let proto_bl = Self::sol_batchlist_to_proto(batches);
+        //
+        //                         // Send over Grpc
+        //                         match sender_l
+        //                             // .send(Ok(SubscribePacketsResponse {msg: Some(BatchList(proto_bl))}).await
+        //                             .send_timeout(Ok(SubscribePacketsResponse {msg: Some(BatchList(proto_bl))}),
+        //                                 Duration::from_millis(1000),).await
+        //                         {
+        //                             Ok(_) => println!("Sent batch over grpc"),
+        //                             Err(_e) =>
+        //                             {
+        //                                 // error!("subscribe_packets error sending response: {:?}", _e);
+        //                                 error!("subscribe_packets error sending response!!");
+        //                             }
+        //                         }
+        //                     }
+        //                     Err(e) => {
+        //                         error!("packets_receiver channel closed {}", e);
+        //                         break;
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     }
+        // });
 
         Ok(Response::new(ValidatorSubscriberStream {
             inner: ReceiverStream::new(receiver),
@@ -169,7 +169,6 @@ impl ValidatorInterface for Relayer {
 
 impl Relayer {
     fn sol_batchlist_to_proto(batches: Vec<PacketBatch>) -> PbPacketBatchWrapper {
-        println!("sending packet batch!!");
         // ToDo: Turn this back into a map
         let mut proto_batch_vec: Vec<PbPacketBatch> = Vec::new();
         for batch in batches.into_iter() {
