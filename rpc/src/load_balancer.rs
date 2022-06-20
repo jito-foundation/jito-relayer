@@ -155,6 +155,15 @@ impl LoadBalancer {
         return server_to_rpc_client_l.get(highest_server).cloned().unwrap();
     }
 
+    pub fn get_highest_slot(&self) -> Slot {
+        let server_to_slot_l = self.server_to_slot.lock().unwrap();
+        let (_, highest_slot) = server_to_slot_l
+            .iter()
+            .max_by(|(_, slot_a), (_, slot_b)| slot_a.cmp(slot_b))
+            .unwrap();
+        return *highest_slot;
+    }
+
     pub fn join(self) -> thread::Result<()> {
         for s in self.subscription_threads {
             s.join()?;

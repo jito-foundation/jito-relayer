@@ -11,6 +11,7 @@ use clap::Parser;
 use jito_core::tpu::{Tpu, TpuSockets};
 use jito_protos::validator_interface_service::validator_interface_server::ValidatorInterfaceServer;
 use jito_relayer::relayer::Relayer;
+use jito_relayer::schedule_cache::LeaderScheduleCache;
 use jito_rpc::load_balancer::LoadBalancer;
 use solana_net_utils::multi_bind_in_range;
 use solana_sdk::signature::{Keypair, Signer};
@@ -154,6 +155,14 @@ fn main() {
         &sockets.tpu_fwd_ip,
         &rpc_load_balancer,
     );
+
+    let leader_cache = Arc::new(LeaderScheduleCache::new(
+        &rpc_load_balancer,
+        &keypair.pubkey().to_string(),
+    ));
+
+    // ToDo: Start a leader update loop here
+    leader_cache.update_leader_cache();
 
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();
     rt.block_on(async {
