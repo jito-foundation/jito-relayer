@@ -1,3 +1,4 @@
+pub mod auth;
 mod manager;
 pub mod relayer;
 mod router;

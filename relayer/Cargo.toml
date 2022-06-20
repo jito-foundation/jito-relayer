@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 crossbeam-channel = "0.5.4"
+ed25519-dalek = "1.0.1"
 jito-protos = { path = "../jito-protos" }
 jito-rpc = { path = "../rpc" }
 log = "0.4.17"

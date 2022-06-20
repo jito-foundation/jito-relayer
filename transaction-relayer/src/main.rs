@@ -10,6 +10,7 @@ use std::{
 use clap::Parser;
 use jito_core::tpu::{Tpu, TpuSockets};
 use jito_protos::validator_interface_service::validator_interface_server::ValidatorInterfaceServer;
+use jito_relayer::auth::AuthenticationInterceptor;
 use jito_relayer::relayer::Relayer;
 use jito_relayer::schedule_cache::LeaderScheduleCache;
 use jito_rpc::load_balancer::LoadBalancer;
@@ -127,6 +128,7 @@ fn main() {
 
     let keypair = Keypair::new();
     solana_metrics::set_host_id(keypair.pubkey().to_string());
+    println!("Pub Key: {}", keypair.pubkey().to_string());
 
     let exit = Arc::new(AtomicBool::new(false));
 
@@ -170,6 +172,10 @@ fn main() {
         println!("Relayer listening on: {}", addr);
 
         let relayer = Relayer::new(slot_receiver, packet_receiver);
+
+        // let cache = leader_cache.clone();
+        // let auth_interceptor = AuthenticationInterceptor { cache };
+        // let svc = ValidatorInterfaceServer::with_interceptor(relayer, auth_interceptor);
 
         let svc = ValidatorInterfaceServer::new(relayer);
         Server::builder()
