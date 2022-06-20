@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::thread::{Builder, JoinHandle};
 use std::{
     pin::Pin,
     task::{Context, Poll},
@@ -19,17 +20,24 @@ use jito_protos::{
         SubscribeBundlesResponse, SubscribePacketsRequest, SubscribePacketsResponse,
     },
 };
-use log::error;
+use log::*;
 use solana_core::banking_stage::BankingPacketBatch;
 use solana_perf::packet::PacketBatch;
 use solana_sdk::clock::Slot;
-use tokio::{sync::mpsc::channel, time::sleep};
+use tokio::sync::Mutex;
+use tokio::{
+    sync::mpsc::{
+        channel, unbounded_channel as unbounded_tokio_channel,
+        UnboundedReceiver as UnboundedTokioReceiver, UnboundedSender as UnboundedTokioSender,
+    },
+    time::sleep,
+};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{Request, Response, Status};
 
 pub struct Relayer {
     _slot_receiver: Receiver<Slot>,
-    packet_receiver: Receiver<BankingPacketBatch>,
+    packet_bridge_receiver: Arc<Mutex<UnboundedTokioReceiver<BankingPacketBatch>>>,
 }
 
 impl Relayer {
@@ -37,9 +45,13 @@ impl Relayer {
         _slot_receiver: Receiver<Slot>,
         packet_receiver: Receiver<BankingPacketBatch>,
     ) -> Relayer {
+        let (packet_bridge_sender, packet_bridge_receiver) = unbounded_tokio_channel();
+
+        Self::start_crossbeam_tokio_bridge(packet_receiver, packet_bridge_sender);
+
         Relayer {
             _slot_receiver,
-            packet_receiver,
+            packet_bridge_receiver: Arc::new(Mutex::new(packet_bridge_receiver)),
         }
     }
 }
@@ -90,7 +102,7 @@ impl ValidatorInterface for Relayer {
         &self,
         _request: Request<SubscribePacketsRequest>,
     ) -> Result<Response<Self::SubscribePacketsStream>, Status> {
-        println!("Validator Connected!!!!!!!!!");
+        info!("Validator Connected!!!!!!!!!");
 
         let (sender, receiver) = channel(100);
         let closed = Arc::new(AtomicBool::new(false));
@@ -123,40 +135,44 @@ impl ValidatorInterface for Relayer {
 
         // Send Packets
         // let sender_l = sender.clone();
-        let pkt_receiver = self.packet_receiver.clone();
+        let pkt_receiver = self.packet_bridge_receiver.clone();
         let closed_l = closed.clone();
         tokio::spawn(async move {
             let sender_l = sender;
             while !closed_l.load(Ordering::Relaxed) {
                 // Gonna leave this select for now, in case it's needed for slots later
-                select! {
-                    recv(pkt_receiver) -> bp_batch => {
-                        match bp_batch {
-                            Ok(bp_batch) => {
-                                let batches = bp_batch.0;
-                                println!("Got Batch of length {} x {}", batches.len(), batches[0].len());
-                                let proto_bl = Self::sol_batchlist_to_proto(batches);
 
-                                // Send over Grpc
-                                match sender_l
-                                    // .send(Ok(SubscribePacketsResponse {msg: Some(BatchList(proto_bl))}).await
-                                    .send_timeout(Ok(SubscribePacketsResponse {msg: Some(BatchList(proto_bl))}),
-                                        Duration::from_millis(1000),).await
-                                {
-                                    Ok(_) => println!("Sent batch over grpc"),
-                                    Err(_e) =>
-                                    {
-                                        // error!("subscribe_packets error sending response: {:?}", _e);
-                                        error!("subscribe_packets error sending response!!");
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                error!("packets_receiver channel closed {}", e);
-                                break;
-                            }
+                let mut pkt_receiver = pkt_receiver.lock().await;
+                if let Some(bp_batch) = pkt_receiver.recv().await {
+                    let batches = bp_batch.0;
+                    info!(
+                        "Got Batch of length {} x {}",
+                        batches.len(),
+                        batches[0].len()
+                    );
+                    let proto_bl = Self::sol_batchlist_to_proto(batches);
+
+                    // Send over Grpc
+                    match sender_l
+                        // .send(Ok(SubscribePacketsResponse {msg: Some(BatchList(proto_bl))}).await
+                        .send_timeout(
+                            Ok(SubscribePacketsResponse {
+                                msg: Some(BatchList(proto_bl)),
+                            }),
+                            Duration::from_millis(1000),
+                        )
+                        .await
+                    {
+                        Ok(_) => info!("Sent batch over grpc"),
+                        Err(_e) => {
+                            // error!("subscribe_packets error sending response: {:?}", _e);
+                            error!("subscribe_packets error sending response!!");
                         }
                     }
+                } else {
+                    // Received none from channel
+                    error!("packets_receiver channel closed");
+                    break;
                 }
             }
         });
@@ -202,5 +218,32 @@ impl Relayer {
             // ToDo: Perf - Clone here?
             batch_list: proto_batch_vec.clone(),
         }
+    }
+
+    // bridge the sync <> async gap
+    fn start_crossbeam_tokio_bridge(
+        verified_receiver: Receiver<BankingPacketBatch>,
+        verified_sender: UnboundedTokioSender<BankingPacketBatch>,
+    ) -> JoinHandle<()> {
+        Builder::new()
+            .name(String::from("thread-verified-receiver-bridge"))
+            .spawn(move || loop {
+                match verified_receiver.recv() {
+                    Ok(batches) => {
+                        if let Err(e) = verified_sender.send(batches) {
+                            error!(
+                                "error sending batches over bridge_sender channel [error={}]",
+                                e
+                            );
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        error!("verified_receiver channel disconnected [error={}]", e);
+                        break;
+                    }
+                }
+            })
+            .unwrap()
     }
 }

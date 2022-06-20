@@ -5,6 +5,8 @@ use std::sync::Arc;
 use std::thread::{sleep, Builder, JoinHandle};
 use std::time::{Duration, Instant, SystemTime};
 
+use log::*;
+
 use bincode::serialize;
 // use solana_net_utils::multi_bind_in_range;
 use solana_perf::test_tx::test_tx;
@@ -19,11 +21,13 @@ use jito_protos::validator_interface_service::{
 };
 
 fn main() {
+    env_logger::init();
+
     let exit = Arc::new(AtomicBool::new(false));
 
     const NUM_THREADS: usize = 1;
-    const NUM_PACKETS_PER_ITER: usize = 10_000;
-    const PACKET_RATE_PER_SEC_PER_SERVER: usize = 1;
+    const NUM_PACKETS_PER_ITER: usize = 1_000;
+    const PACKET_RATE_PER_SEC_PER_SERVER: usize = 1_000;
     const PACKET_RATE_PER_THREAD: usize =
         ((PACKET_RATE_PER_SEC_PER_SERVER as f32) / (NUM_THREADS as f32)) as usize;
     const LOOP_DURATION: f32 = (NUM_PACKETS_PER_ITER as f32) / (PACKET_RATE_PER_THREAD as f32);
@@ -56,18 +60,9 @@ fn main() {
                             .map(|tx| udp_sender.send_to(tx, tpu_addr))
                             .collect();
 
-                        // let sleep_duration = Duration::from_secs_f32(LOOP_DURATION)
-                        //     .checked_sub(exec_start.elapsed())
-                        //     .unwrap_or_else(|| Duration::from_secs(0));
-
-                        let sleep_duration = Duration::from_secs(5);
-                        println!(
-                            "Sent Packet Batch, sleeping for {} seconds",
-                            sleep_duration.as_secs()
-                        );
-
-                        // println!("Sent One Batch and quitting");
-                        // break;
+                        let sleep_duration = Duration::from_secs_f32(LOOP_DURATION)
+                            .checked_sub(exec_start.elapsed())
+                            .unwrap_or_else(|| Duration::from_secs(0));
 
                         sleep(sleep_duration);
                     }
@@ -107,8 +102,7 @@ fn main() {
                                 .iter()
                                 .map(|b| b.packets.len())
                                 .sum::<usize>();
-                            println!("Received {} batches with {} txs!!!", batch_count, tx_count);
-                            // println!("Received batches !!!")
+                            info!("Received {} batches with {} txs!!!", batch_count, tx_count);
                             // let _ = stats_sender.send(Stats {
                             //     tx_count,
                             //     batch_count,
@@ -123,21 +117,17 @@ fn main() {
                         }
 
                         Some(subscribe_packets_response::Msg::Heartbeat(_)) => {
-                            // println!("Got Heartbeat !!",)
                             let hb_time = SystemTime::now();
                             if first_iteration {
-                                println!(
-                                    "First Heartbeat received from relayer at {:?}!!",
-                                    hb_time
-                                );
+                                info!("First Heartbeat received from relayer at {:?}!!", hb_time);
                             } else {
-                                println!("Thump!!");
+                                info!("Thump!!");
                             }
                             let hb_elapsed = hb_time
                                 .duration_since(last_hb_time)
-                                .expect("couldn't get elapsded hb");
+                                .expect("couldn't get elapsed hb");
                             if !first_iteration && hb_elapsed > Duration::from_millis(1500) {
-                                println!("Missing Heartbeat signal!!  Need appropriate Handler");
+                                warn!("Missing Heartbeat signal!!  Need appropriate Handler");
                             }
                             first_iteration = false;
                             last_hb_time = hb_time;
@@ -147,14 +137,12 @@ fn main() {
                         }
                     }
                 } else {
-                    println!("Got something. Not a Message!!");
-                    // warn!("done, exiting");
+                    warn!("done, got a non-message, exiting");
                     break;
                 }
             } else {
-                println!("Sender Hung Up!!!  Exiting!!!");
-                // warn!("done, exiting");
-                break;
+                warn!("done, sender hung up, exiting");
+                // break;
             }
         }
     });
@@ -163,7 +151,7 @@ fn main() {
     // sleep(Duration::from_secs(5));
 
     exit.store(true, Ordering::Relaxed);
-    // for s in send_threads {
-    //     let _ = s.join();
-    // }
+    for s in send_threads {
+        let _ = s.join();
+    }
 }
