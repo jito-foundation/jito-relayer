@@ -31,7 +31,7 @@ impl LeaderScheduleCache {
         info!("Identity Set to {}", self.identity.as_ref().unwrap());
     }
 
-    pub fn update_leader_cache(&self) -> () {
+    pub fn update_leader_cache(&self) {
         if self.identity == None {
             return;
         }

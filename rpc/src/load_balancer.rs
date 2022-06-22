@@ -161,7 +161,7 @@ impl LoadBalancer {
             .iter()
             .max_by(|(_, slot_a), (_, slot_b)| slot_a.cmp(slot_b))
             .unwrap();
-        return *highest_slot;
+        *highest_slot
     }
 
     pub fn join(self) -> thread::Result<()> {

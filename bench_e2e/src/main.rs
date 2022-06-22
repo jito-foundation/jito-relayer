@@ -6,23 +6,16 @@ use std::{
         Arc,
     },
     thread::{sleep, Builder, JoinHandle},
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant},
 };
 
 use bincode::serialize;
-use jito_protos::validator_interface_service::{
-    subscribe_packets_response, validator_interface_client::ValidatorInterfaceClient,
-    SubscribePacketsRequest,
-};
-use log::*;
+
 use solana_client::rpc_client::RpcClient;
-use solana_perf::test_tx::test_tx;
 use solana_sdk::{
-    pubkey::Pubkey,
     signature::{Keypair, Signature, Signer},
     system_transaction::transfer,
 };
-use tokio::runtime::Builder as TokBuilder;
 
 fn main() {
     env_logger::init();
