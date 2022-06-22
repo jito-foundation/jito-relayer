@@ -61,7 +61,7 @@ impl Relayer {
             leader_schedule_cache,
         ));
 
-        // ToDo: Capture Join Handles and Join Properly
+        // ToDo: hb loop contains hacky leader schedule update
         let hb_hdl = Self::start_hb_loop(router.clone(), exit.clone());
         let pkt_loop_hdl = Self::start_packets_receiver_loop(router.clone(), exit.clone(), 3, 0);
 
@@ -104,13 +104,24 @@ impl Relayer {
     }
 
     pub fn start_hb_loop(router: Arc<Router>, exit: Arc<AtomicBool>) -> JoinHandle<()> {
+        info!("Started Heartbeat");
         let finished = exit.clone();
         let hb_loop_hdl = spawn(move || {
+            let mut n_hb = 0usize;
             while !finished.load(Ordering::Relaxed) {
+                // Hacky!!!!: Update Leader Cache every 2 minutes
+                if n_hb % 240 == 0 {
+                    router
+                        .leader_schedule_cache
+                        .write()
+                        .unwrap()
+                        .update_leader_cache();
+                };
                 let failed_heartbeats = router.send_heartbeat();
                 router.disconnect(&failed_heartbeats);
 
                 std::thread::sleep(Duration::from_millis(500));
+                n_hb += 1;
             }
         });
 

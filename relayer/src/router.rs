@@ -34,7 +34,7 @@ pub struct PacketSubscription {
 
 pub struct Router {
     packet_subs: Arc<RwLock<HashMap<Pubkey, PacketSubscription>>>,
-    leader_schedule_cache: Arc<RwLock<LeaderScheduleCache>>,
+    pub leader_schedule_cache: Arc<RwLock<LeaderScheduleCache>>,
     pub slot_receiver: Receiver<Slot>,
     pub packet_receiver: Receiver<BankingPacketBatch>,
 }

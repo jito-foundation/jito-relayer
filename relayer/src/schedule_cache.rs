@@ -36,6 +36,7 @@ impl LeaderScheduleCache {
             return;
         }
 
+        info!("Update Leader Cache !!!");
         // let cfg = RpcLeaderScheduleConfig {
         //     identity: self.identity.clone(),
         //     commitment: None,
@@ -63,6 +64,8 @@ impl LeaderScheduleCache {
                             schedule.insert(slot);
                         }
                     }
+                } else {
+                    info!("No Slots in Leader Schedule!!")
                 };
             } else {
                 error!("Couldn't Get Leader Schedule Update from RPC!!!")
@@ -89,9 +92,14 @@ impl LeaderScheduleCache {
 
     pub fn is_validator_scheduled(&self, _pk: Pubkey) -> bool {
         // Is the maximum scheduled slot bigger than the current slot
+        info!("Is Validator Scheduled Called for {}", _pk.to_string());
+        info!("Schedule {:?}", self.schedule.read().unwrap());
         if let Some(max_sched) = self.schedule.read().unwrap().iter().max() {
-            *max_sched > self.rpc.lock().unwrap().get_highest_slot()
+            let output = *max_sched > self.rpc.lock().unwrap().get_highest_slot();
+            info!("Found max_sched, output: {}", output);
+            return output;
         } else {
+            info!("Didn't get max_sched!");
             false
         }
     }
