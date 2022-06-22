@@ -162,10 +162,13 @@ impl ValidatorInterface for Relayer {
         let pkt_receiver = self.packet_bridge_receiver.clone();
         let closed_l = closed.clone();
         tokio::spawn(async move {
+            // Is the following line needed to force a move of sender?
             let sender_l = sender;
             while !closed_l.load(Ordering::Relaxed) {
                 // Is Tokio Mutex best way to do this?
                 let mut pkt_receiver = pkt_receiver.lock().await;
+
+                // During multi node testing, this stops getting executed
                 if let Some(bp_batch) = pkt_receiver.recv().await {
                     let batches = bp_batch.0;
                     info!(
@@ -253,6 +256,7 @@ impl Relayer {
             .spawn(move || loop {
                 match verified_receiver.recv() {
                     Ok(batches) => {
+                        info!("received packet batch on bridge!");
                         if let Err(e) = verified_sender.send(batches) {
                             error!(
                                 "error sending batches over bridge_sender channel [error={}]",

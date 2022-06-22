@@ -34,8 +34,8 @@ fn main() {
     let exit = Arc::new(AtomicBool::new(false));
 
     const NUM_THREADS: usize = 1;
-    const NUM_PACKETS_PER_ITER: usize = 10_000;
-    const PACKET_RATE_PER_SEC_PER_SERVER: usize = 10_000;
+    const NUM_PACKETS_PER_ITER: usize = 10;
+    const PACKET_RATE_PER_SEC_PER_SERVER: usize = 10;
     const PACKET_RATE_PER_THREAD: usize =
         ((PACKET_RATE_PER_SEC_PER_SERVER as f32) / (NUM_THREADS as f32)) as usize;
     const LOOP_DURATION: f32 = (NUM_PACKETS_PER_ITER as f32) / (PACKET_RATE_PER_THREAD as f32);
