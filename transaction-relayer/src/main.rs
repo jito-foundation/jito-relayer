@@ -1,10 +1,9 @@
-use std::sync::RwLock;
 use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, RwLock,
     },
 };
 

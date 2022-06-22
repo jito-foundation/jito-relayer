@@ -1,10 +1,9 @@
-use std::sync::RwLock;
 use std::{
     net::IpAddr,
     pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, RwLock,
     },
     task::{Context, Poll},
     thread::{spawn, JoinHandle},
