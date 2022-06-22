@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crossbeam_channel::{select, Receiver};
+use crossbeam_channel::Receiver;
 use jito_protos::{
     packet::{
         Meta as PbMeta, Packet as PbPacket, PacketBatch as PbPacketBatch,
@@ -14,7 +14,7 @@ use jito_protos::{
         SubscribePacketsResponse,
     },
 };
-use log::{debug, error, info, warn};
+use log::{debug, info, warn};
 use solana_core::banking_stage::BankingPacketBatch;
 use solana_perf::packet::PacketBatch;
 use solana_sdk::{
@@ -34,16 +34,16 @@ pub struct PacketSubscription {
 
 pub struct Router {
     packet_subs: Arc<RwLock<HashMap<Pubkey, PacketSubscription>>>,
-    leader_schedule_cache: Arc<LeaderScheduleCache>,
-    slot_receiver: Receiver<Slot>,
-    packet_receiver: Receiver<BankingPacketBatch>,
+    leader_schedule_cache: Arc<RwLock<LeaderScheduleCache>>,
+    pub slot_receiver: Receiver<Slot>,
+    pub packet_receiver: Receiver<BankingPacketBatch>,
 }
 
 impl Router {
     pub fn new(
         slot_receiver: Receiver<Slot>,
         packet_receiver: Receiver<BankingPacketBatch>,
-        leader_schedule_cache: Arc<LeaderScheduleCache>,
+        leader_schedule_cache: Arc<RwLock<LeaderScheduleCache>>,
     ) -> Router {
         // Must Call init externally after creating
         let router = Router {
@@ -52,8 +52,6 @@ impl Router {
             slot_receiver,
             packet_receiver,
         };
-
-        router.packets_receiver_loop(3, 0);
 
         return router;
     }
@@ -103,6 +101,13 @@ impl Router {
             false
         } else {
             active_subs.insert(Pubkey::new(&pk.to_bytes()), PacketSubscription { tx });
+            info!(
+                "validator_interface_add_packet_subscription - Subscriber: {}",
+                pk.to_string()
+            );
+            let mut leader_cache = self.leader_schedule_cache.write().unwrap();
+            leader_cache.set_identity(&pk.to_string());
+            leader_cache.update_leader_cache();
             // datapoint_info!(
             //     "validator_interface_add_packet_subscription",
             //     ("subscriber", pk.to_string(), String),
@@ -154,14 +159,19 @@ impl Router {
 
         let active_subscriptions = self.packet_subs.read().unwrap();
         if active_subscriptions.is_empty() {
+            warn!("stream_batch_list: No Active Subscriptions");
             return (failed_stream_pks, slots_sent);
         }
 
-        let validators_to_send =
-            Self::validators_in_slot_range(start_slot, end_slot, &self.leader_schedule_cache);
+        let validators_to_send = Self::validators_in_slot_range(
+            start_slot,
+            end_slot,
+            &self.leader_schedule_cache.read().unwrap(),
+        );
         let iter = active_subscriptions.iter();
         for (pk, subscription) in iter {
             let slot_to_send = validators_to_send.get(pk);
+            info!("Slot to Send: {:?}", slot_to_send);
             if let Some(slot) = slot_to_send {
                 if let Err(_e) = subscription.tx.send(Ok(SubscribePacketsResponse {
                     msg: Some(BatchList(batch_list.clone())),
@@ -191,7 +201,7 @@ impl Router {
     fn validators_in_slot_range(
         start_slot: Slot,
         end_slot: Slot,
-        leader_schedule_cache: &Arc<LeaderScheduleCache>,
+        leader_schedule_cache: &LeaderScheduleCache,
     ) -> HashMap<Pubkey, Slot> {
         let n_leader_slots = NUM_CONSECUTIVE_LEADER_SLOTS as usize;
         let mut validators_to_send = HashMap::new();
@@ -204,72 +214,7 @@ impl Router {
         validators_to_send
     }
 
-    /// Receive packet batches via Receiver and stream them out over UDP or TCP to nodes.
-    #[allow(clippy::too_many_arguments)]
-    fn packets_receiver_loop(
-        &self,
-        // num leaders ahead to send packets to
-        look_ahead: u64,
-        // num leaders behind to send packets to
-        look_behind: u64,
-    ) {
-        // let udp_sender = UdpSocket::bind("0.0.0.0:0").expect("bind to udp socket");
-        let mut current_slot: Slot = 0;
-
-        loop {
-            select! {
-                recv(self.slot_receiver) -> maybe_slot => {
-                    match maybe_slot {
-                        Ok(slot) => {
-                            current_slot = slot;
-                        }
-                        Err(_) => {
-                            error!("error receiving slot");
-                            break;
-                        }
-                    }
-                }
-
-                recv(self.packet_receiver) -> maybe_bp_batch => {
-                    match maybe_bp_batch {
-                        Ok(bp_batch) =>  {
-                            let batches = bp_batch.0;
-                            info!(
-                                "Got Batch of length {} x {}",
-                                batches.len(),
-                                batches[0].len()
-                            );
-                            let proto_bl = Self::sol_batchlist_to_proto(batches);
-
-                            let start_slot = current_slot - (NUM_CONSECUTIVE_LEADER_SLOTS * look_behind);
-                            let end_slot = current_slot + (NUM_CONSECUTIVE_LEADER_SLOTS * look_ahead);
-                            let (failed_stream_pks, _slots_sent) = self.stream_batch_list(&proto_bl, start_slot, end_slot);
-
-                            // Todo: Might add udp later?
-                            // Self::send_udp_streams(
-                            //     batch_list.batch_list,
-                            //     &leader_schedule_cache,
-                            //     jito_tpu,
-                            //     slots_sent,
-                            //     &udp_sender,
-                            //     start_slot,
-                            //     end_slot,
-                            // );
-
-                            // close the connections
-                            self.disconnect(&failed_stream_pks);
-                        }
-                        Err(_) => {
-                            error!("error receiving packets");
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fn sol_batchlist_to_proto(batches: Vec<PacketBatch>) -> PbPacketBatchWrapper {
+    pub fn sol_batchlist_to_proto(batches: Vec<PacketBatch>) -> PbPacketBatchWrapper {
         // ToDo: Turn this back into a map
         let mut proto_batch_vec: Vec<PbPacketBatch> = Vec::new();
         for batch in batches.into_iter() {

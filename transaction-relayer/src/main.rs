@@ -1,3 +1,4 @@
+use std::sync::RwLock;
 use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr,
@@ -166,13 +167,10 @@ fn main() {
         &rpc_load_balancer,
     );
 
-    let leader_cache = Arc::new(LeaderScheduleCache::new(
+    let leader_cache = Arc::new(RwLock::new(LeaderScheduleCache::new(
         &rpc_load_balancer,
-        &keypair.pubkey().to_string(),
-    ));
-
-    // ToDo: Start a leader update loop here
-    leader_cache.update_leader_cache();
+        None,
+    )));
 
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();
     rt.block_on(async {
@@ -183,16 +181,17 @@ fn main() {
             slot_receiver,
             packet_receiver,
             leader_cache.clone(),
+            exit.clone(),
             args.public_ip,
             args.tpu_port,
             args.tpu_fwd_port,
         );
 
-        let cache = leader_cache.clone();
-        let auth_interceptor = AuthenticationInterceptor { cache };
-        let svc = ValidatorInterfaceServer::with_interceptor(relayer, auth_interceptor);
-
-        // let svc = ValidatorInterfaceServer::new(relayer);
+        // let cache = leader_cache.clone();
+        // let auth_interceptor = AuthenticationInterceptor { cache };
+        // let svc = ValidatorInterfaceServer::with_interceptor(relayer, auth_interceptor);
+        //
+        let svc = ValidatorInterfaceServer::new(relayer);
         Server::builder()
             .add_service(svc)
             .serve(addr)

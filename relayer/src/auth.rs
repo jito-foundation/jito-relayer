@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use ed25519_dalek::{PublicKey, Signature, Verifier};
 use solana_sdk::pubkey::Pubkey;
@@ -9,13 +9,13 @@ use crate::schedule_cache::LeaderScheduleCache;
 
 #[derive(Clone)]
 pub struct AuthenticationInterceptor {
-    pub cache: Arc<LeaderScheduleCache>,
+    pub cache: Arc<RwLock<LeaderScheduleCache>>,
 }
 
 impl AuthenticationInterceptor {
     pub fn auth(
         req: &mut tonic::Request<()>,
-        cache: Arc<LeaderScheduleCache>,
+        cache: Arc<RwLock<LeaderScheduleCache>>,
     ) -> Result<(), Status> {
         let meta = req.metadata();
         let pubkey = extract_signer_pubkey(meta)?;
@@ -28,7 +28,11 @@ impl AuthenticationInterceptor {
         let validator_pubkey = Pubkey::new(&pubkey.to_bytes());
 
         // TODO: is this called in async runtime?
-        if !cache.is_validator_scheduled(validator_pubkey) {
+        if !cache
+            .read()
+            .unwrap()
+            .is_validator_scheduled(validator_pubkey)
+        {
             return Err(Status::permission_denied(
                 "not a validator scheduled for this epoch",
             ));
