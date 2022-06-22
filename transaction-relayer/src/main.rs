@@ -10,9 +10,9 @@ use std::{
 use clap::Parser;
 use jito_core::tpu::{Tpu, TpuSockets};
 use jito_protos::validator_interface_service::validator_interface_server::ValidatorInterfaceServer;
-use jito_relayer::auth::AuthenticationInterceptor;
-use jito_relayer::relayer::Relayer;
-use jito_relayer::schedule_cache::LeaderScheduleCache;
+use jito_relayer::{
+    auth::AuthenticationInterceptor, relayer::Relayer, schedule_cache::LeaderScheduleCache,
+};
 use jito_rpc::load_balancer::LoadBalancer;
 use solana_net_utils::multi_bind_in_range;
 use solana_sdk::signature::{Keypair, Signer};
@@ -27,27 +27,27 @@ struct Args {
     tpu_bind_ip: IpAddr,
 
     /// Port to bind to for tpu packets
-    #[clap(long, env, default_value_t = 8005)]
+    #[clap(long, env, default_value_t = 10_500)]
     tpu_port: u16,
 
     /// Port to bind to for tpu fwd packets
-    #[clap(long, env, default_value_t = 8006)]
+    #[clap(long, env, default_value_t = 10_501)]
     tpu_fwd_port: u16,
 
     /// Port to bind to for tpu packets
-    #[clap(long, env, default_value_t = 8007)]
+    #[clap(long, env, default_value_t = 10_502)]
     tpu_quic_port: u16,
 
     /// Port to bind to for tpu fwd packets
-    #[clap(long, env, default_value_t = 8008)]
+    #[clap(long, env, default_value_t = 10_503)]
     tpu_quic_fwd_port: u16,
 
     /// Bind IP address for GRPC server
-    #[clap(long, env, default_value_t = IpAddr::from_str("0.0.0.0").unwrap())]
+    #[clap(long, env, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
     grpc_bind_ip: IpAddr,
 
     /// Bind port address for GRPC server
-    #[clap(long, env, default_value_t = 42069)]
+    #[clap(long, env, default_value_t = 10101)]
     grpc_bind_port: u16,
 
     /// Number of TPU threads
@@ -59,12 +59,20 @@ struct Args {
     num_tpu_fwd_binds: usize,
 
     /// RPC server list
-    #[clap(long, env, default_value = "https://api.mainnet-beta.solana.com/")]
+    #[clap(long, env, default_value = "http://127.0.0.1:8899")]
     rpc_servers: Vec<String>,
 
     /// Websocket server list
-    #[clap(long, env, default_value = "wss://api.mainnet-beta.solana.com")]
+    #[clap(long, env, default_value = "ws://127.0.0.1:8900")]
     websocket_servers: Vec<String>,
+
+    /// The public-facing IP address of this server
+    #[clap(long, env, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
+    public_ip: IpAddr,
+
+    /// Skip authentication
+    #[clap(long, env)]
+    no_auth: bool,
 }
 
 struct Sockets {
@@ -171,7 +179,13 @@ fn main() {
         let addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
         println!("Relayer listening on: {}", addr);
 
-        let relayer = Relayer::new(slot_receiver, packet_receiver);
+        let relayer = Relayer::new(
+            slot_receiver,
+            packet_receiver,
+            args.public_ip,
+            args.tpu_port,
+            args.tpu_fwd_port,
+        );
 
         // let cache = leader_cache.clone();
         // let auth_interceptor = AuthenticationInterceptor { cache };

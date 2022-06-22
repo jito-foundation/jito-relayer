@@ -1,18 +1,22 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::thread::{Builder, JoinHandle};
 use std::{
+    net::IpAddr,
     pin::Pin,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     task::{Context, Poll},
+    thread::{Builder, JoinHandle},
     time::Duration,
 };
 
-use crossbeam_channel::{select, Receiver};
+use crossbeam_channel::Receiver;
 use jito_protos::{
     packet::{
         Meta as PbMeta, Packet as PbPacket, PacketBatch as PbPacketBatch,
         PacketBatchWrapper as PbPacketBatchWrapper, PacketFlags as PbPacketFlags,
     },
+    shared::Socket,
     validator_interface_service::{
         subscribe_packets_response::Msg::{BatchList, Heartbeat},
         validator_interface_server::ValidatorInterface,
@@ -24,11 +28,13 @@ use log::*;
 use solana_core::banking_stage::BankingPacketBatch;
 use solana_perf::packet::PacketBatch;
 use solana_sdk::clock::Slot;
-use tokio::sync::Mutex;
 use tokio::{
-    sync::mpsc::{
-        channel, unbounded_channel as unbounded_tokio_channel,
-        UnboundedReceiver as UnboundedTokioReceiver, UnboundedSender as UnboundedTokioSender,
+    sync::{
+        mpsc::{
+            channel, unbounded_channel as unbounded_tokio_channel,
+            UnboundedReceiver as UnboundedTokioReceiver, UnboundedSender as UnboundedTokioSender,
+        },
+        Mutex,
     },
     time::sleep,
 };
@@ -38,12 +44,18 @@ use tonic::{Request, Response, Status};
 pub struct Relayer {
     _slot_receiver: Receiver<Slot>,
     packet_bridge_receiver: Arc<Mutex<UnboundedTokioReceiver<BankingPacketBatch>>>,
+    public_ip: IpAddr,
+    tpu_port: u16,
+    tpu_fwd_port: u16,
 }
 
 impl Relayer {
     pub fn new(
         _slot_receiver: Receiver<Slot>,
         packet_receiver: Receiver<BankingPacketBatch>,
+        public_ip: IpAddr,
+        tpu_port: u16,
+        tpu_fwd_port: u16,
     ) -> Relayer {
         let (packet_bridge_sender, packet_bridge_receiver) = unbounded_tokio_channel();
 
@@ -52,6 +64,9 @@ impl Relayer {
         Relayer {
             _slot_receiver,
             packet_bridge_receiver: Arc::new(Mutex::new(packet_bridge_receiver)),
+            public_ip,
+            tpu_port,
+            tpu_fwd_port,
         }
     }
 }
@@ -84,7 +99,16 @@ impl ValidatorInterface for Relayer {
         &self,
         _: Request<GetTpuConfigsRequest>,
     ) -> Result<Response<GetTpuConfigsResponse>, Status> {
-        unimplemented!();
+        return Ok(Response::new(GetTpuConfigsResponse {
+            tpu: Some(Socket {
+                ip: self.public_ip.to_string(),
+                port: self.tpu_port as i64,
+            }),
+            tpu_forward: Some(Socket {
+                ip: self.public_ip.to_string(),
+                port: self.tpu_fwd_port as i64,
+            }),
+        }));
     }
 
     type SubscribeBundlesStream = ValidatorSubscriberStream<SubscribeBundlesResponse>;
@@ -140,8 +164,7 @@ impl ValidatorInterface for Relayer {
         tokio::spawn(async move {
             let sender_l = sender;
             while !closed_l.load(Ordering::Relaxed) {
-                // Gonna leave this select for now, in case it's needed for slots later
-
+                // Is Tokio Mutex best way to do this?
                 let mut pkt_receiver = pkt_receiver.lock().await;
                 if let Some(bp_batch) = pkt_receiver.recv().await {
                     let batches = bp_batch.0;

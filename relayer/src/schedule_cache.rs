@@ -1,13 +1,14 @@
-use solana_sdk::clock::Slot;
+use std::{
+    collections::HashSet,
+    str::FromStr,
+    sync::{Arc, Mutex, RwLock},
+};
+
+use jito_rpc::load_balancer::LoadBalancer;
 // use solana_sdk::pubkey::Pubkey;
 use log::{error, info};
 use solana_client::rpc_config::RpcLeaderScheduleConfig;
-use solana_sdk::pubkey::Pubkey;
-use std::collections::HashSet;
-use std::str::FromStr;
-use std::sync::{Arc, Mutex, RwLock};
-
-use jito_rpc::load_balancer::LoadBalancer;
+use solana_sdk::{clock::Slot, pubkey::Pubkey};
 
 pub struct LeaderScheduleCache {
     /// Maps slots to scheduled pubkey, used to index into the contact_infos map.

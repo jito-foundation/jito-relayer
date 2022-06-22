@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
 use ed25519_dalek::{PublicKey, Signature, Verifier};
-// use jito_cache::{contact_info::PubkeyK, leader_schedule::cache::LeaderScheduleCache};
-use crate::schedule_cache::LeaderScheduleCache;
 use solana_sdk::pubkey::Pubkey;
 use tonic::{metadata::MetadataMap, service::Interceptor, Request, Status};
+
+// use jito_cache::{contact_info::PubkeyK, leader_schedule::cache::LeaderScheduleCache};
+use crate::schedule_cache::LeaderScheduleCache;
 
 #[derive(Clone)]
 pub struct AuthenticationInterceptor {
