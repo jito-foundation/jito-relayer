@@ -1,78 +1,96 @@
 use std::{
     net::IpAddr,
     pin::Pin,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::Arc,
     task::{Context, Poll},
-    thread::{Builder, JoinHandle},
-    time::Duration,
+    thread::{spawn, JoinHandle},
 };
 
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use jito_protos::{
-    packet::{
-        Meta as PbMeta, Packet as PbPacket, PacketBatch as PbPacketBatch,
-        PacketBatchWrapper as PbPacketBatchWrapper, PacketFlags as PbPacketFlags,
-    },
     shared::Socket,
     validator_interface_service::{
-        subscribe_packets_response::Msg::{BatchList, Heartbeat},
-        validator_interface_server::ValidatorInterface,
-        GetTpuConfigsRequest, GetTpuConfigsResponse, SubscribeBundlesRequest,
-        SubscribeBundlesResponse, SubscribePacketsRequest, SubscribePacketsResponse,
+        validator_interface_server::ValidatorInterface, GetTpuConfigsRequest,
+        GetTpuConfigsResponse, SubscribeBundlesRequest, SubscribeBundlesResponse,
+        SubscribePacketsRequest, SubscribePacketsResponse,
     },
 };
 use log::*;
 use solana_core::banking_stage::BankingPacketBatch;
-use solana_perf::packet::PacketBatch;
-use solana_sdk::clock::Slot;
+use solana_sdk::{clock::Slot, pubkey::Pubkey};
 use tokio::{
-    sync::{
-        mpsc::{
-            channel, unbounded_channel as unbounded_tokio_channel,
-            UnboundedReceiver as UnboundedTokioReceiver, UnboundedSender as UnboundedTokioSender,
-        },
-        Mutex,
-    },
-    time::sleep,
+    sync::mpsc::{channel, unbounded_channel},
+    task::spawn_blocking,
 };
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tonic::{Request, Response, Status};
 
+use crate::{auth::extract_pubkey, router::Router, schedule_cache::LeaderScheduleCache};
+
 pub struct Relayer {
-    _slot_receiver: Receiver<Slot>,
-    packet_bridge_receiver: Arc<Mutex<UnboundedTokioReceiver<BankingPacketBatch>>>,
+    router: Arc<Router>,
     public_ip: IpAddr,
     tpu_port: u16,
     tpu_fwd_port: u16,
+    client_disconnect_sender: Sender<Pubkey>,
+    disconnects_hdl: JoinHandle<()>,
 }
 
 impl Relayer {
     pub fn new(
-        _slot_receiver: Receiver<Slot>,
+        slot_receiver: Receiver<Slot>,
         packet_receiver: Receiver<BankingPacketBatch>,
+        leader_schedule_cache: Arc<LeaderScheduleCache>,
         public_ip: IpAddr,
         tpu_port: u16,
         tpu_fwd_port: u16,
-    ) -> Relayer {
-        let (packet_bridge_sender, packet_bridge_receiver) = unbounded_tokio_channel();
+    ) -> Self {
+        let router = Arc::new(Router::new(
+            slot_receiver,
+            packet_receiver,
+            leader_schedule_cache,
+        ));
+        // ToDo: Send Heartbeat loop here
 
-        Self::start_crossbeam_tokio_bridge(packet_receiver, packet_bridge_sender);
+        let (client_disconnect_sender, closed_disconnect_receiver) = unbounded();
+        let disconnects_hdl =
+            Self::handle_disconnects_loop(closed_disconnect_receiver, router.clone());
 
-        Relayer {
-            _slot_receiver,
-            packet_bridge_receiver: Arc::new(Mutex::new(packet_bridge_receiver)),
+        Self {
+            router,
             public_ip,
             tpu_port,
             tpu_fwd_port,
+            client_disconnect_sender,
+            disconnects_hdl,
         }
+    }
+
+    pub fn join(self) {
+        self.disconnects_hdl.join().expect("task panicked");
+    }
+
+    // listen for client disconnects and remove from subscriptions map
+    pub fn handle_disconnects_loop(rx: Receiver<Pubkey>, router: Arc<Router>) -> JoinHandle<()> {
+        spawn(move || loop {
+            match rx.recv() {
+                Ok(pk) => {
+                    debug!("client [pk={}] disconnected", pk);
+                    router.disconnect(&[pk]);
+                }
+                Err(_) => {
+                    warn!("closed connection channel disconnected");
+                    break;
+                }
+            }
+        })
     }
 }
 
 pub struct ValidatorSubscriberStream<T> {
     inner: ReceiverStream<Result<T, Status>>,
+    tx: Sender<Pubkey>,
+    client_pubkey: Pubkey,
 }
 
 impl<T> Stream for ValidatorSubscriberStream<T> {
@@ -89,7 +107,7 @@ impl<T> Stream for ValidatorSubscriberStream<T> {
 
 impl<T> Drop for ValidatorSubscriberStream<T> {
     fn drop(&mut self) {
-        // ToDo: Need anything here?
+        let _ = self.tx.send(self.client_pubkey);
     }
 }
 
@@ -124,153 +142,48 @@ impl ValidatorInterface for Relayer {
 
     async fn subscribe_packets(
         &self,
-        _request: Request<SubscribePacketsRequest>,
+        req: Request<SubscribePacketsRequest>,
     ) -> Result<Response<Self::SubscribePacketsStream>, Status> {
         info!("Validator Connected!!!!!!!!!");
+        let pubkey = extract_pubkey(req.metadata())?;
+        let (subscription_sender, mut subscription_receiver) = unbounded_channel();
 
-        let (sender, receiver) = channel(100);
-        let closed = Arc::new(AtomicBool::new(false));
+        let router = self.router.clone();
+        let connected =
+            spawn_blocking(move || router.add_packet_subscription(&pubkey, subscription_sender))
+                .await
+                .map_err(|_| Status::internal("system error adding subscription"))?;
 
-        // Send Heartbeats
-        let sender_l = sender.clone();
-        let closed_l = closed.clone();
+        if !connected {
+            return Err(Status::resource_exhausted("user already connected"));
+        }
+
+        let (client_sender, client_receiver) = channel(1_000_000);
         tokio::spawn(async move {
-            let mut hb_misses = 0u8;
-            while !closed_l.load(Ordering::Relaxed) {
-                if let Err(e) = sender_l
-                    .send(Ok(SubscribePacketsResponse {
-                        msg: Some(Heartbeat(true)),
-                    }))
-                    .await
-                {
-                    error!("subscribe_packets error sending heartbeat: {:?}", e);
-                    hb_misses += 1;
-                    if hb_misses > 3 {
-                        error!("Too many failed heartbeat sends.  Disconnecting");
-                        closed_l.store(true, Ordering::Relaxed);
-                        break;
-                    }
-                } else {
-                    hb_misses = 0;
-                }
-                sleep(Duration::from_millis(500)).await;
-            }
-        });
-
-        // Send Packets
-        // let sender_l = sender.clone();
-        let pkt_receiver = self.packet_bridge_receiver.clone();
-        let closed_l = closed.clone();
-        tokio::spawn(async move {
-            // Is the following line needed to force a move of sender?
-            let sender_l = sender;
-            while !closed_l.load(Ordering::Relaxed) {
-                // Is Tokio Mutex best way to do this?
-                let mut pkt_receiver = pkt_receiver.lock().await;
-
-                // During multi node testing, this stops getting executed
-                if let Some(bp_batch) = pkt_receiver.recv().await {
-                    let batches = bp_batch.0;
-                    info!(
-                        "Got Batch of length {} x {}",
-                        batches.len(),
-                        batches[0].len()
-                    );
-                    let proto_bl = Self::sol_batchlist_to_proto(batches);
-
-                    // Send over Grpc
-                    match sender_l
-                        // .send(Ok(SubscribePacketsResponse {msg: Some(BatchList(proto_bl))}).await
-                        .send_timeout(
-                            Ok(SubscribePacketsResponse {
-                                msg: Some(BatchList(proto_bl)),
-                            }),
-                            Duration::from_millis(1000),
-                        )
-                        .await
-                    {
-                        Ok(_) => info!("Sent batch over grpc"),
-                        Err(_e) => {
-                            // error!("subscribe_packets error sending response: {:?}", _e);
-                            error!("subscribe_packets error sending response!!");
+            info!("validator connected [pubkey={:?}]", pubkey);
+            loop {
+                match subscription_receiver.recv().await {
+                    Some(msg) => {
+                        if let Err(e) = client_sender.send(msg).await {
+                            debug!("client disconnected [err={}] [pk={}]", e, pubkey);
+                            break;
                         }
                     }
-                } else {
-                    // Received none from channel
-                    error!("packets_receiver channel closed");
-                    break;
+                    None => {
+                        debug!("unsubscribed [pk={}]", pubkey);
+                        let _ = client_sender
+                            .send(Err(Status::aborted("disconnected")))
+                            .await;
+                        break;
+                    }
                 }
             }
         });
 
         Ok(Response::new(ValidatorSubscriberStream {
-            inner: ReceiverStream::new(receiver),
+            inner: ReceiverStream::new(client_receiver),
+            tx: self.client_disconnect_sender.clone(),
+            client_pubkey: pubkey,
         }))
-    }
-}
-
-impl Relayer {
-    fn sol_batchlist_to_proto(batches: Vec<PacketBatch>) -> PbPacketBatchWrapper {
-        // ToDo: Turn this back into a map
-        let mut proto_batch_vec: Vec<PbPacketBatch> = Vec::new();
-        for batch in batches.into_iter() {
-            let mut proto_pkt_vec: Vec<PbPacket> = Vec::new();
-            for p in batch.iter() {
-                if !p.meta.discard() {
-                    proto_pkt_vec.push(PbPacket {
-                        data: p.data[0..p.meta.size].to_vec(),
-                        meta: Some(PbMeta {
-                            size: p.meta.size as u64,
-                            addr: p.meta.addr.to_string(),
-                            port: p.meta.port as u32,
-                            flags: Some(PbPacketFlags {
-                                discard: p.meta.discard(),
-                                forwarded: p.meta.forwarded(),
-                                repair: p.meta.repair(),
-                                simple_vote_tx: p.meta.is_simple_vote_tx(),
-                                // tracer_tx: p.meta.is_tracer_tx(),  // Couldn't get this to work?
-                                tracer_tx: false,
-                            }),
-                        }),
-                    })
-                }
-            }
-            proto_batch_vec.push(PbPacketBatch {
-                packets: proto_pkt_vec,
-            })
-        }
-
-        PbPacketBatchWrapper {
-            // ToDo: Perf - Clone here?
-            batch_list: proto_batch_vec.clone(),
-        }
-    }
-
-    // bridge the sync <> async gap
-    fn start_crossbeam_tokio_bridge(
-        verified_receiver: Receiver<BankingPacketBatch>,
-        verified_sender: UnboundedTokioSender<BankingPacketBatch>,
-    ) -> JoinHandle<()> {
-        Builder::new()
-            .name(String::from("thread-verified-receiver-bridge"))
-            .spawn(move || loop {
-                match verified_receiver.recv() {
-                    Ok(batches) => {
-                        info!("received packet batch on bridge!");
-                        if let Err(e) = verified_sender.send(batches) {
-                            error!(
-                                "error sending batches over bridge_sender channel [error={}]",
-                                e
-                            );
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        error!("verified_receiver channel disconnected [error={}]", e);
-                        break;
-                    }
-                }
-            })
-            .unwrap()
     }
 }

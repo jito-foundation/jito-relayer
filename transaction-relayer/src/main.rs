@@ -182,16 +182,17 @@ fn main() {
         let relayer = Relayer::new(
             slot_receiver,
             packet_receiver,
+            leader_cache.clone(),
             args.public_ip,
             args.tpu_port,
             args.tpu_fwd_port,
         );
 
-        // let cache = leader_cache.clone();
-        // let auth_interceptor = AuthenticationInterceptor { cache };
-        // let svc = ValidatorInterfaceServer::with_interceptor(relayer, auth_interceptor);
+        let cache = leader_cache.clone();
+        let auth_interceptor = AuthenticationInterceptor { cache };
+        let svc = ValidatorInterfaceServer::with_interceptor(relayer, auth_interceptor);
 
-        let svc = ValidatorInterfaceServer::new(relayer);
+        // let svc = ValidatorInterfaceServer::new(relayer);
         Server::builder()
             .add_service(svc)
             .serve(addr)
