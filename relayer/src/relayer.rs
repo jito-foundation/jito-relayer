@@ -109,8 +109,8 @@ impl Relayer {
         let hb_loop_hdl = spawn(move || {
             let mut n_hb = 0usize;
             while !finished.load(Ordering::Relaxed) {
-                // Hacky!!!!: Update Leader Cache every 2 minutes
-                if n_hb % 240 == 0 {
+                // Hacky!!!!: Update Leader Cache every 30 seconds
+                if n_hb % 30 == 0 {
                     router
                         .leader_schedule_cache
                         .write()

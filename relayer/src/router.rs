@@ -210,6 +210,10 @@ impl Router {
                 validators_to_send.insert(pk, slot);
             }
         }
+        info!(
+            "validators_in_slot_range: {}  -  {},   val: {:?}",
+            start_slot, end_slot, validators_to_send
+        );
 
         validators_to_send
     }
