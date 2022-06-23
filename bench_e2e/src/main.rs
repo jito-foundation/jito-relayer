@@ -10,7 +10,6 @@ use std::{
 };
 
 use bincode::serialize;
-
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     signature::{Keypair, Signature, Signer},

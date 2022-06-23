@@ -47,7 +47,6 @@ impl Router {
         leader_schedule_cache: Arc<RwLock<LeaderScheduleCache>>,
     ) -> Router {
         // Must Call init externally after creating
-        
 
         Router {
             packet_subs: Arc::new(RwLock::new(HashMap::new())),
