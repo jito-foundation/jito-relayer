@@ -21,55 +21,55 @@ use tonic::transport::Server;
 #[clap(author, version, about, long_about = None)]
 struct Args {
     /// IP address to bind to for transaction packets
-    #[clap(long, env, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
+    #[clap(long, env, value_parser, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
     tpu_bind_ip: IpAddr,
 
     /// Port to bind to for tpu packets
-    #[clap(long, env, default_value_t = 10_500)]
+    #[clap(long, env, value_parser, default_value_t = 10_500)]
     tpu_port: u16,
 
     /// Port to bind to for tpu fwd packets
-    #[clap(long, env, default_value_t = 10_501)]
+    #[clap(long, env, value_parser, default_value_t = 10_501)]
     tpu_fwd_port: u16,
 
     /// Port to bind to for tpu packets
-    #[clap(long, env, default_value_t = 10_502)]
+    #[clap(long, env, value_parser, default_value_t = 10_502)]
     tpu_quic_port: u16,
 
     /// Port to bind to for tpu fwd packets
-    #[clap(long, env, default_value_t = 10_503)]
+    #[clap(long, env, value_parser, default_value_t = 10_503)]
     tpu_quic_fwd_port: u16,
 
     /// Bind IP address for GRPC server
-    #[clap(long, env, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
+    #[clap(long, env, value_parser, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
     grpc_bind_ip: IpAddr,
 
     /// Bind port address for GRPC server
-    #[clap(long, env, default_value_t = 10101)]
+    #[clap(long, env, value_parser, default_value_t = 10101)]
     grpc_bind_port: u16,
 
     /// Number of TPU threads
-    #[clap(long, env, default_value_t = 32)]
+    #[clap(long, env, value_parser, default_value_t = 32)]
     num_tpu_binds: usize,
 
     /// Number of TPU forward threads
-    #[clap(long, env, default_value_t = 16)]
+    #[clap(long, env, value_parser, default_value_t = 16)]
     num_tpu_fwd_binds: usize,
 
     /// RPC server list
-    #[clap(long, env, default_value = "http://127.0.0.1:8899")]
+    #[clap(long, env, value_parser, default_value = "http://127.0.0.1:8899")]
     rpc_servers: Vec<String>,
 
     /// Websocket server list
-    #[clap(long, env, default_value = "ws://127.0.0.1:8900")]
+    #[clap(long, env, value_parser, default_value = "ws://127.0.0.1:8900")]
     websocket_servers: Vec<String>,
 
     /// The public-facing IP address of this server
-    #[clap(long, env, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
+    #[clap(long, env, value_parser, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
     public_ip: IpAddr,
 
     /// Skip authentication
-    #[clap(long, env)]
+    #[clap(long, env, value_parser)]
     no_auth: bool,
 }
 
