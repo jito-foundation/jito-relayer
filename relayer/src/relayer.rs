@@ -62,7 +62,7 @@ impl Relayer {
         ));
 
         // ToDo: hb loop contains hacky leader schedule update
-        let hb_hdl = Self::start_hb_loop(router.clone(), exit.clone());
+        let hb_hdl = Self::start_heartbeat_loop(router.clone(), exit.clone());
         let pkt_loop_hdl = Self::start_packets_receiver_loop(router.clone(), exit.clone(), 3, 0);
 
         let (client_disconnect_sender, closed_disconnect_receiver) = unbounded();
@@ -103,7 +103,7 @@ impl Relayer {
         })
     }
 
-    pub fn start_hb_loop(router: Arc<Router>, exit: Arc<AtomicBool>) -> JoinHandle<()> {
+    pub fn start_heartbeat_loop(router: Arc<Router>, exit: Arc<AtomicBool>) -> JoinHandle<()> {
         info!("Started Heartbeat");
         let finished = exit.clone();
         let hb_loop_hdl = spawn(move || {
@@ -138,7 +138,6 @@ impl Relayer {
         // num leaders behind to send packets to
         look_behind: u64,
     ) -> JoinHandle<()> {
-        // let udp_sender = UdpSocket::bind("0.0.0.0:0").expect("bind to udp socket");
         let mut current_slot: Slot = 0;
 
         let finished = exit.clone();
@@ -169,22 +168,11 @@ impl Relayer {
                                     );
                                 }
 
-                                let proto_bl = Router::sol_batchlist_to_proto(batches);
+                                let proto_bl = Router::batchlist_to_proto(batches);
 
                                 let start_slot = current_slot - (NUM_CONSECUTIVE_LEADER_SLOTS * look_behind);
                                 let end_slot = current_slot + (NUM_CONSECUTIVE_LEADER_SLOTS * look_ahead);
                                 let (failed_stream_pks, _slots_sent) = router.stream_batch_list(&proto_bl, start_slot, end_slot);
-
-                                // Todo: Might add udp later?
-                                // Self::send_udp_streams(
-                                //     batch_list.batch_list,
-                                //     &leader_schedule_cache,
-                                //     jito_tpu,
-                                //     slots_sent,
-                                //     &udp_sender,
-                                //     start_slot,
-                                //     end_slot,
-                                // );
 
                                 // close the connections
                                 router.disconnect(&failed_stream_pks);
@@ -251,6 +239,7 @@ impl ValidatorInterface for Relayer {
         &self,
         _: Request<SubscribeBundlesRequest>,
     ) -> Result<Response<Self::SubscribeBundlesStream>, Status> {
+        error!("Bundle Subscriptions not yet available on relayer!!!");
         unimplemented!();
     }
 

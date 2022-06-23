@@ -4,7 +4,6 @@ use ed25519_dalek::{PublicKey, Signature, Verifier};
 use solana_sdk::pubkey::Pubkey;
 use tonic::{metadata::MetadataMap, service::Interceptor, Request, Status};
 
-// use jito_cache::{contact_info::PubkeyK, leader_schedule::cache::LeaderScheduleCache};
 use crate::schedule_cache::LeaderScheduleCache;
 
 #[derive(Clone)]
@@ -15,7 +14,7 @@ pub struct AuthenticationInterceptor {
 impl AuthenticationInterceptor {
     pub fn auth(
         req: &mut tonic::Request<()>,
-        cache: Arc<RwLock<LeaderScheduleCache>>,
+        cache: &Arc<RwLock<LeaderScheduleCache>>,
     ) -> Result<(), Status> {
         let meta = req.metadata();
         let pubkey = extract_signer_pubkey(meta)?;
@@ -74,7 +73,7 @@ impl Interceptor for AuthenticationInterceptor {
         &mut self,
         mut request: tonic::Request<()>,
     ) -> std::result::Result<Request<()>, Status> {
-        Self::auth(&mut request, self.cache.clone())?;
+        Self::auth(&mut request, &self.cache)?;
         Ok(request)
     }
 }

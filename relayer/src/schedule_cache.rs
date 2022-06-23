@@ -10,9 +10,9 @@ use solana_sdk::{clock::Slot, pubkey::Pubkey};
 
 pub struct LeaderScheduleCache {
     /// Maps slots to scheduled pubkey, used to index into the contact_infos map.
-    schedule: Arc<RwLock<HashSet<Slot>>>,
+    schedule: RwLock<HashSet<Slot>>,
     /// RPC Client
-    rpc: Arc<Mutex<LoadBalancer>>,
+    load_balancer: Arc<Mutex<LoadBalancer>>,
     /// Validator Identity
     identity: Option<String>,
 }
@@ -20,8 +20,8 @@ pub struct LeaderScheduleCache {
 impl LeaderScheduleCache {
     pub fn new(rpc: &Arc<Mutex<LoadBalancer>>, identity: Option<String>) -> LeaderScheduleCache {
         LeaderScheduleCache {
-            schedule: Arc::new(RwLock::new(HashSet::new())),
-            rpc: rpc.clone(),
+            schedule: RwLock::new(HashSet::new()),
+            load_balancer: rpc.clone(),
             identity,
         }
     }
@@ -42,7 +42,7 @@ impl LeaderScheduleCache {
         //     commitment: None,
         // };
 
-        let rpc_client = self.rpc.lock().unwrap().rpc_client();
+        let rpc_client = self.load_balancer.lock().unwrap().rpc_client();
 
         // ToDo: Should the rpc client lock be dropped manually?
         if let Ok(epoch_info) = rpc_client.get_epoch_info() {
@@ -95,7 +95,7 @@ impl LeaderScheduleCache {
         info!("Is Validator Scheduled Called for {}", _pk.to_string());
         info!("Schedule {:?}", self.schedule.read().unwrap());
         if let Some(max_sched) = self.schedule.read().unwrap().iter().max() {
-            let output = *max_sched > self.rpc.lock().unwrap().get_highest_slot();
+            let output = *max_sched > self.load_balancer.lock().unwrap().get_highest_slot();
             info!("Found max_sched, output: {}", output);
             return output;
         } else {

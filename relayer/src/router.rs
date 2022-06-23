@@ -16,6 +16,7 @@ use jito_protos::{
 };
 use log::{debug, info, warn};
 use solana_core::banking_stage::BankingPacketBatch;
+use solana_metrics::{datapoint_info, datapoint_warn};
 use solana_perf::packet::PacketBatch;
 use solana_sdk::{
     clock::{Slot, NUM_CONSECUTIVE_LEADER_SLOTS},
@@ -66,19 +67,19 @@ impl Router {
                 msg: Some(Heartbeat(true)),
             })) {
                 warn!("error sending heartbeat to subscriber [{}]", e);
-                // datapoint_info!(
-                //     "validator_subscription",
-                //     ("subscriber", pk.to_string(), String),
-                //     ("heartbeat_error", 1, i64)
-                // );
+                datapoint_info!(
+                    "validator_subscription",
+                    ("subscriber", pk.to_string(), String),
+                    ("heartbeat_error", 1, i64)
+                );
                 failed_subscriptions.push(*pk);
             } else {
                 debug!("sent heartbeat to subscriber [{}]", pk);
-                // datapoint_info!(
-                //     "validator_subscription",
-                //     ("subscriber", pk.to_string(), String),
-                //     ("heartbeat", 1, i64)
-                // );
+                datapoint_info!(
+                    "validator_subscription",
+                    ("subscriber", pk.to_string(), String),
+                    ("heartbeat", 1, i64)
+                );
             }
         }
         failed_subscriptions
@@ -93,11 +94,11 @@ impl Router {
         let mut active_subs = self.packet_subs.write().unwrap();
 
         if active_subs.contains_key(pk) {
-            // datapoint_warn!(
-            //     "validator_interface_add_packet_subscription",
-            //     ("subscriber", pk.to_string(), String),
-            //     ("add_packet_subscription_error", 1, i64)
-            // );
+            datapoint_warn!(
+                "validator_interface_add_packet_subscription",
+                ("subscriber", pk.to_string(), String),
+                ("add_packet_subscription_error", 1, i64)
+            );
             false
         } else {
             active_subs.insert(Pubkey::new(&pk.to_bytes()), PacketSubscription { tx });
@@ -108,12 +109,12 @@ impl Router {
             let mut leader_cache = self.leader_schedule_cache.write().unwrap();
             leader_cache.set_identity(&pk.to_string());
             leader_cache.update_leader_cache();
-            // datapoint_info!(
-            //     "validator_interface_add_packet_subscription",
-            //     ("subscriber", pk.to_string(), String),
-            //     ("added", 1, i64),
-            //     ("num_subs", active_subs.keys().len(), i64)
-            // );
+            datapoint_info!(
+                "validator_interface_add_packet_subscription",
+                ("subscriber", pk.to_string(), String),
+                ("added", 1, i64),
+                ("num_subs", active_subs.keys().len(), i64)
+            );
             true
         }
     }
@@ -132,12 +133,12 @@ impl Router {
         let mut active_subs = self.packet_subs.write().unwrap();
         for pk in keys {
             active_subs.remove(pk);
-            // datapoint_info!(
-            //     "validator_interface_remove_packet_subscription",
-            //     ("subscriber", pk.to_string(), String),
-            //     ("removed", 1, i64),
-            //     ("num_subs", active_subs.keys().len(), i64)
-            // );
+            datapoint_info!(
+                "validator_interface_remove_packet_subscription",
+                ("subscriber", pk.to_string(), String),
+                ("removed", 1, i64),
+                ("num_subs", active_subs.keys().len(), i64)
+            );
         }
     }
 
@@ -173,23 +174,23 @@ impl Router {
             let slot_to_send = validators_to_send.get(pk);
             info!("Slot to Send: {:?}", slot_to_send);
             if let Some(slot) = slot_to_send {
-                if let Err(_e) = subscription.tx.send(Ok(SubscribePacketsResponse {
+                if let Err(e) = subscription.tx.send(Ok(SubscribePacketsResponse {
                     msg: Some(BatchList(batch_list.clone())),
                 })) {
-                    // datapoint_warn!(
-                    //     "validator_interface_stream_batch_list",
-                    //     ("subscriber", pk.to_string(), String),
-                    //     ("batch_stream_error", 1, i64),
-                    //     ("error", e.to_string(), String)
-                    // );
+                    datapoint_warn!(
+                        "validator_interface_stream_batch_list",
+                        ("subscriber", pk.to_string(), String),
+                        ("batch_stream_error", 1, i64),
+                        ("error", e.to_string(), String)
+                    );
                     failed_stream_pks.push(*pk);
                 } else {
                     debug!("slot sent {}", slot);
-                    // datapoint_info!(
-                    //     "validator_interface_stream_batch_list",
-                    //     ("subscriber", pk.to_string(), String),
-                    //     ("batches_streamed", batch_list.batch_list.len(), i64)
-                    // );
+                    datapoint_info!(
+                        "validator_interface_stream_batch_list",
+                        ("subscriber", pk.to_string(), String),
+                        ("batches_streamed", batch_list.batch_list.len(), i64)
+                    );
                     slots_sent.insert(*slot);
                 }
             }
@@ -218,7 +219,7 @@ impl Router {
         validators_to_send
     }
 
-    pub fn sol_batchlist_to_proto(batches: Vec<PacketBatch>) -> PbPacketBatchWrapper {
+    pub fn batchlist_to_proto(batches: Vec<PacketBatch>) -> PbPacketBatchWrapper {
         // ToDo: Turn this back into a map
         let mut proto_batch_vec: Vec<PbPacketBatch> = Vec::new();
         for batch in batches.into_iter() {
@@ -249,8 +250,7 @@ impl Router {
         }
 
         PbPacketBatchWrapper {
-            // ToDo: Perf - Clone here?
-            batch_list: proto_batch_vec.clone(),
+            batch_list: proto_batch_vec,
         }
     }
 }
