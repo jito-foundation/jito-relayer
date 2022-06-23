@@ -10,9 +10,7 @@ use std::{
 use clap::Parser;
 use jito_core::tpu::{Tpu, TpuSockets};
 use jito_protos::validator_interface_service::validator_interface_server::ValidatorInterfaceServer;
-use jito_relayer::{
-    auth::AuthenticationInterceptor, relayer::Relayer, schedule_cache::LeaderScheduleCache,
-};
+use jito_relayer::{relayer::Relayer, schedule_cache::LeaderScheduleCache};
 use jito_rpc::load_balancer::LoadBalancer;
 use solana_net_utils::multi_bind_in_range;
 use solana_sdk::signature::{Keypair, Signer};
@@ -136,7 +134,7 @@ fn main() {
 
     let keypair = Keypair::new();
     solana_metrics::set_host_id(keypair.pubkey().to_string());
-    println!("Pub Key: {}", keypair.pubkey().to_string());
+    println!("Pub Key: {}", keypair.pubkey());
 
     let exit = Arc::new(AtomicBool::new(false));
 
@@ -145,7 +143,7 @@ fn main() {
         args.websocket_servers.len(),
         "num rpc servers = num websocket servers"
     );
-    assert!(args.rpc_servers.len() >= 1, "num rpc servers >= 1");
+    assert!(!args.rpc_servers.is_empty(), "num rpc servers >= 1");
 
     let servers: Vec<(String, String)> = args
         .rpc_servers

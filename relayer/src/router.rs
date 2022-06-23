@@ -47,14 +47,14 @@ impl Router {
         leader_schedule_cache: Arc<RwLock<LeaderScheduleCache>>,
     ) -> Router {
         // Must Call init externally after creating
-        let router = Router {
+        
+
+        Router {
             packet_subs: Arc::new(RwLock::new(HashMap::new())),
             leader_schedule_cache,
             slot_receiver,
             packet_receiver,
-        };
-
-        return router;
+        }
     }
 
     /// Sends periodic heartbeats to all active subscribers regardless

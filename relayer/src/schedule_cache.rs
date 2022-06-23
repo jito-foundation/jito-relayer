@@ -79,8 +79,8 @@ impl LeaderScheduleCache {
         let schedule = self.schedule.read().unwrap();
 
         // ToDo: Write this better
-        return if let Some(_) = schedule.get(slot) {
-            if let Ok(pk) = Pubkey::from_str(&self.identity.as_ref()?) {
+        return if schedule.get(slot).is_some() {
+            if let Ok(pk) = Pubkey::from_str(self.identity.as_ref()?) {
                 Some(pk)
             } else {
                 None
@@ -97,7 +97,7 @@ impl LeaderScheduleCache {
         if let Some(max_sched) = self.schedule.read().unwrap().iter().max() {
             let output = *max_sched > self.load_balancer.lock().unwrap().get_highest_slot();
             info!("Found max_sched, output: {}", output);
-            return output;
+            output
         } else {
             info!("Didn't get max_sched!");
             false

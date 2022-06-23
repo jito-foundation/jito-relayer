@@ -63,7 +63,7 @@ impl Relayer {
 
         // ToDo: hb loop contains hacky leader schedule update
         let hb_hdl = Self::start_heartbeat_loop(router.clone(), exit.clone());
-        let pkt_loop_hdl = Self::start_packets_receiver_loop(router.clone(), exit.clone(), 3, 0);
+        let pkt_loop_hdl = Self::start_packets_receiver_loop(router.clone(), exit, 3, 0);
 
         let (client_disconnect_sender, closed_disconnect_receiver) = unbounded();
         let disconnects_hdl =
@@ -105,10 +105,10 @@ impl Relayer {
 
     pub fn start_heartbeat_loop(router: Arc<Router>, exit: Arc<AtomicBool>) -> JoinHandle<()> {
         info!("Started Heartbeat");
-        let finished = exit.clone();
-        let hb_loop_hdl = spawn(move || {
+
+        spawn(move || {
             let mut n_hb = 0usize;
-            while !finished.load(Ordering::Relaxed) {
+            while !exit.load(Ordering::Relaxed) {
                 // Hacky!!!!: Update Leader Cache every 30 seconds
                 if n_hb % 30 == 0 {
                     router
@@ -123,9 +123,7 @@ impl Relayer {
                 std::thread::sleep(Duration::from_millis(500));
                 n_hb += 1;
             }
-        });
-
-        hb_loop_hdl
+        })
     }
 
     /// Receive packet batches via Receiver and stream them out over UDP or TCP to nodes.
@@ -140,9 +138,8 @@ impl Relayer {
     ) -> JoinHandle<()> {
         let mut current_slot: Slot = 0;
 
-        let finished = exit.clone();
-        let pkt_loop_hdl = spawn(move || {
-            while !finished.load(Ordering::Relaxed) {
+        spawn(move || {
+            while !exit.load(Ordering::Relaxed) {
                 select! {
                     recv(router.slot_receiver) -> maybe_slot => {
                         match maybe_slot {
@@ -160,7 +157,7 @@ impl Relayer {
                         match maybe_bp_batch {
                             Ok(bp_batch) =>  {
                                 let batches = bp_batch.0;
-                                if batches.len() > 0 {
+                                if !batches.is_empty() {
                                     info!(
                                         "Got Batch of length {} x {}",
                                         batches.len(),
@@ -185,9 +182,7 @@ impl Relayer {
                     }
                 }
             }
-        });
-
-        pkt_loop_hdl
+        })
     }
 }
 
