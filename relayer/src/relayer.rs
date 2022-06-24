@@ -3,7 +3,7 @@ use std::{
     pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, RwLock,
+        Arc,
     },
     task::{Context, Poll},
     thread::{spawn, JoinHandle},
@@ -49,7 +49,7 @@ impl Relayer {
     pub fn new(
         slot_receiver: Receiver<Slot>,
         packet_receiver: Receiver<BankingPacketBatch>,
-        leader_schedule_cache: Arc<RwLock<LeaderScheduleCache>>,
+        leader_schedule_cache: Arc<LeaderScheduleCache>,
         exit: Arc<AtomicBool>,
         public_ip: IpAddr,
         tpu_port: u16,

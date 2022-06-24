@@ -35,7 +35,7 @@ pub struct PacketSubscription {
 
 pub struct Router {
     packet_subs: RwLock<HashMap<Pubkey, PacketSubscription>>,
-    pub leader_schedule_cache: Arc<RwLock<LeaderScheduleCache>>,
+    pub leader_schedule_cache: Arc<LeaderScheduleCache>,
     pub slot_receiver: Receiver<Slot>,
     pub packet_receiver: Receiver<BankingPacketBatch>,
 }
@@ -44,7 +44,7 @@ impl Router {
     pub fn new(
         slot_receiver: Receiver<Slot>,
         packet_receiver: Receiver<BankingPacketBatch>,
-        leader_schedule_cache: Arc<RwLock<LeaderScheduleCache>>,
+        leader_schedule_cache: Arc<LeaderScheduleCache>,
     ) -> Router {
         // Must Call init externally after creating
 
@@ -161,11 +161,8 @@ impl Router {
             return (failed_stream_pks, slots_sent);
         }
 
-        let validators_to_send = Self::validators_in_slot_range(
-            start_slot,
-            end_slot,
-            &self.leader_schedule_cache.read().unwrap(),
-        );
+        let validators_to_send =
+            Self::validators_in_slot_range(start_slot, end_slot, &self.leader_schedule_cache);
         let iter = active_subscriptions.iter();
         for (pk, subscription) in iter {
             let slot_to_send = validators_to_send.get(pk);

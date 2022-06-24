@@ -3,7 +3,7 @@ use std::{
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex, RwLock,
+        Arc, Mutex,
     },
     thread::spawn,
     time::Duration,
@@ -12,7 +12,9 @@ use std::{
 use clap::Parser;
 use jito_core::tpu::{Tpu, TpuSockets};
 use jito_protos::validator_interface_service::validator_interface_server::ValidatorInterfaceServer;
-use jito_relayer::{relayer::Relayer, schedule_cache::LeaderScheduleCache};
+use jito_relayer::{
+    auth::AuthenticationInterceptor, relayer::Relayer, schedule_cache::LeaderScheduleCache,
+};
 use jito_rpc::load_balancer::LoadBalancer;
 use log::info;
 use solana_net_utils::multi_bind_in_range;
@@ -167,11 +169,11 @@ fn main() {
         &rpc_load_balancer,
     );
 
-    let leader_cache = Arc::new(RwLock::new(LeaderScheduleCache::new(&rpc_load_balancer)));
+    let leader_cache = Arc::new(LeaderScheduleCache::new(&rpc_load_balancer));
     let lc = leader_cache.clone();
     // ToDo:  Put this somehwere more reasonable
     spawn(move || loop {
-        lc.write().unwrap().update_leader_cache();
+        lc.update_leader_cache();
         std::thread::sleep(Duration::from_secs(30));
     });
 
@@ -190,11 +192,11 @@ fn main() {
             args.tpu_fwd_port,
         );
 
-        // let cache = leader_cache.clone();
-        // let auth_interceptor = AuthenticationInterceptor { cache };
-        // let svc = ValidatorInterfaceServer::with_interceptor(relayer, auth_interceptor);
-        //
-        let svc = ValidatorInterfaceServer::new(relayer);
+        let cache = leader_cache.clone();
+        let auth_interceptor = AuthenticationInterceptor { cache };
+        let svc = ValidatorInterfaceServer::with_interceptor(relayer, auth_interceptor);
+
+        // let svc = ValidatorInterfaceServer::new(relayer);
         Server::builder()
             .add_service(svc)
             .serve(addr)
