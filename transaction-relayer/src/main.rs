@@ -12,6 +12,7 @@ use jito_core::tpu::{Tpu, TpuSockets};
 use jito_protos::validator_interface_service::validator_interface_server::ValidatorInterfaceServer;
 use jito_relayer::{relayer::Relayer, schedule_cache::LeaderScheduleCache};
 use jito_rpc::load_balancer::LoadBalancer;
+use log::info;
 use solana_net_utils::multi_bind_in_range;
 use solana_sdk::signature::{Keypair, Signer};
 use tokio::runtime::Builder;
@@ -134,7 +135,7 @@ fn main() {
 
     let keypair = Keypair::new();
     solana_metrics::set_host_id(keypair.pubkey().to_string());
-    println!("Pub Key: {}", keypair.pubkey());
+    info!("Relayer Started with Pub Key: {}", keypair.pubkey());
 
     let exit = Arc::new(AtomicBool::new(false));
 
@@ -164,10 +165,8 @@ fn main() {
         &rpc_load_balancer,
     );
 
-    let leader_cache = Arc::new(RwLock::new(LeaderScheduleCache::new(
-        &rpc_load_balancer,
-        None,
-    )));
+    let leader_cache = Arc::new(RwLock::new(LeaderScheduleCache::new(&rpc_load_balancer)));
+    leader_cache.write().unwrap().update_leader_cache();
 
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();
     rt.block_on(async {

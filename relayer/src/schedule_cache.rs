@@ -1,106 +1,74 @@
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     str::FromStr,
     sync::{Arc, Mutex, RwLock},
 };
 
 use jito_rpc::load_balancer::LoadBalancer;
-use log::{error, info};
+use log::{debug, error};
 use solana_sdk::{clock::Slot, pubkey::Pubkey};
 
 pub struct LeaderScheduleCache {
-    /// Maps slots to scheduled pubkey, used to index into the contact_infos map.
-    schedule: RwLock<HashSet<Slot>>,
+    /// Maps slots to scheduled pubkey
+    schedules: RwLock<HashMap<Slot, Pubkey>>,
     /// RPC Client
     load_balancer: Arc<Mutex<LoadBalancer>>,
-    /// Validator Identity
-    identity: Option<String>,
 }
 
 impl LeaderScheduleCache {
-    pub fn new(rpc: &Arc<Mutex<LoadBalancer>>, identity: Option<String>) -> LeaderScheduleCache {
+    pub fn new(rpc: &Arc<Mutex<LoadBalancer>>) -> LeaderScheduleCache {
         LeaderScheduleCache {
-            schedule: RwLock::new(HashSet::new()),
+            schedules: RwLock::new(HashMap::new()),
             load_balancer: rpc.clone(),
-            identity,
         }
-    }
-
-    pub fn set_identity(&mut self, pk: &str) {
-        self.identity = Some(String::from(pk));
-        info!("Identity Set to {}", self.identity.as_ref().unwrap());
     }
 
     pub fn update_leader_cache(&self) {
-        if self.identity == None {
-            return;
-        }
-
-        info!("Update Leader Cache !!!");
-        // let cfg = RpcLeaderScheduleConfig {
-        //     identity: self.identity.clone(),
-        //     commitment: None,
-        // };
+        debug!("Update Leader Cache !!!");
 
         let rpc_client = self.load_balancer.lock().unwrap().rpc_client();
 
-        // ToDo: Should the rpc client lock be dropped manually?
         if let Ok(epoch_info) = rpc_client.get_epoch_info() {
             if let Ok(Some(leader_schedule)) = rpc_client.get_leader_schedule(None) {
                 let epoch_offset = epoch_info.absolute_slot - epoch_info.slot_index;
 
-                info!("Got Leader Schedule. Length = {}", leader_schedule.len());
+                debug!("Got Leader Schedule. Length = {}", leader_schedule.len());
 
-                let mut schedule = self.schedule.write().unwrap();
+                let mut schedule = self.schedules.write().unwrap();
 
                 // Remove Old Slots
-                schedule.retain(|s| *s >= epoch_info.absolute_slot);
+                schedule.retain(|s, _| *s >= epoch_info.absolute_slot);
 
                 // Add New Slots
-                if let Some(slots) = leader_schedule.get(&self.identity.as_ref().unwrap().clone()) {
-                    for sl in (*slots).iter() {
-                        let slot = *sl as Slot + epoch_offset;
-                        if slot > epoch_info.absolute_slot {
-                            schedule.insert(slot);
+                for (pk_str, slots) in leader_schedule.iter() {
+                    for slot in slots.iter() {
+                        if let Ok(pubkey) = Pubkey::from_str(pk_str) {
+                            schedule.insert(*slot as u64 + epoch_offset, pubkey);
                         }
                     }
-                } else {
-                    info!("No Slots in Leader Schedule!!")
-                };
+                }
+                //Todo: Add Metrics Here
             } else {
                 error!("Couldn't Get Leader Schedule Update from RPC!!!")
             };
         } else {
-            error!("Couldn't Get Leader Schedule Update from RPC!!!")
+            error!("Couldn't Get Epoch Info from RPC!!!")
         };
     }
 
     pub fn fetch_scheduled_validator(&self, slot: &Slot) -> Option<Pubkey> {
-        let schedule = self.schedule.read().unwrap();
-
-        // ToDo: Write this better
-        return if schedule.get(slot).is_some() {
-            if let Ok(pk) = Pubkey::from_str(self.identity.as_ref()?) {
-                Some(pk)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        Some(*self.schedules.read().unwrap().get(slot)?)
     }
 
-    pub fn is_validator_scheduled(&self, _pk: Pubkey) -> bool {
-        // Is the maximum scheduled slot bigger than the current slot
-        info!("Is Validator Scheduled Called for {}", _pk.to_string());
-        info!("Schedule {:?}", self.schedule.read().unwrap());
-        if let Some(max_sched) = self.schedule.read().unwrap().iter().max() {
-            let output = *max_sched > self.load_balancer.lock().unwrap().get_highest_slot();
-            info!("Found max_sched, output: {}", output);
-            output
-        } else {
-            info!("Didn't get max_sched!");
-            false
+    pub fn is_validator_scheduled(&self, pubkey: Pubkey) -> bool {
+        debug!("Is Validator Scheduled Called for {}", pubkey.to_string());
+        debug!("Schedule {:?}", self.schedules.read().unwrap());
+
+        for (_, pk) in self.schedules.read().unwrap().iter() {
+            if *pk == pubkey {
+                return true;
+            }
         }
+        false
     }
 }

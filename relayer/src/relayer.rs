@@ -107,21 +107,10 @@ impl Relayer {
         info!("Started Heartbeat");
 
         spawn(move || {
-            let mut n_hb = 0usize;
             while !exit.load(Ordering::Relaxed) {
-                // Hacky!!!!: Update Leader Cache every 30 seconds
-                if n_hb % 30 == 0 {
-                    router
-                        .leader_schedule_cache
-                        .write()
-                        .unwrap()
-                        .update_leader_cache();
-                };
                 let failed_heartbeats = router.send_heartbeat();
                 router.disconnect(&failed_heartbeats);
-
                 std::thread::sleep(Duration::from_millis(500));
-                n_hb += 1;
             }
         })
     }
@@ -158,7 +147,7 @@ impl Relayer {
                             Ok(bp_batch) =>  {
                                 let batches = bp_batch.0;
                                 if !batches.is_empty() {
-                                    info!(
+                                    debug!(
                                         "Got Batch of length {} x {}",
                                         batches.len(),
                                         batches[0].len()

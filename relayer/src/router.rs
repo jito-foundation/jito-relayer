@@ -34,7 +34,7 @@ pub struct PacketSubscription {
 }
 
 pub struct Router {
-    packet_subs: Arc<RwLock<HashMap<Pubkey, PacketSubscription>>>,
+    packet_subs: RwLock<HashMap<Pubkey, PacketSubscription>>,
     pub leader_schedule_cache: Arc<RwLock<LeaderScheduleCache>>,
     pub slot_receiver: Receiver<Slot>,
     pub packet_receiver: Receiver<BankingPacketBatch>,
@@ -49,7 +49,7 @@ impl Router {
         // Must Call init externally after creating
 
         Router {
-            packet_subs: Arc::new(RwLock::new(HashMap::new())),
+            packet_subs: RwLock::new(HashMap::new()),
             leader_schedule_cache,
             slot_receiver,
             packet_receiver,
@@ -105,9 +105,7 @@ impl Router {
                 "validator_interface_add_packet_subscription - Subscriber: {}",
                 pk.to_string()
             );
-            let mut leader_cache = self.leader_schedule_cache.write().unwrap();
-            leader_cache.set_identity(&pk.to_string());
-            leader_cache.update_leader_cache();
+
             datapoint_info!(
                 "validator_interface_add_packet_subscription",
                 ("subscriber", pk.to_string(), String),
@@ -171,7 +169,7 @@ impl Router {
         let iter = active_subscriptions.iter();
         for (pk, subscription) in iter {
             let slot_to_send = validators_to_send.get(pk);
-            info!("Slot to Send: {:?}", slot_to_send);
+            debug!("Slot to Send: {:?}", slot_to_send);
             if let Some(slot) = slot_to_send {
                 if let Err(e) = subscription.tx.send(Ok(SubscribePacketsResponse {
                     msg: Some(BatchList(batch_list.clone())),
