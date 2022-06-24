@@ -5,6 +5,8 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex, RwLock,
     },
+    thread::spawn,
+    time::Duration,
 };
 
 use clap::Parser;
@@ -166,7 +168,12 @@ fn main() {
     );
 
     let leader_cache = Arc::new(RwLock::new(LeaderScheduleCache::new(&rpc_load_balancer)));
-    leader_cache.write().unwrap().update_leader_cache();
+    let lc = leader_cache.clone();
+    // ToDo:  Put this somehwere more reasonable
+    spawn(move || loop {
+        lc.write().unwrap().update_leader_cache();
+        std::thread::sleep(Duration::from_secs(30));
+    });
 
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();
     rt.block_on(async {
