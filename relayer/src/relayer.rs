@@ -82,7 +82,7 @@ impl Relayer {
 
     pub fn join(self) {
         for hdl in self.thrd_hndls {
-            let _ = hdl.join().expect("task panicked");
+            hdl.join().expect("task panicked");
         }
     }
 
