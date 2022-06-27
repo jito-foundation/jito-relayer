@@ -6,7 +6,7 @@ use std::{
         Arc,
     },
     task::{Context, Poll},
-    thread::{spawn, JoinHandle},
+    thread::{sleep, spawn, JoinHandle},
     time::Duration,
 };
 
@@ -61,7 +61,6 @@ impl Relayer {
             leader_schedule_cache,
         ));
 
-        // ToDo: hb loop contains hacky leader schedule update
         let hb_hdl = Self::start_heartbeat_loop(router.clone(), exit.clone());
         let pkt_loop_hdl = Self::start_packets_receiver_loop(router.clone(), exit, 3, 0);
 
@@ -110,7 +109,7 @@ impl Relayer {
             while !exit.load(Ordering::Relaxed) {
                 let failed_heartbeats = router.send_heartbeat();
                 router.disconnect(&failed_heartbeats);
-                std::thread::sleep(Duration::from_millis(500));
+                sleep(Duration::from_millis(500));
             }
         })
     }
@@ -223,8 +222,9 @@ impl ValidatorInterface for Relayer {
         &self,
         _: Request<SubscribeBundlesRequest>,
     ) -> Result<Response<Self::SubscribeBundlesStream>, Status> {
-        error!("Bundle Subscriptions not yet available on relayer!!!");
-        unimplemented!();
+        Err(Status::unimplemented(
+            "subscribe_bundles is not implemented for the relayer",
+        ))
     }
 
     type SubscribePacketsStream = ValidatorSubscriberStream<SubscribePacketsResponse>;
@@ -233,13 +233,8 @@ impl ValidatorInterface for Relayer {
         &self,
         req: Request<SubscribePacketsRequest>,
     ) -> Result<Response<Self::SubscribePacketsStream>, Status> {
-        info!("Validator Connected!!!!!!!!!");
-        // ToDo: Which One of the following is best?  Depends on Auth?
         let pubkey = extract_pubkey(req.metadata())?;
-        // let pubkey = *req
-        //     .extensions()
-        //     .get::<Pubkey>()
-        //     .ok_or_else(|| Status::internal("pubkey error"))?;
+        info!("Validator Connected - {}", pubkey);
 
         let (subscription_sender, mut subscription_receiver) = unbounded_channel();
 

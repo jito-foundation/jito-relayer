@@ -29,6 +29,7 @@ use crate::schedule_cache::LeaderScheduleCache;
 
 type PacketsResultSender = UnboundedSender<Result<SubscribePacketsResponse, Status>>;
 
+#[derive(Clone)]
 pub struct PacketSubscription {
     tx: PacketsResultSender,
 }
@@ -46,8 +47,6 @@ impl Router {
         packet_receiver: Receiver<BankingPacketBatch>,
         leader_schedule_cache: Arc<LeaderScheduleCache>,
     ) -> Router {
-        // Must Call init externally after creating
-
         Router {
             packet_subs: RwLock::new(HashMap::new()),
             leader_schedule_cache,
@@ -59,7 +58,7 @@ impl Router {
     /// Sends periodic heartbeats to all active subscribers regardless
     /// of leader schedule.
     pub fn send_heartbeat(&self) -> Vec<Pubkey> {
-        let active_subscriptions = self.packet_subs.read().unwrap();
+        let active_subscriptions = self.packet_subs.read().unwrap().clone();
         let mut failed_subscriptions = Vec::new();
         for (pk, subscription) in active_subscriptions.iter() {
             if let Err(e) = subscription.tx.send(Ok(SubscribePacketsResponse {

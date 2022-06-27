@@ -171,10 +171,13 @@ fn main() {
 
     let leader_cache = Arc::new(LeaderScheduleCache::new(&rpc_load_balancer));
     let lc = leader_cache.clone();
-    // ToDo:  Put this somehwere more reasonable
-    spawn(move || loop {
-        lc.update_leader_cache();
-        std::thread::sleep(Duration::from_secs(30));
+    // ToDo:  Put this somewhere more reasonable and align with epoch updates
+    let xit = exit.clone();
+    spawn(move || {
+        while !xit.load(Ordering::Relaxed) {
+            lc.update_leader_cache();
+            std::thread::sleep(Duration::from_secs(10));
+        }
     });
 
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();
