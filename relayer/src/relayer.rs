@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-use crossbeam_channel::{select, unbounded, Receiver, Sender};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use jito_protos::{
     shared::Socket,
     validator_interface_service::{
@@ -40,9 +40,7 @@ pub struct Relayer {
     tpu_port: u16,
     tpu_fwd_port: u16,
     client_disconnect_sender: Sender<Pubkey>,
-    disconnects_hdl: JoinHandle<()>,
-    hb_hdl: JoinHandle<()>,
-    pkt_loop_hdl: JoinHandle<()>,
+    thrd_hndls: Vec<JoinHandle<()>>,
 }
 
 impl Relayer {
@@ -61,12 +59,16 @@ impl Relayer {
             leader_schedule_cache,
         ));
 
+        let mut thrd_hndls = Vec::new();
         let hb_hdl = Self::start_heartbeat_loop(router.clone(), exit.clone());
+        thrd_hndls.push(hb_hdl);
         let pkt_loop_hdl = Self::start_packets_receiver_loop(router.clone(), exit, 3, 0);
+        thrd_hndls.extend(pkt_loop_hdl);
 
         let (client_disconnect_sender, closed_disconnect_receiver) = unbounded();
         let disconnects_hdl =
             Self::handle_disconnects_loop(closed_disconnect_receiver, router.clone());
+        thrd_hndls.push(disconnects_hdl);
 
         Self {
             router,
@@ -74,16 +76,14 @@ impl Relayer {
             tpu_port,
             tpu_fwd_port,
             client_disconnect_sender,
-            disconnects_hdl,
-            hb_hdl,
-            pkt_loop_hdl,
+            thrd_hndls,
         }
     }
 
     pub fn join(self) {
-        self.disconnects_hdl.join().expect("task panicked");
-        self.hb_hdl.join().expect("task panicked");
-        self.pkt_loop_hdl.join().expect("task panicked");
+        for hdl in self.thrd_hndls {
+            let _ = hdl.join().expect("task panicked");
+        }
     }
 
     // listen for client disconnects and remove from subscriptions map
@@ -123,54 +123,61 @@ impl Relayer {
         look_ahead: u64,
         // num leaders behind to send packets to
         look_behind: u64,
-    ) -> JoinHandle<()> {
-        let mut current_slot: Slot = 0;
+    ) -> Vec<JoinHandle<()>> {
+        let mut handles = Vec::new();
 
-        spawn(move || {
-            while !exit.load(Ordering::Relaxed) {
-                select! {
-                    recv(router.slot_receiver) -> maybe_slot => {
-                        match maybe_slot {
-                            Ok(slot) => {
-                                current_slot = slot;
-                            }
-                            Err(_) => {
-                                error!("error receiving slot");
-                                break;
-                            }
-                        }
+        let router_l = router.clone();
+        let exit_l = exit.clone();
+        let slt_hdl = spawn(move || {
+            while !exit_l.load(Ordering::Relaxed) {
+                match router_l.slot_receiver.recv() {
+                    Ok(slot) => {
+                        *router_l.current_slot.write().unwrap() = slot;
                     }
-
-                    recv(router.packet_receiver) -> maybe_bp_batch => {
-                        match maybe_bp_batch {
-                            Ok(bp_batch) =>  {
-                                let batches = bp_batch.0;
-                                if !batches.is_empty() {
-                                    debug!(
-                                        "Got Batch of length {} x {}",
-                                        batches.len(),
-                                        batches[0].len()
-                                    );
-                                }
-
-                                let proto_bl = Router::batchlist_to_proto(batches);
-
-                                let start_slot = current_slot - (NUM_CONSECUTIVE_LEADER_SLOTS * look_behind);
-                                let end_slot = current_slot + (NUM_CONSECUTIVE_LEADER_SLOTS * look_ahead);
-                                let (failed_stream_pks, _slots_sent) = router.stream_batch_list(&proto_bl, start_slot, end_slot);
-
-                                // close the connections
-                                router.disconnect(&failed_stream_pks);
-                            }
-                            Err(_) => {
-                                error!("error receiving packets");
-                                break;
-                            }
-                        }
+                    Err(_) => {
+                        error!("error receiving slot");
+                        break;
                     }
                 }
             }
-        })
+        });
+        handles.push(slt_hdl);
+
+        let pkt_hdl = spawn(move || {
+            while !exit.load(Ordering::Relaxed) {
+                match router.packet_receiver.recv() {
+                    Ok(bp_batch) => {
+                        let batches = bp_batch.0;
+                        if !batches.is_empty() {
+                            debug!(
+                                "Got Batch of length {} x {}",
+                                batches.len(),
+                                batches[0].len()
+                            );
+                        }
+
+                        let proto_bl = Router::batchlist_to_proto(batches);
+
+                        let current_slot = *router.current_slot.read().unwrap();
+                        let start_slot =
+                            current_slot - (NUM_CONSECUTIVE_LEADER_SLOTS * look_behind);
+                        let end_slot = current_slot + (NUM_CONSECUTIVE_LEADER_SLOTS * look_ahead);
+                        let (failed_stream_pks, _slots_sent) =
+                            router.stream_batch_list(&proto_bl, start_slot, end_slot);
+
+                        // close the connections
+                        router.disconnect(&failed_stream_pks);
+                    }
+                    Err(_) => {
+                        error!("error receiving packets");
+                        break;
+                    }
+                }
+            }
+        });
+        handles.push(pkt_hdl);
+
+        handles
     }
 }
 

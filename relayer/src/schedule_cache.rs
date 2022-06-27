@@ -64,7 +64,8 @@ impl LeaderScheduleCache {
         debug!("Is Validator Scheduled Called for {}", pubkey.to_string());
         debug!("Schedule {:?}", self.schedules.read().unwrap());
 
-        for (_, pk) in self.schedules.read().unwrap().iter() {
+        let sched = self.schedules.read().unwrap().clone();
+        for (_, pk) in sched.iter() {
             if *pk == pubkey {
                 return true;
             }

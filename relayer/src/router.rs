@@ -39,6 +39,7 @@ pub struct Router {
     pub leader_schedule_cache: Arc<LeaderScheduleCache>,
     pub slot_receiver: Receiver<Slot>,
     pub packet_receiver: Receiver<BankingPacketBatch>,
+    pub current_slot: RwLock<Slot>,
 }
 
 impl Router {
@@ -52,6 +53,7 @@ impl Router {
             leader_schedule_cache,
             slot_receiver,
             packet_receiver,
+            current_slot: RwLock::new(0_u64),
         }
     }
 
