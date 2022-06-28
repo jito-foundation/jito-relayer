@@ -172,9 +172,9 @@ fn main() {
     let leader_cache = Arc::new(LeaderScheduleCache::new(&rpc_load_balancer));
     let lc = leader_cache.clone();
     // ToDo:  Put this somewhere more reasonable and align with epoch updates
-    let xit = exit.clone();
+    let exit_l = exit.clone();
     spawn(move || {
-        while !xit.load(Ordering::Relaxed) {
+        while !exit_l.load(Ordering::Relaxed) {
             lc.update_leader_cache();
             std::thread::sleep(Duration::from_secs(10));
         }

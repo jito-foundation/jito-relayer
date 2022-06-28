@@ -114,7 +114,7 @@ impl Relayer {
         })
     }
 
-    /// Receive packet batches via Receiver and stream them out over UDP or TCP to nodes.
+    /// Receive packet batches via Receiver and stream them out over grpc to nodes.
     #[allow(clippy::too_many_arguments)]
     pub fn start_packets_receiver_loop(
         router: Arc<Router>,
