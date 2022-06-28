@@ -4,5 +4,6 @@ members = [
     "jito-protos",
     "transaction-relayer",
     "rpc",
-    "relayer"
+    "relayer",
+    "bench_e2e"
 ]

@@ -5,13 +5,18 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
+    thread::spawn,
+    time::Duration,
 };
 
 use clap::Parser;
 use jito_core::tpu::{Tpu, TpuSockets};
-use jito_protos::relayer::relayer_service_server::RelayerServiceServer;
-use jito_relayer::relayer::Relayer;
+use jito_protos::validator_interface_service::validator_interface_server::ValidatorInterfaceServer;
+use jito_relayer::{
+    auth::AuthenticationInterceptor, relayer::Relayer, schedule_cache::LeaderScheduleCache,
+};
 use jito_rpc::load_balancer::LoadBalancer;
+use log::info;
 use solana_net_utils::multi_bind_in_range;
 use solana_sdk::signature::{Keypair, Signer};
 use tokio::runtime::Builder;
@@ -21,48 +26,56 @@ use tonic::transport::Server;
 #[clap(author, version, about, long_about = None)]
 struct Args {
     /// IP address to bind to for transaction packets
-    #[clap(long, env, default_value_t = IpAddr::from_str("0.0.0.0").unwrap())]
+    #[clap(long, env, value_parser, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
     tpu_bind_ip: IpAddr,
 
     /// Port to bind to for tpu packets
-    #[clap(long, env, default_value_t = 8005)]
+    #[clap(long, env, value_parser, default_value_t = 10_500)]
     tpu_port: u16,
 
     /// Port to bind to for tpu fwd packets
-    #[clap(long, env, default_value_t = 8006)]
+    #[clap(long, env, value_parser, default_value_t = 10_501)]
     tpu_fwd_port: u16,
 
     /// Port to bind to for tpu packets
-    #[clap(long, env, default_value_t = 8007)]
+    #[clap(long, env, value_parser, default_value_t = 10_502)]
     tpu_quic_port: u16,
 
     /// Port to bind to for tpu fwd packets
-    #[clap(long, env, default_value_t = 8008)]
+    #[clap(long, env, value_parser, default_value_t = 10_503)]
     tpu_quic_fwd_port: u16,
 
     /// Bind IP address for GRPC server
-    #[clap(long, env, default_value_t = IpAddr::from_str("0.0.0.0").unwrap())]
+    #[clap(long, env, value_parser, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
     grpc_bind_ip: IpAddr,
 
     /// Bind port address for GRPC server
-    #[clap(long, env, default_value_t = 42069)]
+    #[clap(long, env, value_parser, default_value_t = 10101)]
     grpc_bind_port: u16,
 
     /// Number of TPU threads
-    #[clap(long, env, default_value_t = 32)]
+    #[clap(long, env, value_parser, default_value_t = 32)]
     num_tpu_binds: usize,
 
     /// Number of TPU forward threads
-    #[clap(long, env, default_value_t = 16)]
+    #[clap(long, env, value_parser, default_value_t = 16)]
     num_tpu_fwd_binds: usize,
 
     /// RPC server list
-    #[clap(long, env)]
+    #[clap(long, env, value_parser, default_value = "http://127.0.0.1:8899")]
     rpc_servers: Vec<String>,
 
     /// Websocket server list
-    #[clap(long, env)]
+    #[clap(long, env, value_parser, default_value = "ws://127.0.0.1:8900")]
     websocket_servers: Vec<String>,
+
+    /// The public-facing IP address of this server
+    #[clap(long, env, value_parser, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
+    public_ip: IpAddr,
+
+    /// Skip authentication
+    #[clap(long, env, value_parser)]
+    no_auth: bool,
 }
 
 struct Sockets {
@@ -126,6 +139,7 @@ fn main() {
 
     let keypair = Keypair::new();
     solana_metrics::set_host_id(keypair.pubkey().to_string());
+    info!("Relayer Started with Pub Key: {}", keypair.pubkey());
 
     let exit = Arc::new(AtomicBool::new(false));
 
@@ -134,7 +148,7 @@ fn main() {
         args.websocket_servers.len(),
         "num rpc servers = num websocket servers"
     );
-    assert!(args.rpc_servers.len() >= 1, "num rpc servers >= 1");
+    assert!(!args.rpc_servers.is_empty(), "num rpc servers >= 1");
 
     let servers: Vec<(String, String)> = args
         .rpc_servers
@@ -155,14 +169,37 @@ fn main() {
         &rpc_load_balancer,
     );
 
+    let leader_cache = Arc::new(LeaderScheduleCache::new(&rpc_load_balancer));
+    let lc = leader_cache.clone();
+    // ToDo:  Put this somewhere more reasonable and align with epoch updates
+    let exit_l = exit.clone();
+    spawn(move || {
+        while !exit_l.load(Ordering::Relaxed) {
+            lc.update_leader_cache();
+            std::thread::sleep(Duration::from_secs(10));
+        }
+    });
+
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();
     rt.block_on(async {
         let addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
         println!("Relayer listening on: {}", addr);
 
-        let relayer = Relayer::new(slot_receiver, packet_receiver);
+        let relayer = Relayer::new(
+            slot_receiver,
+            packet_receiver,
+            leader_cache.clone(),
+            exit.clone(),
+            args.public_ip,
+            args.tpu_port,
+            args.tpu_fwd_port,
+        );
 
-        let svc = RelayerServiceServer::new(relayer);
+        let cache = leader_cache.clone();
+        let auth_interceptor = AuthenticationInterceptor { cache };
+        let svc = ValidatorInterfaceServer::with_interceptor(relayer, auth_interceptor);
+
+        // let svc = ValidatorInterfaceServer::new(relayer);
         Server::builder()
             .add_service(svc)
             .serve(addr)
