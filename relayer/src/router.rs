@@ -1,3 +1,4 @@
+use std::time::SystemTime;
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, RwLock},
@@ -7,8 +8,9 @@ use crossbeam_channel::Receiver;
 use jito_protos::{
     packet::{
         Meta as PbMeta, Packet as PbPacket, PacketBatch as PbPacketBatch,
-        PacketBatchWrapper as PbPacketBatchWrapper, PacketFlags as PbPacketFlags,
+        PacketBatchList as PbPacketBatchList, PacketFlags as PbPacketFlags,
     },
+    shared::Header as PbHeader,
     validator_interface_service::{
         subscribe_packets_response::Msg::{BatchList, Heartbeat},
         SubscribePacketsResponse,
@@ -215,7 +217,7 @@ impl Router {
     }
 
     pub fn batchlist_to_proto(batches: Vec<PacketBatch>) -> PbPacketBatchWrapper {
-        // ToDo: Turn this back into a map
+        // ToDo (JL): Turn this back into a map
         let mut proto_batch_vec: Vec<PbPacketBatch> = Vec::new();
         for batch in batches.into_iter() {
             let mut proto_pkt_vec: Vec<PbPacket> = Vec::new();
@@ -232,9 +234,9 @@ impl Router {
                                 forwarded: p.meta.forwarded(),
                                 repair: p.meta.repair(),
                                 simple_vote_tx: p.meta.is_simple_vote_tx(),
-                                // tracer_tx: p.meta.is_tracer_tx(),  // Couldn't get this to work?
-                                tracer_tx: false,
+                                tracer_packet: p.meta.is_tracer_packet(),
                             }),
+                            sender_stake: p.meta.sender_stake,
                         }),
                     })
                 }
@@ -243,9 +245,12 @@ impl Router {
                 packets: proto_pkt_vec,
             })
         }
-
-        PbPacketBatchWrapper {
+        let ts = prost_types::Timestamp::from(SystemTime::now());
+        let header = Some(PbHeader { ts: Some(ts) });
+        PbPacketBatchList {
+            header,
             batch_list: proto_batch_vec,
+            expiry: 0, // Todo: Put actual delay here!!!!!!!
         }
     }
 }
