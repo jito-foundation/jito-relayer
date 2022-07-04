@@ -8,10 +8,12 @@ edition = "2021"
 publish = false
 
 [dependencies]
+bitvec = "1"
 crossbeam-channel = "0.5.4"
 ed25519-dalek = "1.0.1"
 jito-protos = { path = "../jito-protos" }
 jito-rpc = { path = "../rpc" }
+prost-types = "0.10.1"
 log = "0.4.17"
 solana-client = "=1.10.25"
 solana-core = "=1.10.25"

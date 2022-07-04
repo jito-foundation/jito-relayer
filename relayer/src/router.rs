@@ -1,25 +1,25 @@
-use std::time::SystemTime;
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, RwLock},
+    net::IpAddr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, RwLock,
+    },
+    thread::{sleep, spawn, JoinHandle},
+    time::{Duration, SystemTime},
 };
 
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{unbounded, Receiver};
 use jito_protos::{
-    packet::{
-        Meta as PbMeta, Packet as PbPacket, PacketBatch as PbPacketBatch,
-        PacketBatchList as PbPacketBatchList, PacketFlags as PbPacketFlags,
-    },
+    packet::PacketBatchList as PbPacketBatchList,
     shared::Header as PbHeader,
-    validator_interface_service::{
-        subscribe_packets_response::Msg::{BatchList, Heartbeat},
-        SubscribePacketsResponse,
+    validator_interface::{
+        packet_stream_msg::Msg::{BatchList, Heartbeat},
+        PacketStreamMsg,
     },
 };
-use log::{debug, info, warn};
-use solana_core::banking_stage::BankingPacketBatch;
+use log::{debug, error, info, warn};
 use solana_metrics::{datapoint_info, datapoint_warn};
-use solana_perf::packet::PacketBatch;
 use solana_sdk::{
     clock::{Slot, NUM_CONSECUTIVE_LEADER_SLOTS},
     pubkey::Pubkey,
@@ -27,9 +27,9 @@ use solana_sdk::{
 use tokio::sync::mpsc::UnboundedSender;
 use tonic::Status;
 
-use crate::schedule_cache::LeaderScheduleCache;
+use crate::{schedule_cache::LeaderScheduleCache, server::ValidatorInterfaceServiceImpl};
 
-type PacketsResultSender = UnboundedSender<Result<SubscribePacketsResponse, Status>>;
+type PacketsResultSender = UnboundedSender<Result<PacketStreamMsg, Status>>;
 
 #[derive(Clone)]
 pub struct PacketSubscription {
@@ -37,36 +37,146 @@ pub struct PacketSubscription {
 }
 
 pub struct Router {
-    packet_subs: RwLock<HashMap<Pubkey, PacketSubscription>>,
+    pub(crate) packet_subs: Arc<RwLock<HashMap<Pubkey, PacketSubscription>>>,
     pub leader_schedule_cache: Arc<LeaderScheduleCache>,
-    pub slot_receiver: Receiver<Slot>,
-    pub packet_receiver: Receiver<BankingPacketBatch>,
-    pub current_slot: RwLock<Slot>,
+    pub server: Option<ValidatorInterfaceServiceImpl>,
+    current_slot: Arc<RwLock<Slot>>,
+    look_ahead: u64,  // num leaders ahead to send packets to
+    look_behind: u64, // num leaders behind to send packets to
+    pub thread_handles: Option<Vec<JoinHandle<()>>>, // Option needed for join to take
 }
 
 impl Router {
     pub fn new(
-        slot_receiver: Receiver<Slot>,
-        packet_receiver: Receiver<BankingPacketBatch>,
         leader_schedule_cache: Arc<LeaderScheduleCache>,
+        slot_receiver: Receiver<Slot>,
+        look_ahead: u64,
+        look_behind: u64,
+        public_ip: IpAddr,
+        tpu_port: u16,
+        tpu_fwd_port: u16,
+        exit: Arc<AtomicBool>,
     ) -> Router {
+        // **** Event Loops ****
+        // Spawn Loops and save handles for joining
+        let mut thread_handles = Vec::new();
+
+        // Store Validator subscriptions
+        let packet_subs = Arc::new(RwLock::new(HashMap::new()));
+
+        // Send 2 Hz Heartbeat to all connected validators
+        let heartbeat_hdl = Self::start_heartbeat_loop(packet_subs.clone(), exit.clone());
+        thread_handles.push(heartbeat_hdl);
+
+        // Receive slot updates and cache in Router
+        let current_slot = Arc::new(RwLock::new(0_u64));
+        let slot_loop_hdl =
+            Self::start_slot_update_loop(current_slot.clone(), slot_receiver, exit.clone());
+        thread_handles.push(slot_loop_hdl);
+
+        // Receive disconnect messages (PubKey) and drop subscriptions
+        let (client_disconnect_sender, client_disconnect_receiver) = unbounded();
+        let disconnects_hdl =
+            Self::handle_disconnects_loop(client_disconnect_receiver, packet_subs.clone(), exit);
+        thread_handles.push(disconnects_hdl);
+
+        // GRPC Server to handle incoming connection requests from validators
+        let server = ValidatorInterfaceServiceImpl::new(
+            packet_subs.clone(),
+            client_disconnect_sender,
+            public_ip,
+            tpu_port,
+            tpu_fwd_port,
+        );
+
+        let server = Some(server);
+        let thread_handles = Some(thread_handles);
+
         Router {
-            packet_subs: RwLock::new(HashMap::new()),
+            packet_subs,
             leader_schedule_cache,
-            slot_receiver,
-            packet_receiver,
-            current_slot: RwLock::new(0_u64),
+            server,
+            current_slot,
+            look_ahead,
+            look_behind,
+            thread_handles,
         }
     }
 
-    /// Sends periodic heartbeats to all active subscribers regardless
-    /// of leader schedule.
-    pub fn send_heartbeat(&self) -> Vec<Pubkey> {
-        let active_subscriptions = self.packet_subs.read().unwrap().clone();
+    // pub fn join(&mut self) {
+    //     let handles = self.thread_handles.take().unwrap();
+    //     for hdl in handles {
+    //         hdl.join().expect("task panicked");
+    //     }
+    // }
+
+    fn start_heartbeat_loop(
+        packet_subs: Arc<RwLock<HashMap<Pubkey, PacketSubscription>>>,
+        exit: Arc<AtomicBool>,
+    ) -> JoinHandle<()> {
+        info!("Started Heartbeat");
+        spawn(move || {
+            while !exit.load(Ordering::Relaxed) {
+                let failed_heartbeats = Self::send_heartbeat(&packet_subs);
+                Self::disconnect(&packet_subs, &failed_heartbeats);
+                sleep(Duration::from_millis(500));
+            }
+        })
+    }
+
+    fn start_slot_update_loop(
+        current_slot: Arc<RwLock<Slot>>,
+        slot_receiver: Receiver<Slot>,
+        exit: Arc<AtomicBool>,
+    ) -> JoinHandle<()> {
+        spawn(move || {
+            while !exit.load(Ordering::Relaxed) {
+                match slot_receiver.recv() {
+                    Ok(slot) => {
+                        *current_slot.write().unwrap() = slot;
+                    }
+                    Err(_) => {
+                        error!("error receiving slot");
+                        break;
+                    }
+                }
+            }
+        })
+    }
+
+    // listen for client disconnects and remove from subscriptions map
+    pub fn handle_disconnects_loop(
+        rx: Receiver<Pubkey>,
+        packet_subs: Arc<RwLock<HashMap<Pubkey, PacketSubscription>>>,
+        exit: Arc<AtomicBool>,
+    ) -> JoinHandle<()> {
+        spawn(move || {
+            while !exit.load(Ordering::Relaxed) {
+                match rx.recv() {
+                    Ok(pk) => {
+                        debug!("client [pk={}] disconnected", pk);
+                        Self::disconnect(&packet_subs, &[pk]);
+                    }
+                    Err(_) => {
+                        warn!("closed connection channel disconnected");
+                        break;
+                    }
+                }
+            }
+        })
+    }
+
+    /// Sends  heartbeats to all active subscribers regardless of leader schedule.
+    pub fn send_heartbeat(
+        packet_subs: &Arc<RwLock<HashMap<Pubkey, PacketSubscription>>>,
+    ) -> Vec<Pubkey> {
+        let active_subscriptions = packet_subs.read().unwrap().clone();
         let mut failed_subscriptions = Vec::new();
+        let ts = prost_types::Timestamp::from(SystemTime::now());
+        let header = PbHeader { ts: Some(ts) };
         for (pk, subscription) in active_subscriptions.iter() {
-            if let Err(e) = subscription.tx.send(Ok(SubscribePacketsResponse {
-                msg: Some(Heartbeat(true)),
+            if let Err(e) = subscription.tx.send(Ok(PacketStreamMsg {
+                msg: Some(Heartbeat(header.clone())),
             })) {
                 warn!("error sending heartbeat to subscriber [{}]", e);
                 datapoint_info!(
@@ -89,11 +199,11 @@ impl Router {
 
     /// returns true if subscription was added successfully, false if the given pubkey is already connected
     pub(crate) fn add_packet_subscription(
-        &self,
+        packet_subs: Arc<RwLock<HashMap<Pubkey, PacketSubscription>>>,
         pk: &Pubkey,
-        tx: UnboundedSender<Result<SubscribePacketsResponse, Status>>,
+        tx: UnboundedSender<Result<PacketStreamMsg, Status>>,
     ) -> bool {
-        let mut active_subs = self.packet_subs.write().unwrap();
+        let mut active_subs = packet_subs.write().unwrap();
 
         if active_subs.contains_key(pk) {
             datapoint_warn!(
@@ -119,18 +229,25 @@ impl Router {
         }
     }
 
-    pub(crate) fn disconnect(&self, keys: &[Pubkey]) {
+    pub(crate) fn disconnect(
+        packet_subs: &Arc<RwLock<HashMap<Pubkey, PacketSubscription>>>,
+        keys: &[Pubkey],
+    ) {
         if keys.is_empty() {
             return;
         }
-        self.remove_packet_subscription(keys);
+        Self::remove_packet_subscription(packet_subs, keys);
     }
 
-    pub(crate) fn remove_packet_subscription(&self, keys: &[Pubkey]) {
+    // ToDo (JL): Why is this function needed separately from disconnect?
+    pub(crate) fn remove_packet_subscription(
+        packet_subs: &Arc<RwLock<HashMap<Pubkey, PacketSubscription>>>,
+        keys: &[Pubkey],
+    ) {
         if keys.is_empty() {
             return;
         }
-        let mut active_subs = self.packet_subs.write().unwrap();
+        let mut active_subs = packet_subs.write().unwrap();
         for pk in keys {
             active_subs.remove(pk);
             datapoint_info!(
@@ -151,9 +268,7 @@ impl Router {
     ///     tuple.1 = a set of slots that were streamed for
     pub fn stream_batch_list(
         &self,
-        batch_list: &PbPacketBatchWrapper,
-        start_slot: Slot,
-        end_slot: Slot,
+        batch_list: &PbPacketBatchList,
     ) -> (Vec<Pubkey>, HashSet<Slot>) {
         let mut failed_stream_pks: Vec<Pubkey> = Vec::new();
         let mut slots_sent: HashSet<Slot> = HashSet::new();
@@ -164,6 +279,10 @@ impl Router {
             return (failed_stream_pks, slots_sent);
         }
 
+        let current_slot = *self.current_slot.read().unwrap();
+        let start_slot = current_slot - (NUM_CONSECUTIVE_LEADER_SLOTS * self.look_behind);
+        let end_slot = current_slot + (NUM_CONSECUTIVE_LEADER_SLOTS * self.look_ahead);
+
         let validators_to_send =
             Self::validators_in_slot_range(start_slot, end_slot, &self.leader_schedule_cache);
         let iter = active_subscriptions.iter();
@@ -171,7 +290,7 @@ impl Router {
             let slot_to_send = validators_to_send.get(pk);
             debug!("Slot to Send: {:?}", slot_to_send);
             if let Some(slot) = slot_to_send {
-                if let Err(e) = subscription.tx.send(Ok(SubscribePacketsResponse {
+                if let Err(e) = subscription.tx.send(Ok(PacketStreamMsg {
                     msg: Some(BatchList(batch_list.clone())),
                 })) {
                     datapoint_warn!(
@@ -214,43 +333,5 @@ impl Router {
         );
 
         validators_to_send
-    }
-
-    pub fn batchlist_to_proto(batches: Vec<PacketBatch>) -> PbPacketBatchWrapper {
-        // ToDo (JL): Turn this back into a map
-        let mut proto_batch_vec: Vec<PbPacketBatch> = Vec::new();
-        for batch in batches.into_iter() {
-            let mut proto_pkt_vec: Vec<PbPacket> = Vec::new();
-            for p in batch.iter() {
-                if !p.meta.discard() {
-                    proto_pkt_vec.push(PbPacket {
-                        data: p.data[0..p.meta.size].to_vec(),
-                        meta: Some(PbMeta {
-                            size: p.meta.size as u64,
-                            addr: p.meta.addr.to_string(),
-                            port: p.meta.port as u32,
-                            flags: Some(PbPacketFlags {
-                                discard: p.meta.discard(),
-                                forwarded: p.meta.forwarded(),
-                                repair: p.meta.repair(),
-                                simple_vote_tx: p.meta.is_simple_vote_tx(),
-                                tracer_packet: p.meta.is_tracer_packet(),
-                            }),
-                            sender_stake: p.meta.sender_stake,
-                        }),
-                    })
-                }
-            }
-            proto_batch_vec.push(PbPacketBatch {
-                packets: proto_pkt_vec,
-            })
-        }
-        let ts = prost_types::Timestamp::from(SystemTime::now());
-        let header = Some(PbHeader { ts: Some(ts) });
-        PbPacketBatchList {
-            header,
-            batch_list: proto_batch_vec,
-            expiry: 0, // Todo: Put actual delay here!!!!!!!
-        }
     }
 }

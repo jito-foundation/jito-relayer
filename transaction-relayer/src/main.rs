@@ -11,7 +11,7 @@ use std::{
 
 use clap::Parser;
 use jito_core::tpu::{Tpu, TpuSockets};
-use jito_protos::validator_interface_service::validator_interface_server::ValidatorInterfaceServer;
+use jito_protos::validator_interface::validator_interface_server::ValidatorInterfaceServer;
 use jito_relayer::{
     auth::AuthenticationInterceptor, relayer::Relayer, schedule_cache::LeaderScheduleCache,
 };
@@ -76,6 +76,14 @@ struct Args {
     /// Skip authentication
     #[clap(long, env, value_parser)]
     no_auth: bool,
+
+    /// Bind IP address for Block Engine GRPC server
+    #[clap(long, env, value_parser, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
+    block_eng_bind_ip: IpAddr,
+
+    /// Bind port address for Block Engine GRPC server
+    #[clap(long, env, value_parser, default_value_t = 42069)]
+    block_eng_bind_port: u16,
 }
 
 struct Sockets {
@@ -185,6 +193,8 @@ fn main() {
         let addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
         println!("Relayer listening on: {}", addr);
 
+        let block_eng_addr = SocketAddr::new(args.block_eng_bind_ip, args.block_eng_bind_port);
+
         let relayer = Relayer::new(
             slot_receiver,
             packet_receiver,
@@ -193,13 +203,17 @@ fn main() {
             args.public_ip,
             args.tpu_port,
             args.tpu_fwd_port,
+            block_eng_addr,
         );
 
         let cache = leader_cache.clone();
         let auth_interceptor = AuthenticationInterceptor { cache };
-        let svc = ValidatorInterfaceServer::with_interceptor(relayer, auth_interceptor);
+        let svc = ValidatorInterfaceServer::with_interceptor(
+            // ToDo (JL): Why is it so hard for me to move shit is RwLock<Option<()>> necessary?
+            relayer.router.write().unwrap().server.take().unwrap(),
+            auth_interceptor,
+        );
 
-        // let svc = ValidatorInterfaceServer::new(relayer);
         Server::builder()
             .add_service(svc)
             .serve(addr)
