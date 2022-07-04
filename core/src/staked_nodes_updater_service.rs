@@ -65,7 +65,7 @@ impl StakedNodesUpdaterService {
             let cluster_nodes: HashMap<String, RpcContactInfo> = client
                 .get_cluster_nodes()?
                 .into_iter()
-                .filter_map(|contact_info| Some((contact_info.pubkey.to_string(), contact_info)))
+                .map(|contact_info| (contact_info.pubkey.to_string(), contact_info))
                 .collect();
 
             *ip_to_stake = vote_accounts
