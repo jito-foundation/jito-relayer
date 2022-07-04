@@ -10,5 +10,5 @@ publish = false
 [dependencies]
 crossbeam-channel = "0.5.4"
 log = "0.4.17"
-solana-sdk = "1.10.24"
 solana-client = "1.10.24"
+solana-sdk = "1.10.24"
