@@ -1,11 +1,10 @@
 // use bitvec::prelude::BitVec;
-use bitvec::vec::BitVec;
 use std::{collections::HashSet, net::SocketAddr, sync::RwLock};
 
+use bitvec::vec::BitVec;
+use jito_protos::packet::PacketBatchList as PbPacketBatchList;
 // use crossbeam_channel::Receiver;
 use solana_sdk::pubkey::Pubkey;
-
-use jito_protos::packet::PacketBatchList as PbPacketBatchList;
 
 pub(crate) struct BlockEngine {
     pub delta: RwLock<u32>,
