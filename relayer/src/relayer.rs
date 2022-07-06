@@ -21,12 +21,13 @@ use log::*;
 use prost_types::Timestamp as ProstTimestamp;
 use solana_core::banking_stage::BankingPacketBatch;
 use solana_perf::packet::PacketBatch;
-use solana_sdk::clock::Slot;
+use solana_sdk::{clock::Slot, signature::Keypair};
 
 use crate::{block_engine::BlockEngine, router::Router, schedule_cache::LeaderScheduleCache};
 
 pub struct Relayer {
     pub router: Arc<RwLock<Router>>,
+    block_engine: Arc<BlockEngine>,
     thread_handles: Vec<JoinHandle<()>>,
 }
 
@@ -39,7 +40,8 @@ impl Relayer {
         public_ip: IpAddr,
         tpu_port: u16,
         tpu_fwd_port: u16,
-        block_eng_addr: SocketAddr,
+        block_eng_addr: String,
+        keypair: Keypair,
     ) -> Self {
         // Create Router to send packets to Validators on schedule
         let router = Arc::new(RwLock::new(Router::new(
@@ -54,7 +56,7 @@ impl Relayer {
         )));
 
         // Create Block Engine to send interested packets to block engine
-        let block_engine = Arc::new(BlockEngine::new(block_eng_addr));
+        let block_engine = Arc::new(BlockEngine::new(block_eng_addr, keypair));
 
         // **** Event Loops ****
         // Spawn Loops and save handles for joining
@@ -72,7 +74,7 @@ impl Relayer {
         let packet_loop_hdl = Self::start_packets_receiver_loop(
             packet_receiver,
             router_sender,
-            block_engine,
+            block_engine.clone(),
             block_engine_sender,
             exit,
         );
@@ -80,6 +82,7 @@ impl Relayer {
 
         Self {
             router,
+            block_engine,
             thread_handles,
         }
     }
@@ -101,7 +104,7 @@ impl Relayer {
         packet_receiver: Receiver<BankingPacketBatch>,
         router_sender: Sender<PbPacketBatchList>,
         block_engine: Arc<BlockEngine>,
-        block_engine_sender: Sender<(PbPacketBatchList, BitVec)>,
+        block_engine_sender: Sender<PbPacketBatchList>,
         exit: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
         // Spawn Packet Receiver Loop
@@ -120,15 +123,14 @@ impl Relayer {
                         }
 
                         // Put in protobuff and add timestamp, delta
-                        let (proto_bl, packet_mask) =
-                            Self::batchlist_to_proto(batches, &block_engine);
+                        let proto_bl = Self::batchlist_to_proto(batches, &block_engine);
 
                         router_sender
                             .send(proto_bl.clone())
                             .expect("Couldn't Send PacketBatch to Router");
 
                         block_engine_sender
-                            .send((proto_bl, packet_mask))
+                            .send(proto_bl)
                             .expect("Couldn't send PacketBatch to Block Engine");
                     }
                     Err(_) => {
@@ -171,13 +173,13 @@ impl Relayer {
 
     fn start_engine_stream_loop(
         block_engine: Arc<BlockEngine>,
-        packet_receiver: Receiver<(PbPacketBatchList, BitVec)>,
+        packet_receiver: Receiver<PbPacketBatchList>,
         exit: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
         spawn(move || {
             while !exit.load(Ordering::Relaxed) {
-                if let Ok(batchlist_with_mask) = packet_receiver.recv() {
-                    block_engine.stream_aoi_batch_list(&batchlist_with_mask);
+                if let Ok(batchlist) = packet_receiver.recv() {
+                    block_engine.stream_batch_list(&batchlist);
                 }
             } // else {}  ToDo (JL): Handle Packet packet receiver errors
         })
@@ -186,13 +188,9 @@ impl Relayer {
     fn batchlist_to_proto(
         batches: Vec<PacketBatch>,
         block_engine: &BlockEngine,
-    ) -> (PbPacketBatchList, BitVec) {
+    ) -> PbPacketBatchList {
         // ToDo (JL): Turn this back into a map
         let mut proto_batch_vec: Vec<PbPacketBatch> = Vec::new();
-
-        let n_packets: usize = batches.iter().map(|b| b.len()).sum();
-        let mut aoi_mask = BitVec::with_capacity(n_packets);
-        let mut packet_i = 0usize;
 
         for batch in batches.into_iter() {
             let mut proto_pkt_vec: Vec<PbPacket> = Vec::new();
@@ -214,10 +212,6 @@ impl Relayer {
                             sender_stake: p.meta.sender_stake,
                         }),
                     });
-                    // Todo: Implement aoi filter HERE
-                    let _aoi = block_engine.aoi.read().unwrap();
-                    // aoi_mask.set(packet_i, true);
-                    packet_i += 1;
                 }
             }
             proto_batch_vec.push(PbPacketBatch {
@@ -227,13 +221,10 @@ impl Relayer {
 
         let ts = ProstTimestamp::from(SystemTime::now());
         let header = Some(PbHeader { ts: Some(ts) });
-        (
-            PbPacketBatchList {
-                header,
-                batch_list: proto_batch_vec,
-                expiry: *block_engine.delta.read().unwrap(),
-            },
-            aoi_mask,
-        )
+        PbPacketBatchList {
+            header,
+            batch_list: proto_batch_vec,
+            expiry: *block_engine.delta.read().unwrap(),
+        }
     }
 }

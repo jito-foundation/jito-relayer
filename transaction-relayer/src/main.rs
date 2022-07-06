@@ -203,13 +203,14 @@ fn main() {
             args.public_ip,
             args.tpu_port,
             args.tpu_fwd_port,
-            block_eng_addr,
+            block_eng_addr.to_string(),
+            keypair,
         );
 
         let cache = leader_cache.clone();
         let auth_interceptor = AuthenticationInterceptor { cache };
         let svc = ValidatorInterfaceServer::with_interceptor(
-            // ToDo (JL): Why is it so hard for me to move shit is RwLock<Option<()>> necessary?
+            // ToDo (JL): This seems overkill, but it's the only thing I could get to compile
             relayer.router.write().unwrap().server.take().unwrap(),
             auth_interceptor,
         );
