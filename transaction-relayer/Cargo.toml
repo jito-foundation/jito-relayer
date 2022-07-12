@@ -18,10 +18,10 @@ jito-relayer = { path = "../relayer" }
 jito-rpc = { path = "../rpc" }
 log = "0.4.14"
 prost-types = "0.10.1"
-solana-metrics = "1.10.24"
-solana-net-utils = "1.10.24"
-solana-perf = "1.10.24"
-solana-sdk = "1.10.24"
+solana-metrics = "=1.11.2"
+solana-net-utils = "=1.11.2"
+solana-perf = "=1.11.2"
+solana-sdk = "=1.11.2"
 tokio = { version = "1.14.1", features = ["rt-multi-thread"] }
 tokio-stream = "0.1.8"
 tonic = "0.7.2"

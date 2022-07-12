@@ -2,7 +2,6 @@
 //! multi-stage transaction processing pipeline in software.
 
 use std::{
-    collections::HashMap,
     net::{IpAddr, UdpSocket},
     sync::{atomic::AtomicBool, Arc, Mutex, RwLock},
     thread,
@@ -16,8 +15,9 @@ use solana_core::{
     sigverify::TransactionSigVerifier, sigverify_stage::SigVerifyStage,
 };
 use solana_sdk::signature::Keypair;
-use solana_streamer::quic::{
-    spawn_server, StreamStats, MAX_STAKED_CONNECTIONS, MAX_UNSTAKED_CONNECTIONS,
+use solana_streamer::{
+    quic::{spawn_server, StreamStats, MAX_STAKED_CONNECTIONS, MAX_UNSTAKED_CONNECTIONS},
+    streamer::StakedNodes,
 };
 
 use crate::{fetch_stage::FetchStage, staked_nodes_updater_service::StakedNodesUpdaterService};
@@ -74,9 +74,12 @@ impl Tpu {
             None,
         );
 
-        let staked_nodes = Arc::new(RwLock::new(HashMap::new()));
-        let staked_nodes_updater_service =
-            StakedNodesUpdaterService::new(exit.clone(), staked_nodes.clone(), rpc_load_balancer);
+        let staked_nodes = Arc::new(RwLock::new(StakedNodes::default()));
+        let staked_nodes_updater_service = StakedNodesUpdaterService::new(
+            exit.clone(),
+            rpc_load_balancer.clone(),
+            staked_nodes.clone(),
+        );
 
         let (find_packet_sender_stake_sender, find_packet_sender_stake_receiver) = unbounded();
 

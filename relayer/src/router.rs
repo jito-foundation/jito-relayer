@@ -231,7 +231,7 @@ impl Router {
                         .iter()
                         .filter(|p| !p.meta.discard())
                         .map(|p| PbPacket {
-                            data: p.data[0..p.meta.size].to_vec(),
+                            data: p.data(0..p.meta.size).unwrap().to_vec(),
                             meta: Some(PbMeta {
                                 size: p.meta.size as u64,
                                 addr: p.meta.addr.to_string(),
