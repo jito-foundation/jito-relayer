@@ -186,7 +186,6 @@ impl Router {
                     );
                     failed_stream_pks.push(*pk);
                 } else {
-                    debug!("slot sent {}", slot);
                     datapoint_info!(
                         "validator_interface_stream_batch_list",
                         ("subscriber", pk.to_string(), String),
@@ -212,7 +211,7 @@ impl Router {
                 validators_to_send.insert(pk, slot);
             }
         }
-        info!(
+        debug!(
             "validators_in_slot_range: {}  -  {},   val: {:?}",
             start_slot, end_slot, validators_to_send
         );

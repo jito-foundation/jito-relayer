@@ -61,16 +61,13 @@ impl Tpu {
         } = sockets;
 
         let (packet_sender, packet_receiver) = unbounded();
-        let (vote_sender, _) = unbounded();
         let (forwarded_packet_sender, forwarded_packet_receiver) = unbounded();
 
         let fetch_stage = FetchStage::new_with_sender(
             transactions_sockets,
             transactions_forward_sockets,
-            vec![],
             exit,
             &packet_sender,
-            &vote_sender,
             &forwarded_packet_sender,
             forwarded_packet_receiver,
             tpu_coalesce_ms,

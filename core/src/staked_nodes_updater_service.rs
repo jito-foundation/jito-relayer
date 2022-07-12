@@ -46,6 +46,7 @@ impl StakedNodesUpdaterService {
                             error!("error updating ip to stake mapping: {}", e);
                         }
                     }
+                    sleep(Duration::from_millis(100));
                 }
             })
             .unwrap();
