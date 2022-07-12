@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 bincode = "1.3.3"
 clap = { version = "3.1.12", features = ["derive", "env"] }
+crossbeam-channel = "0.5.5"
 env_logger = "0.9.0"
 itertools = "0.10.3"
 jito-core = { path = "../core" }
@@ -18,6 +19,7 @@ jito-relayer = { path = "../relayer" }
 jito-rpc = { path = "../rpc" }
 log = "0.4.14"
 prost-types = "0.10.1"
+solana-core = "=1.11.2"
 solana-metrics = "=1.11.2"
 solana-net-utils = "=1.11.2"
 solana-perf = "=1.11.2"
@@ -25,3 +27,4 @@ solana-sdk = "=1.11.2"
 tokio = { version = "1.14.1", features = ["rt-multi-thread"] }
 tokio-stream = "0.1.8"
 tonic = "0.7.2"
+jito-block-engine = { path = "../block_engine", version = "0.1.0" }

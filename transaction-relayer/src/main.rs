@@ -1,25 +1,33 @@
 use std::{
+    collections::VecDeque,
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    thread::spawn,
-    time::Duration,
+    thread,
+    thread::{sleep, spawn, JoinHandle},
+    time::{Duration, Instant},
 };
 
 use clap::Parser;
+use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
+use jito_block_engine::block_engine::BlockEngine;
 use jito_core::tpu::{Tpu, TpuSockets};
 use jito_protos::validator_interface_service::validator_interface_server::ValidatorInterfaceServer;
 use jito_relayer::{
     auth::AuthenticationInterceptor, relayer::Relayer, schedule_cache::LeaderScheduleCache,
 };
 use jito_rpc::load_balancer::LoadBalancer;
-use log::info;
+use log::{error, info, warn};
+use solana_core::banking_stage::BankingPacketBatch;
 use solana_net_utils::multi_bind_in_range;
 use solana_sdk::signature::{Keypair, Signer};
-use tokio::runtime::Builder;
+use tokio::{
+    runtime::Builder,
+    sync::mpsc::{channel, error::TrySendError},
+};
 use tonic::transport::Server;
 
 #[derive(Parser, Debug)]
@@ -50,7 +58,7 @@ struct Args {
     grpc_bind_ip: IpAddr,
 
     /// Bind port address for GRPC server
-    #[clap(long, env, value_parser, default_value_t = 10101)]
+    #[clap(long, env, value_parser, default_value_t = 10102)]
     grpc_bind_port: u16,
 
     /// Number of TPU threads
@@ -76,6 +84,14 @@ struct Args {
     /// Skip authentication
     #[clap(long, env, value_parser)]
     no_auth: bool,
+
+    /// Packet delay in milliseconds
+    #[clap(long, env, value_parser, default_value_t = 200)]
+    packet_delay_ms: u64,
+
+    /// Block engine address
+    #[clap(long, env, value_parser, default_value = "http://127.0.0.1:10101")]
+    block_engine_url: String,
 }
 
 struct Sockets {
@@ -130,6 +146,59 @@ fn get_sockets(args: &Args) -> Sockets {
     }
 }
 
+fn start_forward_and_delay_thread(
+    packet_receiver: Receiver<BankingPacketBatch>,
+    delay_sender: Sender<BankingPacketBatch>,
+    packet_delay_ms: u64,
+    block_engine_sender: tokio::sync::mpsc::Sender<BankingPacketBatch>,
+) -> JoinHandle<()> {
+    const SLEEP_DURATION: Duration = Duration::from_millis(5);
+    let expiration_delay = Duration::from_millis(packet_delay_ms);
+
+    thread::Builder::new()
+        .name("jito-forward_packets_to_block_engine".into())
+        .spawn(move || {
+            let mut buffered_packet_batches = VecDeque::with_capacity(100_000);
+
+            loop {
+                match packet_receiver.recv_timeout(SLEEP_DURATION) {
+                    Ok(packet_batch) => {
+                        match block_engine_sender.try_send(packet_batch.clone()) {
+                            Ok(_) => {}
+                            Err(TrySendError::Closed(_)) => {
+                                error!("error sending packet batch to block engine handler");
+                                break;
+                            }
+                            Err(TrySendError::Full(_)) => {
+                                warn!("full!");
+                            }
+                        }
+                        buffered_packet_batches.push_back((Instant::now(), packet_batch));
+                    }
+                    Err(RecvTimeoutError::Timeout) => {
+                        // do nothing
+                    }
+                    Err(RecvTimeoutError::Disconnected) => {
+                        break;
+                    }
+                }
+
+                // Instant is monotonically increasing
+                while let Some((timestamp, _)) = buffered_packet_batches.front() {
+                    if Instant::now().duration_since(*timestamp) >= expiration_delay {
+                        if let Err(e) =
+                            delay_sender.send(buffered_packet_batches.pop_front().unwrap().1)
+                        {
+                            error!("exiting forwarding delayed packets: {:?}", e);
+                            break;
+                        }
+                    }
+                }
+            }
+        })
+        .unwrap()
+}
+
 fn main() {
     env_logger::init();
 
@@ -139,7 +208,7 @@ fn main() {
 
     let keypair = Keypair::new();
     solana_metrics::set_host_id(keypair.pubkey().to_string());
-    info!("Relayer Started with Pub Key: {}", keypair.pubkey());
+    info!("Relayer Started with pubkey: {}", keypair.pubkey());
 
     let exit = Arc::new(AtomicBool::new(false));
 
@@ -176,18 +245,30 @@ fn main() {
     spawn(move || {
         while !exit_l.load(Ordering::Relaxed) {
             lc.update_leader_cache();
-            std::thread::sleep(Duration::from_secs(10));
+            sleep(Duration::from_secs(10));
         }
     });
+
+    let (delay_sender, delay_receiver) = unbounded();
+    let (block_engine_sender, block_engine_receiver) = channel(1_000);
+
+    let block_engine_forwarder = BlockEngine::new(args.block_engine_url, block_engine_receiver);
+
+    let forward_and_delay_thread = start_forward_and_delay_thread(
+        packet_receiver,
+        delay_sender,
+        args.packet_delay_ms,
+        block_engine_sender,
+    );
 
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();
     rt.block_on(async {
         let addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
-        println!("Relayer listening on: {}", addr);
+        info!("Relayer listening on: {}", addr);
 
         let relayer = Relayer::new(
             slot_receiver,
-            packet_receiver,
+            delay_receiver,
             leader_cache.clone(),
             exit.clone(),
             args.public_ip,
@@ -199,7 +280,6 @@ fn main() {
         let auth_interceptor = AuthenticationInterceptor { cache };
         let svc = ValidatorInterfaceServer::with_interceptor(relayer, auth_interceptor);
 
-        // let svc = ValidatorInterfaceServer::new(relayer);
         Server::builder()
             .add_service(svc)
             .serve(addr)
@@ -208,5 +288,7 @@ fn main() {
     });
 
     exit.store(true, Ordering::Relaxed);
+
     tpu.join().unwrap();
+    forward_and_delay_thread.join().unwrap();
 }

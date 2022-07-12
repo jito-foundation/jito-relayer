@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "bench_e2e",
+    "block_engine",
     "core",
     "jito-protos",
     "relayer",
