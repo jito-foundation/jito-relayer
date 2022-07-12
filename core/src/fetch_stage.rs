@@ -38,10 +38,8 @@ impl FetchStage {
     pub fn new_with_sender(
         sockets: Vec<UdpSocket>,
         tpu_forwards_sockets: Vec<UdpSocket>,
-        tpu_vote_sockets: Vec<UdpSocket>,
         exit: &Arc<AtomicBool>,
         sender: &PacketBatchSender,
-        vote_sender: &PacketBatchSender,
         forward_sender: &PacketBatchSender,
         forward_receiver: PacketBatchReceiver,
         coalesce_ms: u64,
@@ -49,14 +47,11 @@ impl FetchStage {
     ) -> Self {
         let tx_sockets = sockets.into_iter().map(Arc::new).collect();
         let tpu_forwards_sockets = tpu_forwards_sockets.into_iter().map(Arc::new).collect();
-        let tpu_vote_sockets = tpu_vote_sockets.into_iter().map(Arc::new).collect();
         Self::new_multi_socket(
             tx_sockets,
             tpu_forwards_sockets,
-            tpu_vote_sockets,
             exit,
             sender,
-            vote_sender,
             forward_sender,
             forward_receiver,
             coalesce_ms,
@@ -100,10 +95,8 @@ impl FetchStage {
     fn new_multi_socket(
         tpu_sockets: Vec<Arc<UdpSocket>>,
         tpu_forwards_sockets: Vec<Arc<UdpSocket>>,
-        tpu_vote_sockets: Vec<Arc<UdpSocket>>,
         exit: &Arc<AtomicBool>,
         sender: &PacketBatchSender,
-        vote_sender: &PacketBatchSender,
         forward_sender: &PacketBatchSender,
         forward_receiver: PacketBatchReceiver,
         coalesce_ms: u64,
@@ -145,23 +138,6 @@ impl FetchStage {
             })
             .collect();
 
-        let tpu_vote_stats = Arc::new(StreamerReceiveStats::new("tpu_vote_receiver"));
-        let tpu_vote_threads: Vec<_> = tpu_vote_sockets
-            .into_iter()
-            .map(|socket| {
-                streamer::receiver(
-                    socket,
-                    exit.clone(),
-                    vote_sender.clone(),
-                    recycler.clone(),
-                    tpu_vote_stats.clone(),
-                    coalesce_ms,
-                    true,
-                    None,
-                )
-            })
-            .collect();
-
         let sender = sender.clone();
 
         let fwd_thread_hdl = Builder::new()
@@ -185,7 +161,6 @@ impl FetchStage {
                 sleep(Duration::from_secs(1));
 
                 tpu_stats.report();
-                tpu_vote_stats.report();
                 tpu_forward_stats.report();
 
                 if exit.load(Ordering::Relaxed) {
@@ -198,7 +173,6 @@ impl FetchStage {
             thread_hdls: [
                 tpu_threads,
                 tpu_forwards_threads,
-                tpu_vote_threads,
                 vec![fwd_thread_hdl, metrics_thread_hdl],
             ]
             .into_iter()
