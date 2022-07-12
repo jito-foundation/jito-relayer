@@ -221,40 +221,36 @@ impl Router {
     }
 
     pub fn batchlist_to_proto(batches: Vec<PacketBatch>) -> PacketBatchList {
-        // ToDo: Turn this back into a map
-        let mut proto_batch_vec: Vec<PbPacketBatch> = Vec::new();
-        for batch in batches.into_iter() {
-            let mut proto_pkt_vec: Vec<PbPacket> = Vec::new();
-            for p in batch.iter() {
-                if !p.meta.discard() {
-                    proto_pkt_vec.push(PbPacket {
-                        data: p.data[0..p.meta.size].to_vec(),
-                        meta: Some(PbMeta {
-                            size: p.meta.size as u64,
-                            addr: p.meta.addr.to_string(),
-                            port: p.meta.port as u32,
-                            flags: Some(PbPacketFlags {
-                                discard: p.meta.discard(),
-                                forwarded: p.meta.forwarded(),
-                                repair: p.meta.repair(),
-                                simple_vote_tx: p.meta.is_simple_vote_tx(),
-                                tracer_packet: p.meta.is_tracer_packet(),
-                            }),
-                            sender_stake: 0, // TODO (LB): fill this out
-                        }),
-                    })
-                }
-            }
-            proto_batch_vec.push(PbPacketBatch {
-                packets: proto_pkt_vec,
-            })
-        }
-
-        // TODO (LB): do this
         PacketBatchList {
-            header: None,
-            batch_list: vec![],
-            expiry: 0,
+            header: Some(Header {
+                ts: Some(prost_types::Timestamp::from(SystemTime::now())),
+            }),
+            batch_list: batches
+                .into_iter()
+                .map(|batch| PbPacketBatch {
+                    packets: batch
+                        .iter()
+                        .filter(|p| !p.meta.discard())
+                        .map(|p| PbPacket {
+                            data: p.data[0..p.meta.size].to_vec(),
+                            meta: Some(PbMeta {
+                                size: p.meta.size as u64,
+                                addr: p.meta.addr.to_string(),
+                                port: p.meta.port as u32,
+                                flags: Some(PbPacketFlags {
+                                    discard: p.meta.discard(),
+                                    forwarded: p.meta.forwarded(),
+                                    repair: p.meta.repair(),
+                                    simple_vote_tx: p.meta.is_simple_vote_tx(),
+                                    tracer_packet: p.meta.is_tracer_packet(),
+                                }),
+                                sender_stake: p.meta.sender_stake,
+                            }),
+                        })
+                        .collect(),
+                })
+                .collect(),
+            expiry: 0, // TODO add the expiry from CLI args
         }
     }
 }
