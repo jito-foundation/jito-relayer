@@ -230,21 +230,23 @@ impl Router {
                     packets: batch
                         .iter()
                         .filter(|p| !p.meta.discard())
-                        .map(|p| PbPacket {
-                            data: p.data[0..p.meta.size].to_vec(),
-                            meta: Some(PbMeta {
-                                size: p.meta.size as u64,
-                                addr: p.meta.addr.to_string(),
-                                port: p.meta.port as u32,
-                                flags: Some(PbPacketFlags {
-                                    discard: p.meta.discard(),
-                                    forwarded: p.meta.forwarded(),
-                                    repair: p.meta.repair(),
-                                    simple_vote_tx: p.meta.is_simple_vote_tx(),
-                                    tracer_packet: p.meta.is_tracer_packet(),
+                        .filter_map(|p| {
+                            Some(PbPacket {
+                                data: p.data(0..p.meta.size)?.to_vec(),
+                                meta: Some(PbMeta {
+                                    size: p.meta.size as u64,
+                                    addr: p.meta.addr.to_string(),
+                                    port: p.meta.port as u32,
+                                    flags: Some(PbPacketFlags {
+                                        discard: p.meta.discard(),
+                                        forwarded: p.meta.forwarded(),
+                                        repair: p.meta.repair(),
+                                        simple_vote_tx: p.meta.is_simple_vote_tx(),
+                                        tracer_packet: p.meta.is_tracer_packet(),
+                                    }),
+                                    sender_stake: p.meta.sender_stake,
                                 }),
-                                sender_stake: p.meta.sender_stake,
-                            }),
+                            })
                         })
                         .collect(),
                 })
