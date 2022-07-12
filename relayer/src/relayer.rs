@@ -7,16 +7,16 @@ use std::{
     },
     task::{Context, Poll},
     thread::{sleep, spawn, JoinHandle},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use jito_protos::{
     shared::Socket,
     validator_interface_service::{
-        packet_stream_msg::Msg, validator_interface_server::ValidatorInterface, AoiSubRequest,
-        AoiSubResponse, GetTpuConfigsRequest, GetTpuConfigsResponse, PacketStreamMsg,
-        SubscribeBundlesRequest, SubscribeBundlesResponse,
+        validator_interface_server::ValidatorInterface, AoiSubRequest, AoiSubResponse,
+        GetTpuConfigsRequest, GetTpuConfigsResponse, PacketStreamMsg, SubscribeBundlesRequest,
+        SubscribeBundlesResponse,
     },
 };
 use log::*;
