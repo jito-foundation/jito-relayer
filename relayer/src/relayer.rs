@@ -14,9 +14,9 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use jito_protos::{
     shared::Socket,
     validator_interface_service::{
-        validator_interface_server::ValidatorInterface, GetTpuConfigsRequest,
-        GetTpuConfigsResponse, SubscribeBundlesRequest, SubscribeBundlesResponse,
-        SubscribePacketsRequest, SubscribePacketsResponse,
+        validator_interface_server::ValidatorInterface, AoiSubRequest, AoiSubResponse,
+        GetTpuConfigsRequest, GetTpuConfigsResponse, PacketStreamMsg, SubscribeBundlesRequest,
+        SubscribeBundlesResponse,
     },
 };
 use log::*;
@@ -30,7 +30,7 @@ use tokio::{
     task::spawn_blocking,
 };
 use tokio_stream::{wrappers::ReceiverStream, Stream};
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response, Status, Streaming};
 
 use crate::{auth::extract_pubkey, router::Router, schedule_cache::LeaderScheduleCache};
 
@@ -234,13 +234,13 @@ impl ValidatorInterface for Relayer {
         ))
     }
 
-    type SubscribePacketsStream = ValidatorSubscriberStream<SubscribePacketsResponse>;
+    type StartBiDirectionalPacketStreamStream = ValidatorSubscriberStream<PacketStreamMsg>;
 
-    async fn subscribe_packets(
+    async fn start_bi_directional_packet_stream(
         &self,
-        req: Request<SubscribePacketsRequest>,
-    ) -> Result<Response<Self::SubscribePacketsStream>, Status> {
-        let pubkey = extract_pubkey(req.metadata())?;
+        request: Request<Streaming<PacketStreamMsg>>,
+    ) -> Result<Response<Self::StartBiDirectionalPacketStreamStream>, Status> {
+        let pubkey = extract_pubkey(request.metadata())?;
         info!("Validator Connected - {}", pubkey);
 
         let (subscription_sender, mut subscription_receiver) = unbounded_channel();
@@ -282,5 +282,14 @@ impl ValidatorInterface for Relayer {
             tx: self.client_disconnect_sender.clone(),
             client_pubkey: pubkey,
         }))
+    }
+
+    type SubscribeAOIStream = ValidatorSubscriberStream<AoiSubResponse>;
+
+    async fn subscribe_aoi(
+        &self,
+        _request: Request<AoiSubRequest>,
+    ) -> Result<Response<Self::SubscribeAOIStream>, Status> {
+        Err(Status::unimplemented("subscribe aoi unimplemented"))
     }
 }

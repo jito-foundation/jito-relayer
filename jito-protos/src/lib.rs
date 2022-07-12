@@ -10,10 +10,6 @@ pub mod packet {
     tonic::include_proto!("packet");
 }
 
-pub mod relayer {
-    tonic::include_proto!("relayer");
-}
-
 pub mod searcher {
     tonic::include_proto!("searcher");
 }

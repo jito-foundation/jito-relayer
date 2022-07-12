@@ -1,17 +1,20 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, RwLock},
+    time::SystemTime,
 };
 
 use crossbeam_channel::Receiver;
 use jito_protos::{
+    self,
     packet::{
-        Meta as PbMeta, Packet as PbPacket, PacketBatch as PbPacketBatch,
-        PacketBatchWrapper as PbPacketBatchWrapper, PacketFlags as PbPacketFlags,
+        Meta as PbMeta, Packet as PbPacket, PacketBatch as PbPacketBatch, PacketBatchList,
+        PacketFlags as PbPacketFlags,
     },
+    shared::Header,
     validator_interface_service::{
-        subscribe_packets_response::Msg::{BatchList, Heartbeat},
-        SubscribePacketsResponse,
+        packet_stream_msg::Msg::{BatchList, Heartbeat},
+        PacketStreamMsg,
     },
 };
 use log::{debug, info, warn};
@@ -27,7 +30,7 @@ use tonic::Status;
 
 use crate::schedule_cache::LeaderScheduleCache;
 
-type PacketsResultSender = UnboundedSender<Result<SubscribePacketsResponse, Status>>;
+type PacketsResultSender = UnboundedSender<Result<PacketStreamMsg, Status>>;
 
 #[derive(Clone)]
 pub struct PacketSubscription {
@@ -62,9 +65,12 @@ impl Router {
     pub fn send_heartbeat(&self) -> Vec<Pubkey> {
         let active_subscriptions = self.packet_subs.read().unwrap().clone();
         let mut failed_subscriptions = Vec::new();
+
+        let ts = prost_types::Timestamp::from(SystemTime::now());
+        let header = Header { ts: Some(ts) };
         for (pk, subscription) in active_subscriptions.iter() {
-            if let Err(e) = subscription.tx.send(Ok(SubscribePacketsResponse {
-                msg: Some(Heartbeat(true)),
+            if let Err(e) = subscription.tx.send(Ok(PacketStreamMsg {
+                msg: Some(Heartbeat(header.clone())),
             })) {
                 warn!("error sending heartbeat to subscriber [{}]", e);
                 datapoint_info!(
@@ -89,7 +95,7 @@ impl Router {
     pub(crate) fn add_packet_subscription(
         &self,
         pk: &Pubkey,
-        tx: UnboundedSender<Result<SubscribePacketsResponse, Status>>,
+        tx: UnboundedSender<Result<PacketStreamMsg, Status>>,
     ) -> bool {
         let mut active_subs = self.packet_subs.write().unwrap();
 
@@ -149,7 +155,7 @@ impl Router {
     ///     tuple.1 = a set of slots that were streamed for
     pub fn stream_batch_list(
         &self,
-        batch_list: &PbPacketBatchWrapper,
+        batch_list: &PacketBatchList,
         start_slot: Slot,
         end_slot: Slot,
     ) -> (Vec<Pubkey>, HashSet<Slot>) {
@@ -169,7 +175,7 @@ impl Router {
             let slot_to_send = validators_to_send.get(pk);
             debug!("Slot to Send: {:?}", slot_to_send);
             if let Some(slot) = slot_to_send {
-                if let Err(e) = subscription.tx.send(Ok(SubscribePacketsResponse {
+                if let Err(e) = subscription.tx.send(Ok(PacketStreamMsg {
                     msg: Some(BatchList(batch_list.clone())),
                 })) {
                     datapoint_warn!(
@@ -214,7 +220,7 @@ impl Router {
         validators_to_send
     }
 
-    pub fn batchlist_to_proto(batches: Vec<PacketBatch>) -> PbPacketBatchWrapper {
+    pub fn batchlist_to_proto(batches: Vec<PacketBatch>) -> PacketBatchList {
         // ToDo: Turn this back into a map
         let mut proto_batch_vec: Vec<PbPacketBatch> = Vec::new();
         for batch in batches.into_iter() {
@@ -232,9 +238,9 @@ impl Router {
                                 forwarded: p.meta.forwarded(),
                                 repair: p.meta.repair(),
                                 simple_vote_tx: p.meta.is_simple_vote_tx(),
-                                // tracer_tx: p.meta.is_tracer_tx(),  // Couldn't get this to work?
-                                tracer_tx: false,
+                                tracer_packet: p.meta.is_tracer_packet(),
                             }),
+                            sender_stake: 0, // TODO (LB): fill this out
                         }),
                     })
                 }
@@ -244,8 +250,11 @@ impl Router {
             })
         }
 
-        PbPacketBatchWrapper {
-            batch_list: proto_batch_vec,
+        // TODO (LB): do this
+        PacketBatchList {
+            header: None,
+            batch_list: vec![],
+            expiry: 0,
         }
     }
 }
