@@ -13,10 +13,10 @@ ed25519-dalek = "1.0.1"
 jito-protos = { path = "../jito-protos" }
 jito-rpc = { path = "../rpc" }
 log = "0.4.17"
+prost-types = "0.10.1"
 solana-client = "=1.10.25"
 solana-core = "=1.10.25"
 solana-metrics = "=1.10.25"
-prost-types = "0.10.1"
 solana-perf = "=1.10.25"
 solana-sdk = "=1.10.25"
 tokio = { version = "1.14.1", features = ["time"] }
