@@ -41,14 +41,14 @@ pub struct Router {
     packet_subs: RwLock<HashMap<Pubkey, PacketSubscription>>,
     pub leader_schedule_cache: Arc<LeaderScheduleCache>,
     pub slot_receiver: Receiver<Slot>,
-    pub packet_receiver: Receiver<BankingPacketBatch>,
+    pub packet_receiver: Receiver<PacketBatchList>,
     pub current_slot: RwLock<Slot>,
 }
 
 impl Router {
     pub fn new(
         slot_receiver: Receiver<Slot>,
-        packet_receiver: Receiver<BankingPacketBatch>,
+        packet_receiver: Receiver<PacketBatchList>,
         leader_schedule_cache: Arc<LeaderScheduleCache>,
     ) -> Router {
         Router {
@@ -217,41 +217,5 @@ impl Router {
         );
 
         validators_to_send
-    }
-
-    pub fn batchlist_to_proto(batches: Vec<PacketBatch>) -> PacketBatchList {
-        PacketBatchList {
-            header: Some(Header {
-                ts: Some(prost_types::Timestamp::from(SystemTime::now())),
-            }),
-            batch_list: batches
-                .into_iter()
-                .map(|batch| PbPacketBatch {
-                    packets: batch
-                        .iter()
-                        .filter(|p| !p.meta.discard())
-                        .filter_map(|p| {
-                            Some(PbPacket {
-                                data: p.data(0..p.meta.size)?.to_vec(),
-                                meta: Some(PbMeta {
-                                    size: p.meta.size as u64,
-                                    addr: p.meta.addr.to_string(),
-                                    port: p.meta.port as u32,
-                                    flags: Some(PbPacketFlags {
-                                        discard: p.meta.discard(),
-                                        forwarded: p.meta.forwarded(),
-                                        repair: p.meta.repair(),
-                                        simple_vote_tx: p.meta.is_simple_vote_tx(),
-                                        tracer_packet: p.meta.is_tracer_packet(),
-                                    }),
-                                    sender_stake: p.meta.sender_stake,
-                                }),
-                            })
-                        })
-                        .collect(),
-                })
-                .collect(),
-            expiry: 0, // TODO add the expiry from CLI args
-        }
     }
 }

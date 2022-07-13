@@ -12,6 +12,7 @@ use std::{
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use jito_protos::{
+    packet::PacketBatchList,
     shared::Socket,
     validator_interface_service::{
         validator_interface_server::ValidatorInterface, AoiSubRequest, AoiSubResponse,
@@ -46,7 +47,7 @@ pub struct Relayer {
 impl Relayer {
     pub fn new(
         slot_receiver: Receiver<Slot>,
-        packet_receiver: Receiver<BankingPacketBatch>,
+        packet_receiver: Receiver<PacketBatchList>,
         leader_schedule_cache: Arc<LeaderScheduleCache>,
         exit: Arc<AtomicBool>,
         public_ip: IpAddr,
@@ -146,24 +147,13 @@ impl Relayer {
         let pkt_hdl = spawn(move || {
             while !exit.load(Ordering::Relaxed) {
                 match router.packet_receiver.recv() {
-                    Ok(bp_batch) => {
-                        let batches = bp_batch.0;
-                        if !batches.is_empty() {
-                            debug!(
-                                "Got Batch of length {} x {}",
-                                batches.len(),
-                                batches[0].len()
-                            );
-                        }
-
-                        let proto_bl = Router::batchlist_to_proto(batches);
-
+                    Ok(packet_batch) => {
                         let current_slot = *router.current_slot.read().unwrap();
                         let start_slot =
                             current_slot - (NUM_CONSECUTIVE_LEADER_SLOTS * look_behind);
                         let end_slot = current_slot + (NUM_CONSECUTIVE_LEADER_SLOTS * look_ahead);
                         let (failed_stream_pks, _slots_sent) =
-                            router.stream_batch_list(&proto_bl, start_slot, end_slot);
+                            router.stream_batch_list(&packet_batch, start_slot, end_slot);
 
                         // close the connections
                         router.disconnect(&failed_stream_pks);

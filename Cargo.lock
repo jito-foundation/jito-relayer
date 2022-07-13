@@ -1879,7 +1879,9 @@ version = "0.1.0"
 dependencies = [
  "jito-protos",
  "log",
+ "prost-types 0.10.1",
  "solana-core",
+ "thiserror",
  "tokio",
  "tokio-stream",
  "tonic 0.7.2",

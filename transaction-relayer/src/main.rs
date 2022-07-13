@@ -8,14 +8,21 @@ use std::{
     },
     thread,
     thread::{sleep, spawn, JoinHandle},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use clap::Parser;
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use jito_block_engine::block_engine::BlockEngine;
 use jito_core::tpu::{Tpu, TpuSockets};
-use jito_protos::validator_interface_service::validator_interface_server::ValidatorInterfaceServer;
+use jito_protos::{
+    packet::{
+        Meta as PbMeta, Packet as PbPacket, PacketBatch as PbPacketBatch, PacketBatchList,
+        PacketFlags as PbPacketFlags,
+    },
+    shared::Header,
+    validator_interface_service::validator_interface_server::ValidatorInterfaceServer,
+};
 use jito_relayer::{
     auth::AuthenticationInterceptor, relayer::Relayer, schedule_cache::LeaderScheduleCache,
 };
@@ -23,6 +30,7 @@ use jito_rpc::load_balancer::LoadBalancer;
 use log::{error, info, warn};
 use solana_core::banking_stage::BankingPacketBatch;
 use solana_net_utils::multi_bind_in_range;
+use solana_perf::packet::PacketBatch;
 use solana_sdk::signature::{Keypair, Signer};
 use tokio::{
     runtime::Builder,
@@ -38,19 +46,19 @@ struct Args {
     tpu_bind_ip: IpAddr,
 
     /// Port to bind to for tpu packets
-    #[clap(long, env, value_parser, default_value_t = 10_500)]
+    #[clap(long, env, value_parser, default_value_t = 11_222)]
     tpu_port: u16,
 
     /// Port to bind to for tpu fwd packets
-    #[clap(long, env, value_parser, default_value_t = 10_501)]
+    #[clap(long, env, value_parser, default_value_t = 11_223)]
     tpu_fwd_port: u16,
 
     /// Port to bind to for tpu packets
-    #[clap(long, env, value_parser, default_value_t = 10_502)]
+    #[clap(long, env, value_parser, default_value_t = 11_224)]
     tpu_quic_port: u16,
 
     /// Port to bind to for tpu fwd packets
-    #[clap(long, env, value_parser, default_value_t = 10_503)]
+    #[clap(long, env, value_parser, default_value_t = 11_225)]
     tpu_quic_fwd_port: u16,
 
     /// Bind IP address for GRPC server
@@ -58,7 +66,7 @@ struct Args {
     grpc_bind_ip: IpAddr,
 
     /// Bind port address for GRPC server
-    #[clap(long, env, value_parser, default_value_t = 10102)]
+    #[clap(long, env, value_parser, default_value_t = 11_226)]
     grpc_bind_port: u16,
 
     /// Number of TPU threads
@@ -90,7 +98,7 @@ struct Args {
     packet_delay_ms: u64,
 
     /// Block engine address
-    #[clap(long, env, value_parser, default_value = "http://127.0.0.1:10101")]
+    #[clap(long, env, value_parser, default_value = "http://127.0.0.1:13334")]
     block_engine_url: String,
 }
 
@@ -146,15 +154,52 @@ fn get_sockets(args: &Args) -> Sockets {
     }
 }
 
+pub fn batches_to_batch_list(batches: Vec<PacketBatch>, packet_delay_ms: u64) -> PacketBatchList {
+    let now = SystemTime::now();
+
+    PacketBatchList {
+        header: Some(Header {
+            ts: Some(prost_types::Timestamp::from(now)),
+        }),
+        batch_list: batches
+            .into_iter()
+            .map(|batch| PbPacketBatch {
+                packets: batch
+                    .iter()
+                    .filter(|p| !p.meta.discard())
+                    .filter_map(|p| {
+                        Some(PbPacket {
+                            data: p.data(0..p.meta.size)?.to_vec(),
+                            meta: Some(PbMeta {
+                                size: p.meta.size as u64,
+                                addr: p.meta.addr.to_string(),
+                                port: p.meta.port as u32,
+                                flags: Some(PbPacketFlags {
+                                    discard: p.meta.discard(),
+                                    forwarded: p.meta.forwarded(),
+                                    repair: p.meta.repair(),
+                                    simple_vote_tx: p.meta.is_simple_vote_tx(),
+                                    tracer_packet: p.meta.is_tracer_packet(),
+                                }),
+                                sender_stake: p.meta.sender_stake,
+                            }),
+                        })
+                    })
+                    .collect(),
+            })
+            .collect(),
+        expiry: packet_delay_ms,
+    }
+}
+
 /// Forwards packets to Block Engine and
 fn start_forward_and_delay_thread(
     packet_receiver: Receiver<BankingPacketBatch>,
-    delay_sender: Sender<BankingPacketBatch>,
+    delay_sender: Sender<PacketBatchList>,
     packet_delay_ms: u64,
-    block_engine_sender: tokio::sync::mpsc::Sender<BankingPacketBatch>,
+    block_engine_sender: tokio::sync::mpsc::Sender<PacketBatchList>,
 ) -> JoinHandle<()> {
     const SLEEP_DURATION: Duration = Duration::from_millis(5);
-    let expiration_delay = Duration::from_millis(packet_delay_ms);
 
     thread::Builder::new()
         .name("jito-forward_packets_to_block_engine".into())
@@ -164,7 +209,10 @@ fn start_forward_and_delay_thread(
             loop {
                 match packet_receiver.recv_timeout(SLEEP_DURATION) {
                     Ok(packet_batch) => {
-                        match block_engine_sender.try_send(packet_batch.clone()) {
+                        let batch_list = batches_to_batch_list(packet_batch.0, packet_delay_ms);
+                        let now = Instant::now();
+
+                        match block_engine_sender.try_send(batch_list.clone()) {
                             Ok(_) => {}
                             Err(TrySendError::Closed(_)) => {
                                 error!("error sending packet batch to block engine handler");
@@ -174,7 +222,7 @@ fn start_forward_and_delay_thread(
                                 warn!("full!");
                             }
                         }
-                        buffered_packet_batches.push_back((Instant::now(), packet_batch));
+                        buffered_packet_batches.push_back((now, batch_list));
                     }
                     Err(RecvTimeoutError::Timeout) => {
                         // do nothing
@@ -184,9 +232,8 @@ fn start_forward_and_delay_thread(
                     }
                 }
 
-                // Instant is monotonically increasing
-                while let Some((timestamp, _)) = buffered_packet_batches.front() {
-                    if Instant::now().duration_since(*timestamp) >= expiration_delay {
+                while let Some((pushed_time, packet_batch)) = buffered_packet_batches.front() {
+                    if pushed_time.elapsed() >= Duration::from_secs(packet_batch.expiry) {
                         if let Err(e) =
                             delay_sender.send(buffered_packet_batches.pop_front().unwrap().1)
                         {

@@ -1,16 +1,38 @@
 use std::{
     thread::{Builder, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant, SystemTime},
 };
 
-use jito_protos::validator_interface_service::{
-    packet_stream_msg::Msg::BatchList, validator_interface_client::ValidatorInterfaceClient,
+use jito_protos::{
+    packet::PacketBatchList,
+    shared::Header,
+    validator_interface_service::{
+        packet_stream_msg::Msg::Heartbeat, validator_interface_client::ValidatorInterfaceClient,
+        PacketStreamMsg,
+    },
 };
-use log::{error, warn};
+use log::{error, warn, *};
+use prost_types::Timestamp;
 use solana_core::banking_stage::BankingPacketBatch;
-use tokio::{runtime::Runtime, sync::mpsc::Receiver, time::sleep};
-use tokio_stream::iter;
-use tonic::Request;
+use thiserror::Error;
+use tokio::{
+    runtime::Runtime,
+    select,
+    sync::mpsc::{channel, Receiver, Sender},
+    time::{interval, sleep},
+};
+use tonic::{IntoStreamingRequest, Response, Status, Streaming};
+
+#[derive(Error, Debug)]
+pub enum BlockEngineError {
+    #[error("connection closed")]
+    ConnectionClosedError,
+
+    #[error("heartbeat timeout")]
+    HeartbeatTimeout,
+}
+
+pub type BlockEngineResult<T> = Result<T, BlockEngineError>;
 
 /// Attempts to maintain a connection to a Block Engine and forward packets to it
 pub struct BlockEngine {
@@ -20,7 +42,7 @@ pub struct BlockEngine {
 impl BlockEngine {
     pub fn new(
         block_engine_url: String,
-        block_engine_receiver: Receiver<BankingPacketBatch>,
+        block_engine_receiver: Receiver<PacketBatchList>,
     ) -> BlockEngine {
         let block_engine_forwarder =
             Self::start_block_engine_forwarder(block_engine_url, block_engine_receiver);
@@ -31,7 +53,7 @@ impl BlockEngine {
 
     fn start_block_engine_forwarder(
         block_engine_url: String,
-        block_engine_receiver: Receiver<BankingPacketBatch>,
+        mut block_engine_receiver: Receiver<PacketBatchList>,
     ) -> JoinHandle<()> {
         Builder::new()
             .name("start_block_engine_forwarder".into())
@@ -39,17 +61,39 @@ impl BlockEngine {
                 let rt = Runtime::new().unwrap();
                 rt.block_on(async move {
                     loop {
-                        warn!("connecting to block engine...");
+                        sleep(Duration::from_secs(1)).await;
+
+                        info!("connecting to block engine at url: {:?}", block_engine_url);
                         match ValidatorInterfaceClient::connect(block_engine_url.to_string()).await
                         {
                             Ok(mut client) => {
-                                let mut request = Request::new(iter(vec![]));
-                                match client.start_bi_directional_packet_stream(request).await {
+                                let (packet_msg_sender, packet_msg_receiver) =
+                                    channel::<PacketStreamMsg>(1_000);
+                                let receiver_stream = tokio_stream::wrappers::ReceiverStream::new(
+                                    packet_msg_receiver,
+                                );
+                                match client
+                                    .start_bi_directional_packet_stream(
+                                        receiver_stream.into_streaming_request(),
+                                    )
+                                    .await
+                                {
                                     Ok(stream) => {
-                                        let mut stream = stream.into_inner();
+                                        match Self::handle_packet_stream(
+                                            packet_msg_sender,
+                                            stream,
+                                            &mut block_engine_receiver,
+                                        )
+                                        .await
+                                        {
+                                            Ok(_) => {}
+                                            Err(e) => {
+                                                error!("error handling packet stream: {:?}", e);
+                                            }
+                                        }
                                     }
                                     Err(e) => {
-                                        error!("error connecting to server: {}", e);
+                                        error!("error starting packet stream: {}", e);
                                     }
                                 }
                             }
@@ -58,12 +102,85 @@ impl BlockEngine {
                                     "can't connect to block engine: {:?}, error: {:?}",
                                     block_engine_url, e
                                 );
-                                sleep(Duration::from_secs(1)).await;
                             }
                         }
                     }
                 });
             })
             .unwrap()
+    }
+
+    async fn handle_packet_stream(
+        packet_msg_sender: Sender<PacketStreamMsg>,
+        stream: Response<Streaming<PacketStreamMsg>>,
+        block_engine_receiver: &mut Receiver<PacketBatchList>,
+    ) -> BlockEngineResult<()> {
+        let mut stream = stream.into_inner();
+        let mut heartbeat = interval(Duration::from_millis(500));
+
+        let mut last_heartbeat_time = Instant::now();
+
+        // drain anything buffered before sending new packets
+        while let Ok(_) = block_engine_receiver.try_recv() {}
+
+        tokio::pin!(heartbeat);
+        loop {
+            select! {
+                _ = heartbeat.tick() => {
+                    Self::check_and_send_heartbeat(&last_heartbeat_time, &packet_msg_sender).await?;
+                }
+                maybe_msg = stream.message() => {
+                    info!("maybe_msg: {:?}", maybe_msg);
+                }
+                block_engine_packets = block_engine_receiver.recv() => {
+                    Self::forward_packets(&packet_msg_sender, block_engine_packets).await?;
+                }
+            }
+        }
+    }
+
+    async fn forward_packets(
+        packet_msg_sender: &Sender<PacketStreamMsg>,
+        block_engine_packets: Option<PacketBatchList>,
+    ) -> BlockEngineResult<()> {
+        // match block_engine_packets {
+        //     None => Err(BlockEngineError::ConnectionClosedError),
+        //     Some(block_engine_packets) => {
+        //         let packet_batch_list = PacketBatchList {
+        //             header: Some(Header {
+        //                 ts: Some(Timestamp::from(SystemTime::now())),
+        //             }),
+        //             batch_list: block_engine_packets.0.into_iter().map(|batch| {}).collect(),
+        //             expiry: 0, // TODO (LB): this is different than the expiry
+        //         };
+        //         Ok(())
+        //     }
+        // }
+        Ok(())
+    }
+
+    /// Checks the heartbeat timeout and errors out if the heartbeat didn't come in time.
+    /// Assuming that's okay, sends a heartbeat back and if that fails, disconnect.
+    async fn check_and_send_heartbeat(
+        last_heartbeat_time: &Instant,
+        packet_msg_sender: &Sender<PacketStreamMsg>,
+    ) -> BlockEngineResult<()> {
+        if Instant::now().duration_since(*last_heartbeat_time) > Duration::from_secs_f32(1.5) {
+            return Err(BlockEngineError::HeartbeatTimeout);
+        }
+
+        if packet_msg_sender
+            .send(PacketStreamMsg {
+                msg: Some(Heartbeat(Header {
+                    ts: Some(Timestamp::from(SystemTime::now())),
+                })),
+            })
+            .await
+            .is_err()
+        {
+            return Err(BlockEngineError::ConnectionClosedError);
+        }
+
+        Ok(())
     }
 }
