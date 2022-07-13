@@ -28,15 +28,23 @@ fn main() {
 
     let mut last_blockhash_refresh = Instant::now();
     let mut latest_blockhash = client.get_latest_blockhash().unwrap();
+    let mut last_count = 0;
 
     info!("sending packets...");
 
     let mut count: u64 = 0;
     loop {
         if last_blockhash_refresh.elapsed() > Duration::from_secs(5) {
+            let packets_per_second =
+                (count - last_count) as f64 / last_blockhash_refresh.elapsed().as_secs_f64();
+            info!(
+                "packets sent/s: {:.2} ({} total)",
+                packets_per_second, count
+            );
+
             last_blockhash_refresh = Instant::now();
             latest_blockhash = client.get_latest_blockhash().unwrap();
-            info!("packets sent: {:?}", count);
+            last_count = count;
         }
 
         let serialized_txs: Vec<Vec<u8>> = (0..10)
