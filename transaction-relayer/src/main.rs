@@ -85,7 +85,8 @@ struct Args {
     #[clap(long, env, value_parser, default_value = "ws://127.0.0.1:8900")]
     websocket_servers: Vec<String>,
 
-    /// The public-facing IP address of this server
+    /// This is the IP address that will be shared with the validator. The validator will
+    /// tell the rest of the network to send packets here.
     #[clap(long, env, value_parser, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
     public_ip: IpAddr,
 
