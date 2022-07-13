@@ -17,7 +17,8 @@ use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
     time::{interval, sleep},
 };
-use tonic::{IntoStreamingRequest, Response, Status, Streaming};
+use tokio_stream::wrappers::ReceiverStream;
+use tonic::{transport::Channel, IntoStreamingRequest, Response, Status, Streaming};
 
 #[derive(Error, Debug)]
 pub enum BlockEngineError {
@@ -26,6 +27,9 @@ pub enum BlockEngineError {
 
     #[error("heartbeat timeout")]
     HeartbeatTimeout,
+
+    #[error("GRPC error: {0}")]
+    GrpcError(#[from] Status),
 }
 
 pub type BlockEngineResult<T> = Result<T, BlockEngineError>;
@@ -67,33 +71,15 @@ impl BlockEngine {
                         match ValidatorInterfaceClient::connect(block_engine_url.to_string()).await
                         {
                             Ok(mut client) => {
-                                let (packet_msg_sender, packet_msg_receiver) =
-                                    channel::<PacketStreamMsg>(1_000);
-                                let receiver_stream = tokio_stream::wrappers::ReceiverStream::new(
-                                    packet_msg_receiver,
-                                );
-                                match client
-                                    .start_bi_directional_packet_stream(
-                                        receiver_stream.into_streaming_request(),
-                                    )
-                                    .await
+                                match Self::start_packet_stream(
+                                    &mut client,
+                                    &mut block_engine_receiver,
+                                )
+                                .await
                                 {
-                                    Ok(stream) => {
-                                        match Self::handle_packet_stream(
-                                            packet_msg_sender,
-                                            stream,
-                                            &mut block_engine_receiver,
-                                        )
-                                        .await
-                                        {
-                                            Ok(_) => {}
-                                            Err(e) => {
-                                                error!("error handling packet stream: {:?}", e);
-                                            }
-                                        }
-                                    }
+                                    Ok(_) => {}
                                     Err(e) => {
-                                        error!("error starting packet stream: {}", e);
+                                        error!("error with packet stream: {:?}", e);
                                     }
                                 }
                             }
@@ -108,6 +94,40 @@ impl BlockEngine {
                 });
             })
             .unwrap()
+    }
+
+    /// Starts the bi-directional packet stream.
+    /// The relayer will send heartbeats and packets to the block engine.
+    /// The block engine will send heartbeats back to the relayer.
+    /// If there's a missed heartbeat or any issues responding to each other, they'll disconnect and
+    /// try to re-establish connection
+    async fn start_packet_stream(
+        client: &mut ValidatorInterfaceClient<Channel>,
+        block_engine_receiver: &mut Receiver<ExpiringPacketBatches>,
+    ) -> BlockEngineResult<()> {
+        let (packet_msg_sender, packet_msg_receiver) = channel::<PacketStreamMsg>(1_000);
+        let receiver_stream = ReceiverStream::new(packet_msg_receiver);
+
+        match client
+            .start_bi_directional_packet_stream(receiver_stream.into_streaming_request())
+            .await
+        {
+            Ok(stream) => {
+                match Self::handle_packet_stream(packet_msg_sender, stream, block_engine_receiver)
+                    .await
+                {
+                    Ok(_) => Ok(()),
+                    Err(e) => {
+                        error!("error handling packet stream: {:?}", e);
+                        Err(e)
+                    }
+                }
+            }
+            Err(e) => {
+                error!("error starting packet stream: {}", e);
+                Err(e.into())
+            }
+        }
     }
 
     async fn handle_packet_stream(
@@ -139,6 +159,9 @@ impl BlockEngine {
         }
     }
 
+    /// Handles receive a message from the block engine.
+    /// It currently only expects heartbeats from the Block Engine.
+    /// If it receives any packets, it will disconnect
     async fn handle_receive_message(
         maybe_msg: Result<Option<PacketStreamMsg>, Status>,
         last_heartbeat_time: &mut Instant,
@@ -182,6 +205,7 @@ impl BlockEngine {
         }
     }
 
+    /// Forwards packets to the Block Engine
     async fn forward_packets(
         packet_msg_sender: &Sender<PacketStreamMsg>,
         block_engine_packets: Option<ExpiringPacketBatches>,

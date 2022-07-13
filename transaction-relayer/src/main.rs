@@ -157,7 +157,9 @@ fn get_sockets(args: &Args) -> Sockets {
     }
 }
 
-pub fn batches_to_batch_list(
+/// Returns the batches as a wrapped ExpiringPacketBatches protobuf with an expiration
+/// attached to them.
+pub fn packet_batches_to_expiring_packet_batches(
     batches: Vec<PacketBatch>,
     packet_delay_ms: u32,
 ) -> ExpiringPacketBatches {
@@ -216,9 +218,13 @@ fn start_forward_and_delay_thread(
             loop {
                 match packet_receiver.recv_timeout(SLEEP_DURATION) {
                     Ok(packet_batch) => {
-                        let batch_list = batches_to_batch_list(packet_batch.0, packet_delay_ms);
-                        let now = Instant::now();
+                        let batch_list = packet_batches_to_expiring_packet_batches(
+                            packet_batch.0,
+                            packet_delay_ms,
+                        );
 
+                        // try_send because the block engine receiver only drains when it's connected
+                        // and we don't want to OOM on packet_receiver
                         match block_engine_sender.try_send(batch_list.clone()) {
                             Ok(_) => {}
                             Err(TrySendError::Closed(_)) => {
@@ -226,10 +232,10 @@ fn start_forward_and_delay_thread(
                                 break;
                             }
                             Err(TrySendError::Full(_)) => {
-                                warn!("full!");
+                                warn!("buffer is full!");
                             }
                         }
-                        buffered_packet_batches.push_back((now, batch_list));
+                        buffered_packet_batches.push_back((Instant::now(), batch_list));
                     }
                     Err(RecvTimeoutError::Timeout) => {}
                     Err(RecvTimeoutError::Disconnected) => {
@@ -239,6 +245,7 @@ fn start_forward_and_delay_thread(
 
                 // double check to see if any batches expired and shall be pushed through to the validator
                 while let Some((pushed_time, packet_batch)) = buffered_packet_batches.front() {
+                    // Instant is monotonically increasing
                     if pushed_time.elapsed() >= Duration::from_secs(packet_batch.expiry_ms as u64) {
                         if let Err(e) =
                             delay_sender.send(buffered_packet_batches.pop_front().unwrap().1)
@@ -305,8 +312,9 @@ fn main() {
 
     let (delay_sender, delay_receiver) = unbounded();
 
+    // NOTE: make sure the channel here isn't too big because it will get backed up
+    // with packets when the block engine isn't connected
     let (block_engine_sender, block_engine_receiver) = channel(1000);
-    let block_engine_forwarder = BlockEngine::new(args.block_engine_url, block_engine_receiver);
 
     let forward_and_delay_thread = start_forward_and_delay_thread(
         packet_receiver,
@@ -314,6 +322,7 @@ fn main() {
         args.packet_delay_ms,
         block_engine_sender,
     );
+    let block_engine_forwarder = BlockEngine::new(args.block_engine_url, block_engine_receiver);
 
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();
     rt.block_on(async {
