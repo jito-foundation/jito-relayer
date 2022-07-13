@@ -1878,8 +1878,11 @@ name = "jito-block-engine"
 version = "0.1.0"
 dependencies = [
  "jito-protos",
+ "log",
  "solana-core",
  "tokio",
+ "tokio-stream",
+ "tonic 0.7.2",
 ]
 
 [[package]]

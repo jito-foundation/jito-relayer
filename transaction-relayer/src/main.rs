@@ -146,6 +146,7 @@ fn get_sockets(args: &Args) -> Sockets {
     }
 }
 
+/// Forwards packets to Block Engine and
 fn start_forward_and_delay_thread(
     packet_receiver: Receiver<BankingPacketBatch>,
     delay_sender: Sender<BankingPacketBatch>,
@@ -250,7 +251,7 @@ fn main() {
     });
 
     let (delay_sender, delay_receiver) = unbounded();
-    let (block_engine_sender, block_engine_receiver) = channel(1_000);
+    let (block_engine_sender, block_engine_receiver) = channel(10_000);
 
     let block_engine_forwarder = BlockEngine::new(args.block_engine_url, block_engine_receiver);
 
