@@ -1,9 +1,11 @@
 [workspace]
 members = [
-    "bench_e2e",
+    "packet_blaster",
     "block_engine",
     "core",
     "jito-protos",
+    "packet_blaster",
     "relayer",
     "rpc",
-    "transaction-relayer"]
+    "transaction-relayer"
+]

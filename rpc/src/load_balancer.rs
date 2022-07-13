@@ -130,7 +130,7 @@ impl LoadBalancer {
                                 }
                                 Err(e) => {
                                     error!(
-                                        "slot subscription error client: {}, error: {}",
+                                        "slot subscription error client: {}, error: {:?}",
                                         websocket_url, e
                                     );
                                 }
