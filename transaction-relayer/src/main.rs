@@ -225,14 +225,13 @@ fn start_forward_and_delay_thread(
                         }
                         buffered_packet_batches.push_back((now, batch_list));
                     }
-                    Err(RecvTimeoutError::Timeout) => {
-                        // do nothing
-                    }
+                    Err(RecvTimeoutError::Timeout) => {}
                     Err(RecvTimeoutError::Disconnected) => {
                         break;
                     }
                 }
 
+                // double check to see if any batches expired and shall be pushed through to the validator
                 while let Some((pushed_time, packet_batch)) = buffered_packet_batches.front() {
                     if pushed_time.elapsed() >= Duration::from_secs(packet_batch.expiry) {
                         if let Err(e) =
@@ -299,8 +298,8 @@ fn main() {
     });
 
     let (delay_sender, delay_receiver) = unbounded();
-    let (block_engine_sender, block_engine_receiver) = channel(10_000);
 
+    let (block_engine_sender, block_engine_receiver) = channel(1000);
     let block_engine_forwarder = BlockEngine::new(args.block_engine_url, block_engine_receiver);
 
     let forward_and_delay_thread = start_forward_and_delay_thread(
