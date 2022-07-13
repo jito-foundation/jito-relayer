@@ -1,20 +1,15 @@
 use std::{
+    thread,
     thread::{Builder, JoinHandle},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use jito_protos::{
-    packet::PacketBatchList,
-    shared::Header,
-    validator_interface_service::{
-        packet_stream_msg::Msg::{BatchList, Heartbeat},
-        validator_interface_client::ValidatorInterfaceClient,
-        PacketStreamMsg,
-    },
+use jito_protos::validator_interface_service::{
+    packet_stream_msg::Msg, validator_interface_client::ValidatorInterfaceClient,
+    ExpiringPacketBatches, Heartbeat, PacketStreamMsg,
 };
-use log::{error, warn, *};
+use log::{error, *};
 use prost_types::Timestamp;
-use solana_core::banking_stage::BankingPacketBatch;
 use thiserror::Error;
 use tokio::{
     runtime::Runtime,
@@ -43,7 +38,7 @@ pub struct BlockEngine {
 impl BlockEngine {
     pub fn new(
         block_engine_url: String,
-        block_engine_receiver: Receiver<PacketBatchList>,
+        block_engine_receiver: Receiver<ExpiringPacketBatches>,
     ) -> BlockEngine {
         let block_engine_forwarder =
             Self::start_block_engine_forwarder(block_engine_url, block_engine_receiver);
@@ -52,9 +47,13 @@ impl BlockEngine {
         }
     }
 
+    pub fn join(self) -> thread::Result<()> {
+        self.block_engine_forwarder.join()
+    }
+
     fn start_block_engine_forwarder(
         block_engine_url: String,
-        mut block_engine_receiver: Receiver<PacketBatchList>,
+        mut block_engine_receiver: Receiver<ExpiringPacketBatches>,
     ) -> JoinHandle<()> {
         Builder::new()
             .name("start_block_engine_forwarder".into())
@@ -114,10 +113,10 @@ impl BlockEngine {
     async fn handle_packet_stream(
         packet_msg_sender: Sender<PacketStreamMsg>,
         stream: Response<Streaming<PacketStreamMsg>>,
-        block_engine_receiver: &mut Receiver<PacketBatchList>,
+        block_engine_receiver: &mut Receiver<ExpiringPacketBatches>,
     ) -> BlockEngineResult<()> {
         let mut stream = stream.into_inner();
-        let mut heartbeat = interval(Duration::from_millis(500));
+        let heartbeat = interval(Duration::from_millis(500));
 
         let mut last_heartbeat_time = Instant::now();
 
@@ -146,8 +145,8 @@ impl BlockEngine {
     ) -> BlockEngineResult<()> {
         match maybe_msg {
             Ok(Some(PacketStreamMsg {
-                msg: Some(Heartbeat(header)),
-            })) => match header.ts {
+                msg: Some(Msg::Heartbeat(heartbeat)),
+            })) => match heartbeat.ts {
                 None => {
                     error!("expected timestamp from block engine, disconnecting");
                     Err(BlockEngineError::ConnectionClosedError)
@@ -163,7 +162,7 @@ impl BlockEngine {
                 }
             },
             Ok(Some(PacketStreamMsg {
-                msg: Some(BatchList(_)),
+                msg: Some(Msg::Batches(_)),
             })) => {
                 error!("received packets but not expecting any, disconnecting");
                 Err(BlockEngineError::ConnectionClosedError)
@@ -185,14 +184,14 @@ impl BlockEngine {
 
     async fn forward_packets(
         packet_msg_sender: &Sender<PacketStreamMsg>,
-        block_engine_packets: Option<PacketBatchList>,
+        block_engine_packets: Option<ExpiringPacketBatches>,
     ) -> BlockEngineResult<()> {
         match block_engine_packets {
             None => Err(BlockEngineError::ConnectionClosedError),
             Some(block_engine_packets) => {
                 if packet_msg_sender
                     .send(PacketStreamMsg {
-                        msg: Some(BatchList(block_engine_packets)),
+                        msg: Some(Msg::Batches(block_engine_packets)),
                     })
                     .await
                     .is_err()
@@ -217,8 +216,9 @@ impl BlockEngine {
 
         if packet_msg_sender
             .send(PacketStreamMsg {
-                msg: Some(Heartbeat(Header {
+                msg: Some(Msg::Heartbeat(Heartbeat {
                     ts: Some(Timestamp::from(SystemTime::now())),
+                    count: 0,
                 })),
             })
             .await

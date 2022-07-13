@@ -12,7 +12,6 @@ use std::{
 use bincode::serialize;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
-    hash::Hash,
     signature::{Keypair, Signature, Signer},
     system_transaction::transfer,
 };
@@ -22,7 +21,7 @@ fn main() {
 
     let client = RpcClient::new("http://127.0.0.1:8899");
     let keypair = Keypair::new();
-    // assert!(request_and_confirm_airdrop(&client, &[keypair.pubkey()]));
+    assert!(request_and_confirm_airdrop(&client, &[keypair.pubkey()]));
 
     let exit = Arc::new(AtomicBool::new(false));
 
@@ -55,7 +54,7 @@ fn main() {
                             break;
                         }
 
-                        let latest = Hash::default(); //client.get_latest_blockhash().unwrap();
+                        let latest = client.get_latest_blockhash().unwrap();
 
                         // transfer()
                         // TODO (LB): need to generate this faster

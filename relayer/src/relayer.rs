@@ -12,10 +12,10 @@ use std::{
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use jito_protos::{
-    packet::PacketBatchList,
     shared::Socket,
     validator_interface_service::{
         validator_interface_server::ValidatorInterface, AoiSubRequest, AoiSubResponse,
+        ExpiringPacketBatches, GenerateChallengeTokenRequest, GenerateChallengeTokenResponse,
         GetTpuConfigsRequest, GetTpuConfigsResponse, PacketStreamMsg, SubscribeBundlesRequest,
         SubscribeBundlesResponse,
     },
@@ -46,7 +46,7 @@ pub struct Relayer {
 impl Relayer {
     pub fn new(
         slot_receiver: Receiver<Slot>,
-        packet_receiver: Receiver<PacketBatchList>,
+        packet_receiver: Receiver<ExpiringPacketBatches>,
         leader_schedule_cache: Arc<LeaderScheduleCache>,
         exit: Arc<AtomicBool>,
         public_ip: IpAddr,
@@ -106,10 +106,12 @@ impl Relayer {
         info!("Started Heartbeat");
 
         spawn(move || {
+            let mut count: u64 = 0;
             while !exit.load(Ordering::Relaxed) {
-                let failed_heartbeats = router.send_heartbeat();
+                let failed_heartbeats = router.send_heartbeat(&count);
                 router.disconnect(&failed_heartbeats);
                 sleep(Duration::from_millis(500));
+                count += 1;
             }
         })
     }
@@ -279,6 +281,15 @@ impl ValidatorInterface for Relayer {
         &self,
         _request: Request<AoiSubRequest>,
     ) -> Result<Response<Self::SubscribeAOIStream>, Status> {
-        Err(Status::unimplemented("subscribe aoi unimplemented"))
+        Err(Status::unimplemented("subscribe_aoi unimplemented"))
+    }
+
+    async fn generate_challenge_token(
+        &self,
+        _request: Request<GenerateChallengeTokenRequest>,
+    ) -> Result<Response<GenerateChallengeTokenResponse>, Status> {
+        Err(Status::unimplemented(
+            "generate_challenge_token unimplemented",
+        ))
     }
 }

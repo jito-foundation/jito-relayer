@@ -17,11 +17,13 @@ use jito_block_engine::block_engine::BlockEngine;
 use jito_core::tpu::{Tpu, TpuSockets};
 use jito_protos::{
     packet::{
-        Meta as PbMeta, Packet as PbPacket, PacketBatch as PbPacketBatch, PacketBatchList,
+        Meta as PbMeta, Packet as PbPacket, PacketBatch as PbPacketBatch,
         PacketFlags as PbPacketFlags,
     },
     shared::Header,
-    validator_interface_service::validator_interface_server::ValidatorInterfaceServer,
+    validator_interface_service::{
+        validator_interface_server::ValidatorInterfaceServer, ExpiringPacketBatches,
+    },
 };
 use jito_relayer::{
     auth::AuthenticationInterceptor, relayer::Relayer, schedule_cache::LeaderScheduleCache,
@@ -155,10 +157,13 @@ fn get_sockets(args: &Args) -> Sockets {
     }
 }
 
-pub fn batches_to_batch_list(batches: Vec<PacketBatch>, packet_delay_ms: u32) -> PacketBatchList {
+pub fn batches_to_batch_list(
+    batches: Vec<PacketBatch>,
+    packet_delay_ms: u32,
+) -> ExpiringPacketBatches {
     let now = SystemTime::now();
 
-    PacketBatchList {
+    ExpiringPacketBatches {
         header: Some(Header {
             ts: Some(prost_types::Timestamp::from(now)),
         }),
@@ -189,16 +194,17 @@ pub fn batches_to_batch_list(batches: Vec<PacketBatch>, packet_delay_ms: u32) ->
                     .collect(),
             })
             .collect(),
-        expiry: packet_delay_ms,
+        expiry_ms: packet_delay_ms,
     }
 }
 
-/// Forwards packets to Block Engine and
+/// Forwards packets to the Block Engine handler thread then delays transactions for packet_delay_ms
+/// before forwarding them to the validator.
 fn start_forward_and_delay_thread(
     packet_receiver: Receiver<BankingPacketBatch>,
-    delay_sender: Sender<PacketBatchList>,
+    delay_sender: Sender<ExpiringPacketBatches>,
     packet_delay_ms: u32,
-    block_engine_sender: tokio::sync::mpsc::Sender<PacketBatchList>,
+    block_engine_sender: tokio::sync::mpsc::Sender<ExpiringPacketBatches>,
 ) -> JoinHandle<()> {
     const SLEEP_DURATION: Duration = Duration::from_millis(5);
 
@@ -233,7 +239,7 @@ fn start_forward_and_delay_thread(
 
                 // double check to see if any batches expired and shall be pushed through to the validator
                 while let Some((pushed_time, packet_batch)) = buffered_packet_batches.front() {
-                    if pushed_time.elapsed() >= Duration::from_secs(packet_batch.expiry as u64) {
+                    if pushed_time.elapsed() >= Duration::from_secs(packet_batch.expiry_ms as u64) {
                         if let Err(e) =
                             delay_sender.send(buffered_packet_batches.pop_front().unwrap().1)
                         {
@@ -339,4 +345,5 @@ fn main() {
 
     tpu.join().unwrap();
     forward_and_delay_thread.join().unwrap();
+    block_engine_forwarder.join().unwrap();
 }

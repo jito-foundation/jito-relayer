@@ -7,11 +7,8 @@ use std::{
 use crossbeam_channel::Receiver;
 use jito_protos::{
     self,
-    packet::PacketBatchList,
-    shared::Header,
     validator_interface_service::{
-        packet_stream_msg::Msg::{BatchList, Heartbeat},
-        PacketStreamMsg,
+        packet_stream_msg::Msg, ExpiringPacketBatches, Heartbeat, PacketStreamMsg,
     },
 };
 use log::{debug, info, warn};
@@ -36,14 +33,14 @@ pub struct Router {
     packet_subs: RwLock<HashMap<Pubkey, PacketSubscription>>,
     pub leader_schedule_cache: Arc<LeaderScheduleCache>,
     pub slot_receiver: Receiver<Slot>,
-    pub packet_receiver: Receiver<PacketBatchList>,
+    pub packet_receiver: Receiver<ExpiringPacketBatches>,
     pub current_slot: RwLock<Slot>,
 }
 
 impl Router {
     pub fn new(
         slot_receiver: Receiver<Slot>,
-        packet_receiver: Receiver<PacketBatchList>,
+        packet_receiver: Receiver<ExpiringPacketBatches>,
         leader_schedule_cache: Arc<LeaderScheduleCache>,
     ) -> Router {
         Router {
@@ -57,15 +54,17 @@ impl Router {
 
     /// Sends periodic heartbeats to all active subscribers regardless
     /// of leader schedule.
-    pub fn send_heartbeat(&self) -> Vec<Pubkey> {
+    pub fn send_heartbeat(&self, count: &u64) -> Vec<Pubkey> {
         let active_subscriptions = self.packet_subs.read().unwrap().clone();
         let mut failed_subscriptions = Vec::new();
 
         let ts = prost_types::Timestamp::from(SystemTime::now());
-        let header = Header { ts: Some(ts) };
         for (pk, subscription) in active_subscriptions.iter() {
             if let Err(e) = subscription.tx.send(Ok(PacketStreamMsg {
-                msg: Some(Heartbeat(header.clone())),
+                msg: Some(Msg::Heartbeat(Heartbeat {
+                    count: *count,
+                    ts: Some(ts.clone()),
+                })),
             })) {
                 warn!("error sending heartbeat to subscriber [{}]", e);
                 datapoint_info!(
@@ -150,7 +149,7 @@ impl Router {
     ///     tuple.1 = a set of slots that were streamed for
     pub fn stream_batch_list(
         &self,
-        batch_list: &PacketBatchList,
+        batch_list: &ExpiringPacketBatches,
         start_slot: Slot,
         end_slot: Slot,
     ) -> (Vec<Pubkey>, HashSet<Slot>) {
@@ -171,7 +170,7 @@ impl Router {
             debug!("Slot to Send: {:?}", slot_to_send);
             if let Some(slot) = slot_to_send {
                 if let Err(e) = subscription.tx.send(Ok(PacketStreamMsg {
-                    msg: Some(BatchList(batch_list.clone())),
+                    msg: Some(Msg::Batches(batch_list.clone())),
                 })) {
                     datapoint_warn!(
                         "validator_interface_stream_batch_list",
