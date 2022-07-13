@@ -1,13 +1,14 @@
 use std::{
     thread::{Builder, JoinHandle},
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use jito_protos::{
     packet::PacketBatchList,
     shared::Header,
     validator_interface_service::{
-        packet_stream_msg::Msg::Heartbeat, validator_interface_client::ValidatorInterfaceClient,
+        packet_stream_msg::Msg::{BatchList, Heartbeat},
+        validator_interface_client::ValidatorInterfaceClient,
         PacketStreamMsg,
     },
 };
@@ -130,7 +131,7 @@ impl BlockEngine {
                     Self::check_and_send_heartbeat(&last_heartbeat_time, &packet_msg_sender).await?;
                 }
                 maybe_msg = stream.message() => {
-                    info!("maybe_msg: {:?}", maybe_msg);
+                    Self::handle_receive_message(maybe_msg, &mut last_heartbeat_time).await?;
                 }
                 block_engine_packets = block_engine_receiver.recv() => {
                     Self::forward_packets(&packet_msg_sender, block_engine_packets).await?;
@@ -139,24 +140,69 @@ impl BlockEngine {
         }
     }
 
+    async fn handle_receive_message(
+        maybe_msg: Result<Option<PacketStreamMsg>, Status>,
+        last_heartbeat_time: &mut Instant,
+    ) -> BlockEngineResult<()> {
+        match maybe_msg {
+            Ok(Some(PacketStreamMsg {
+                msg: Some(Heartbeat(header)),
+            })) => match header.ts {
+                None => {
+                    error!("expected timestamp from block engine, disconnecting");
+                    Err(BlockEngineError::ConnectionClosedError)
+                }
+                Some(ts) => {
+                    *last_heartbeat_time = Instant::now();
+
+                    let time_now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+                    let heartbeat_time = Duration::new(ts.seconds as u64, ts.nanos as u32);
+                    let time_diff = time_now.as_secs_f64() - heartbeat_time.as_secs_f64();
+                    info!("time_diff: {:?}", time_diff);
+                    Ok(())
+                }
+            },
+            Ok(Some(PacketStreamMsg {
+                msg: Some(BatchList(_)),
+            })) => {
+                error!("received packets but not expecting any, disconnecting");
+                Err(BlockEngineError::ConnectionClosedError)
+            }
+            Ok(Some(PacketStreamMsg { msg: None })) => {
+                error!("received packets but not expecting any, disconnecting");
+                Err(BlockEngineError::ConnectionClosedError)
+            }
+            Ok(None) => {
+                error!("received none, closing connection");
+                Err(BlockEngineError::ConnectionClosedError)
+            }
+            Err(e) => {
+                error!("error receiving message: {:?}", e);
+                Err(BlockEngineError::ConnectionClosedError)
+            }
+        }
+    }
+
     async fn forward_packets(
         packet_msg_sender: &Sender<PacketStreamMsg>,
         block_engine_packets: Option<PacketBatchList>,
     ) -> BlockEngineResult<()> {
-        // match block_engine_packets {
-        //     None => Err(BlockEngineError::ConnectionClosedError),
-        //     Some(block_engine_packets) => {
-        //         let packet_batch_list = PacketBatchList {
-        //             header: Some(Header {
-        //                 ts: Some(Timestamp::from(SystemTime::now())),
-        //             }),
-        //             batch_list: block_engine_packets.0.into_iter().map(|batch| {}).collect(),
-        //             expiry: 0, // TODO (LB): this is different than the expiry
-        //         };
-        //         Ok(())
-        //     }
-        // }
-        Ok(())
+        match block_engine_packets {
+            None => Err(BlockEngineError::ConnectionClosedError),
+            Some(block_engine_packets) => {
+                if packet_msg_sender
+                    .send(PacketStreamMsg {
+                        msg: Some(BatchList(block_engine_packets)),
+                    })
+                    .await
+                    .is_err()
+                {
+                    Err(BlockEngineError::ConnectionClosedError)
+                } else {
+                    Ok(())
+                }
+            }
+        }
     }
 
     /// Checks the heartbeat timeout and errors out if the heartbeat didn't come in time.

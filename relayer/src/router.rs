@@ -7,10 +7,7 @@ use std::{
 use crossbeam_channel::Receiver;
 use jito_protos::{
     self,
-    packet::{
-        Meta as PbMeta, Packet as PbPacket, PacketBatch as PbPacketBatch, PacketBatchList,
-        PacketFlags as PbPacketFlags,
-    },
+    packet::PacketBatchList,
     shared::Header,
     validator_interface_service::{
         packet_stream_msg::Msg::{BatchList, Heartbeat},
@@ -18,9 +15,7 @@ use jito_protos::{
     },
 };
 use log::{debug, info, warn};
-use solana_core::banking_stage::BankingPacketBatch;
 use solana_metrics::{datapoint_info, datapoint_warn};
-use solana_perf::packet::PacketBatch;
 use solana_sdk::{
     clock::{Slot, NUM_CONSECUTIVE_LEADER_SLOTS},
     pubkey::Pubkey,

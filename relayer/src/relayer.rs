@@ -21,7 +21,6 @@ use jito_protos::{
     },
 };
 use log::*;
-use solana_core::banking_stage::BankingPacketBatch;
 use solana_sdk::{
     clock::{Slot, NUM_CONSECUTIVE_LEADER_SLOTS},
     pubkey::Pubkey,

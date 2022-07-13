@@ -96,7 +96,7 @@ struct Args {
 
     /// Packet delay in milliseconds
     #[clap(long, env, value_parser, default_value_t = 200)]
-    packet_delay_ms: u64,
+    packet_delay_ms: u32,
 
     /// Block engine address
     #[clap(long, env, value_parser, default_value = "http://127.0.0.1:13334")]
@@ -155,7 +155,7 @@ fn get_sockets(args: &Args) -> Sockets {
     }
 }
 
-pub fn batches_to_batch_list(batches: Vec<PacketBatch>, packet_delay_ms: u64) -> PacketBatchList {
+pub fn batches_to_batch_list(batches: Vec<PacketBatch>, packet_delay_ms: u32) -> PacketBatchList {
     let now = SystemTime::now();
 
     PacketBatchList {
@@ -197,7 +197,7 @@ pub fn batches_to_batch_list(batches: Vec<PacketBatch>, packet_delay_ms: u64) ->
 fn start_forward_and_delay_thread(
     packet_receiver: Receiver<BankingPacketBatch>,
     delay_sender: Sender<PacketBatchList>,
-    packet_delay_ms: u64,
+    packet_delay_ms: u32,
     block_engine_sender: tokio::sync::mpsc::Sender<PacketBatchList>,
 ) -> JoinHandle<()> {
     const SLEEP_DURATION: Duration = Duration::from_millis(5);
@@ -233,7 +233,7 @@ fn start_forward_and_delay_thread(
 
                 // double check to see if any batches expired and shall be pushed through to the validator
                 while let Some((pushed_time, packet_batch)) = buffered_packet_batches.front() {
-                    if pushed_time.elapsed() >= Duration::from_secs(packet_batch.expiry) {
+                    if pushed_time.elapsed() >= Duration::from_secs(packet_batch.expiry as u64) {
                         if let Err(e) =
                             delay_sender.send(buffered_packet_batches.pop_front().unwrap().1)
                         {
