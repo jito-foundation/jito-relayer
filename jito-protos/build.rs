@@ -9,7 +9,8 @@ fn main() {
                 "protos/packet.proto",
                 "protos/searcher.proto",
                 "protos/shared.proto",
-                "protos/validator_interface_service.proto",
+                "protos/block_engine.proto",
+                "protos/relayer.proto",
             ],
             &["protos"],
         )

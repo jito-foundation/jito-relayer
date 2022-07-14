@@ -24,3 +24,6 @@ solana-runtime = "=1.11.2"
 solana-sdk = "=1.11.2"
 solana-streamer = "=1.11.2"
 thiserror = "1.0.31"
+tokio = { version = "1.14.1", features = ["rt-multi-thread"] }
+tokio-stream = "0.1.9"
+tonic = "0.7.2"

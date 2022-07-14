@@ -9,10 +9,11 @@ publish = false
 
 [dependencies]
 jito-protos = { path = "../jito-protos" }
-tokio = { version = "1.14.1" , features = ["full"]}
-solana-core = "1.11.2"
 log = "0.4.17"
-tonic = "0.7.2"
-tokio-stream = "0.1.9"
-thiserror = "1.0.31"
 prost-types = "0.10.1"
+solana-core = "=1.11.2"
+thiserror = "1.0.31"
+tokio = { version = "1.14.1", features = ["full"] }
+tokio-stream = "0.1.9"
+tonic = "0.7.2"
+solana-sdk = "=1.11.2"

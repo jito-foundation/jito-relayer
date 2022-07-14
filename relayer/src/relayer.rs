@@ -1,24 +1,20 @@
 use std::{
     net::IpAddr,
-    pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    task::{Context, Poll},
     thread::{sleep, spawn, JoinHandle},
     time::Duration,
 };
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use jito_protos::{
-    shared::Socket,
-    validator_interface_service::{
-        validator_interface_server::ValidatorInterface, AoiSubRequest, AoiSubResponse,
-        ExpiringPacketBatches, GenerateChallengeTokenRequest, GenerateChallengeTokenResponse,
-        GetTpuConfigsRequest, GetTpuConfigsResponse, PacketStreamMsg, SubscribeBundlesRequest,
-        SubscribeBundlesResponse,
+    relayer::{
+        relayer_server::Relayer, GetTpuConfigsRequest, GetTpuConfigsResponse,
+        SubscribePacketsRequest, SubscribePacketsResponse,
     },
+    shared::Socket,
 };
 use log::*;
 use solana_sdk::{
@@ -29,12 +25,12 @@ use tokio::{
     sync::mpsc::{channel, unbounded_channel},
     task::spawn_blocking,
 };
-use tokio_stream::{wrappers::ReceiverStream, Stream};
+use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 
 use crate::{auth::extract_pubkey, router::Router, schedule_cache::LeaderScheduleCache};
 
-pub struct Relayer {
+pub struct RelayerImpl {
     router: Arc<Router>,
     public_ip: IpAddr,
     tpu_port: u16,
@@ -43,7 +39,7 @@ pub struct Relayer {
     thrd_hndls: Vec<JoinHandle<()>>,
 }
 
-impl Relayer {
+impl RelayerImpl {
     pub fn new(
         slot_receiver: Receiver<Slot>,
         packet_receiver: Receiver<ExpiringPacketBatches>,
@@ -172,32 +168,8 @@ impl Relayer {
     }
 }
 
-pub struct ValidatorSubscriberStream<T> {
-    inner: ReceiverStream<Result<T, Status>>,
-    tx: Sender<Pubkey>,
-    client_pubkey: Pubkey,
-}
-
-impl<T> Stream for ValidatorSubscriberStream<T> {
-    type Item = Result<T, Status>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.inner).poll_next(cx)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
-    }
-}
-
-impl<T> Drop for ValidatorSubscriberStream<T> {
-    fn drop(&mut self) {
-        let _ = self.tx.send(self.client_pubkey);
-    }
-}
-
 #[tonic::async_trait]
-impl ValidatorInterface for Relayer {
+impl Relayer for RelayerImpl {
     async fn get_tpu_configs(
         &self,
         _: Request<GetTpuConfigsRequest>,
@@ -214,82 +186,63 @@ impl ValidatorInterface for Relayer {
         }));
     }
 
-    type SubscribeBundlesStream = ValidatorSubscriberStream<SubscribeBundlesResponse>;
+    type SubscribePacketsStream = ReceiverStream<SubscribePacketsResponse>;
 
-    async fn subscribe_bundles(
+    async fn subscribe_packets(
         &self,
-        _: Request<SubscribeBundlesRequest>,
-    ) -> Result<Response<Self::SubscribeBundlesStream>, Status> {
-        Err(Status::unimplemented(
-            "subscribe_bundles is not implemented for the relayer",
-        ))
+        request: Request<SubscribePacketsRequest>,
+    ) -> Result<Response<Self::SubscribePacketsStream>, Status> {
+        Err(Status::unimplemented("subscribe_packets"))
     }
 
-    type StartBiDirectionalPacketStreamStream = ValidatorSubscriberStream<PacketStreamMsg>;
-
-    async fn start_bi_directional_packet_stream(
-        &self,
-        request: Request<Streaming<PacketStreamMsg>>,
-    ) -> Result<Response<Self::StartBiDirectionalPacketStreamStream>, Status> {
-        let pubkey = extract_pubkey(request.metadata())?;
-        info!("Validator Connected - {}", pubkey);
-
-        let (subscription_sender, mut subscription_receiver) = unbounded_channel();
-
-        let router = self.router.clone();
-        let connected =
-            spawn_blocking(move || router.add_packet_subscription(&pubkey, subscription_sender))
-                .await
-                .map_err(|_| Status::internal("system error adding subscription"))?;
-
-        if !connected {
-            return Err(Status::resource_exhausted("user already connected"));
-        }
-
-        let (client_sender, client_receiver) = channel(1_000_000);
-        tokio::spawn(async move {
-            info!("validator connected [pubkey={:?}]", pubkey);
-            loop {
-                match subscription_receiver.recv().await {
-                    Some(msg) => {
-                        if let Err(e) = client_sender.send(msg).await {
-                            debug!("client disconnected [err={}] [pk={}]", e, pubkey);
-                            break;
-                        }
-                    }
-                    None => {
-                        debug!("unsubscribed [pk={}]", pubkey);
-                        let _ = client_sender
-                            .send(Err(Status::aborted("disconnected")))
-                            .await;
-                        break;
-                    }
-                }
-            }
-        });
-
-        Ok(Response::new(ValidatorSubscriberStream {
-            inner: ReceiverStream::new(client_receiver),
-            tx: self.client_disconnect_sender.clone(),
-            client_pubkey: pubkey,
-        }))
-    }
-
-    type SubscribeAOIStream = ValidatorSubscriberStream<AoiSubResponse>;
-
-    async fn subscribe_aoi(
-        &self,
-        _request: Request<AoiSubRequest>,
-    ) -> Result<Response<Self::SubscribeAOIStream>, Status> {
-        Err(Status::unimplemented("subscribe_aoi unimplemented"))
-    }
-
-    async fn generate_challenge_token(
-        &self,
-        _request: Request<GenerateChallengeTokenRequest>,
-    ) -> Result<Response<GenerateChallengeTokenResponse>, Status> {
-        Err(Status::unimplemented(
-            "generate_challenge_token unimplemented",
-        ))
-    }
+    //
+    // type StartBiDirectionalPacketStreamStream = ValidatorSubscriberStream<PacketStreamMsg>;
+    //
+    // async fn start_bi_directional_packet_stream(
+    //     &self,
+    //     request: Request<Streaming<PacketStreamMsg>>,
+    // ) -> Result<Response<Self::StartBiDirectionalPacketStreamStream>, Status> {
+    //     let pubkey = extract_pubkey(request.metadata())?;
+    //     info!("Validator Connected - {}", pubkey);
+    //
+    //     let (subscription_sender, mut subscription_receiver) = unbounded_channel();
+    //
+    //     let router = self.router.clone();
+    //     let connected =
+    //         spawn_blocking(move || router.add_packet_subscription(&pubkey, subscription_sender))
+    //             .await
+    //             .map_err(|_| Status::internal("system error adding subscription"))?;
+    //
+    //     if !connected {
+    //         return Err(Status::resource_exhausted("user already connected"));
+    //     }
+    //
+    //     let (client_sender, client_receiver) = channel(1_000_000);
+    //     tokio::spawn(async move {
+    //         info!("validator connected [pubkey={:?}]", pubkey);
+    //         loop {
+    //             match subscription_receiver.recv().await {
+    //                 Some(msg) => {
+    //                     if let Err(e) = client_sender.send(msg).await {
+    //                         debug!("client disconnected [err={}] [pk={}]", e, pubkey);
+    //                         break;
+    //                     }
+    //                 }
+    //                 None => {
+    //                     debug!("unsubscribed [pk={}]", pubkey);
+    //                     let _ = client_sender
+    //                         .send(Err(Status::aborted("disconnected")))
+    //                         .await;
+    //                     break;
+    //                 }
+    //             }
+    //         }
+    //     });
+    //
+    //     Ok(Response::new(ValidatorSubscriberStream {
+    //         inner: ReceiverStream::new(client_receiver),
+    //         tx: self.client_disconnect_sender.clone(),
+    //         client_pubkey: pubkey,
+    //     }))
+    // }
 }

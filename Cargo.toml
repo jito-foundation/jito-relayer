@@ -1,9 +1,9 @@
 [workspace]
 members = [
-    "packet_blaster",
     "block_engine",
     "core",
     "jito-protos",
+    "packet_blaster",
     "packet_blaster",
     "relayer",
     "rpc",

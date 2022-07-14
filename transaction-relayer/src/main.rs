@@ -13,7 +13,7 @@ use std::{
 
 use clap::Parser;
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
-use jito_block_engine::block_engine::BlockEngine;
+use jito_block_engine::block_engine::BlockEngineRelayerHandler;
 use jito_core::tpu::{Tpu, TpuSockets};
 use jito_protos::{
     packet::{
@@ -26,7 +26,7 @@ use jito_protos::{
     },
 };
 use jito_relayer::{
-    auth::AuthenticationInterceptor, relayer::Relayer, schedule_cache::LeaderScheduleCache,
+    auth::AuthenticationInterceptor, relayer::RelayerImpl, schedule_cache::LeaderScheduleCache,
 };
 use jito_rpc::load_balancer::LoadBalancer;
 use log::{error, info, warn};
@@ -322,14 +322,15 @@ fn main() {
         args.packet_delay_ms,
         block_engine_sender,
     );
-    let block_engine_forwarder = BlockEngine::new(args.block_engine_url, block_engine_receiver);
+    let block_engine_forwarder =
+        BlockEngineRelayerHandler::new(args.block_engine_url, block_engine_receiver);
 
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();
     rt.block_on(async {
         let addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
         info!("Relayer listening on: {}", addr);
 
-        let relayer = Relayer::new(
+        let relayer = RelayerImpl::new(
             slot_receiver,
             delay_receiver,
             leader_cache.clone(),
