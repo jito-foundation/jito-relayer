@@ -5,7 +5,7 @@ use std::{
 };
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
-use log::{error, warn};
+use log::error;
 use solana_core::banking_stage::BankingPacketBatch;
 use solana_perf::packet::PacketBatch;
 use tokio::sync::mpsc::error::TrySendError;
@@ -38,7 +38,7 @@ pub fn start_forward_and_delay_thread(
                                 break;
                             }
                             Err(TrySendError::Full(_)) => {
-                                warn!("buffer is full!");
+                                // block engine most likely not connected
                             }
                         }
                         buffered_packet_batches.push_back((Instant::now(), packet_batch.0));

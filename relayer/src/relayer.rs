@@ -78,12 +78,17 @@ impl Relayer for RelayerImpl {
     /// Validator calls this to subscribe to packets
     async fn subscribe_packets(
         &self,
-        _request: Request<SubscribePacketsRequest>,
+        request: Request<SubscribePacketsRequest>,
     ) -> Result<Response<Self::SubscribePacketsStream>, Status> {
+        let pubkey: &Pubkey = request
+            .extensions()
+            .get()
+            .ok_or(Status::internal("internal error fetching public key"))?;
+
         let (sender, receiver) = channel(1_000);
         self.router
             .add_subscription(Subscription::ValidatorPacketSubscription {
-                pubkey: Pubkey::new_unique(), // TODO fill this out
+                pubkey: *pubkey,
                 sender,
             })
             .map_err(|_| Status::internal("internal error adding subscription"))?;
