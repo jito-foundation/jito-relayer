@@ -1930,6 +1930,7 @@ version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
  "ed25519-dalek",
+ "jito-core",
  "jito-protos",
  "jito-rpc",
  "log",
@@ -1939,6 +1940,7 @@ dependencies = [
  "solana-metrics",
  "solana-perf",
  "solana-sdk",
+ "thiserror",
  "tokio",
  "tokio-stream",
  "tonic 0.7.2",
