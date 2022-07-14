@@ -1921,6 +1921,7 @@ dependencies = [
  "bytes",
  "prost 0.10.4",
  "prost-types 0.10.1",
+ "solana-perf",
  "tonic 0.7.2",
  "tonic-build 0.7.2",
 ]

@@ -13,14 +13,18 @@ use std::{
 
 use crossbeam_channel::{unbounded, Receiver, RecvError, SendError, Sender};
 use jito_protos::{
-    self,
+    convert::packet_to_proto_packet,
+    packet::{Packet as ProtoPacket, PacketBatch as ProtoPacketBatch},
     relayer::{subscribe_packets_response::Msg, SubscribePacketsResponse},
-    shared::Heartbeat,
+    shared::{Header, Heartbeat},
 };
 use log::{error, info};
 use prost_types::Timestamp;
 use solana_perf::packet::PacketBatch;
-use solana_sdk::{clock::Slot, pubkey::Pubkey};
+use solana_sdk::{
+    clock::{Slot, NUM_CONSECUTIVE_LEADER_SLOTS},
+    pubkey::Pubkey,
+};
 use thiserror::Error;
 use tokio::sync::mpsc::Sender as TokioSender;
 use tonic::Status;
@@ -37,7 +41,7 @@ pub enum Subscription {
 #[derive(Error, Debug)]
 pub enum RouterError {
     #[error("shutdown")]
-    Shutdown,
+    Shutdown(#[from] RecvError),
 }
 
 pub type Result<T> = result::Result<T, RouterError>;
@@ -54,6 +58,8 @@ impl Router {
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
         exit: Arc<AtomicBool>,
     ) -> Router {
+        const LEADER_LOOKAHEAD: u64 = 2;
+
         let (subscription_sender, subscription_receiver) = unbounded();
         let threads = vec![Self::start_router_thread(
             slot_receiver,
@@ -61,6 +67,7 @@ impl Router {
             packet_receiver,
             leader_schedule_cache,
             exit,
+            LEADER_LOOKAHEAD,
         )];
         Router {
             threads,
@@ -89,6 +96,7 @@ impl Router {
         packet_receiver: Receiver<Vec<PacketBatch>>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
         exit: Arc<AtomicBool>,
+        leader_lookahead: u64,
     ) -> JoinHandle<()> {
         Builder::new()
             .name("jito-packet-router".into())
@@ -99,6 +107,7 @@ impl Router {
                     packet_receiver,
                     leader_schedule_cache,
                     exit,
+                    leader_lookahead,
                 );
             })
             .unwrap()
@@ -110,6 +119,7 @@ impl Router {
         packet_receiver: Receiver<Vec<PacketBatch>>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
         exit: Arc<AtomicBool>,
+        leader_lookahead: u64,
     ) -> Result<()> {
         let mut highest_slot = Slot::default();
         let mut packet_subscriptions: HashMap<
@@ -125,7 +135,7 @@ impl Router {
                     Self::update_highest_slot(maybe_slot, &mut highest_slot)?;
                 },
                 recv(packet_receiver) -> maybe_packet_batches => {
-                    let failed_forwards = Self::forward_packets(maybe_packet_batches, &packet_subscriptions, &leader_schedule_cache)?;
+                    let failed_forwards = Self::forward_packets(maybe_packet_batches, &packet_subscriptions, &leader_schedule_cache, &highest_slot, &leader_lookahead)?;
                     Self::drop_connections(failed_forwards, &mut packet_subscriptions);
                 },
                 recv(subscription_receiver) -> maybe_subscription => {
@@ -193,8 +203,43 @@ impl Router {
             TokioSender<result::Result<SubscribePacketsResponse, Status>>,
         >,
         leader_schedule_cache: &LeaderScheduleUpdatingHandle,
+        highest_slot: &u64,
+        leader_lookahead: &u64,
     ) -> Result<Vec<Pubkey>> {
-        Ok(vec![])
+        let packet_batches = maybe_packet_batches?;
+        let slots: Vec<_> = (*highest_slot
+            ..highest_slot + leader_lookahead * NUM_CONSECUTIVE_LEADER_SLOTS)
+            .collect();
+        let slot_leaders = leader_schedule_cache.leaders_for_slots(&slots);
+
+        let proto_batches: Vec<ProtoPacketBatch> = packet_batches
+            .into_iter()
+            .map(|b| ProtoPacketBatch {
+                packets: b.iter().filter_map(packet_to_proto_packet).collect(),
+            })
+            .collect();
+
+        let failed_forwards = slot_leaders
+            .iter()
+            .filter_map(|pubkey| {
+                let sender = subscriptions.get(pubkey)?;
+
+                for batch in &proto_batches {
+                    if let Err(e) = sender.try_send(Ok(SubscribePacketsResponse {
+                        header: Some(Header {
+                            ts: Some(Timestamp::from(SystemTime::now())),
+                        }),
+                        msg: Some(Msg::Batch(batch.clone())),
+                    })) {
+                        error!("error sending packets to pubkey: {:?}", pubkey);
+                        return Some(*pubkey);
+                    }
+                }
+
+                None
+            })
+            .collect();
+        Ok(failed_forwards)
     }
 
     fn handle_subscription(
@@ -205,8 +250,8 @@ impl Router {
         >,
         leader_schedule_cache: &LeaderScheduleUpdatingHandle,
     ) -> Result<()> {
-        match maybe_subscription {
-            Ok(Subscription::ValidatorPacketSubscription { pubkey, sender }) => {
+        match maybe_subscription? {
+            Subscription::ValidatorPacketSubscription { pubkey, sender } => {
                 match subscriptions.entry(pubkey) {
                     Entry::Vacant(entry) => {
                         info!("new subscription: {:?}", pubkey);
@@ -221,10 +266,6 @@ impl Router {
                     }
                 }
             }
-            Err(e) => {
-                error!("error receiving subscription: {:?}", e);
-                return Err(RouterError::Shutdown);
-            }
         }
         Ok(())
     }
@@ -233,105 +274,9 @@ impl Router {
         maybe_slot: result::Result<u64, RecvError>,
         highest_slot: &mut Slot,
     ) -> Result<()> {
-        match maybe_slot {
-            Ok(slot) => {
-                *highest_slot = slot;
-                Ok(())
-            }
-            Err(e) => {
-                error!("slot update error: {:?}", e);
-                Err(RouterError::Shutdown)
-            }
-        }
+        *highest_slot = maybe_slot?;
+        Ok(())
     }
-
-    // Sends periodic heartbeats to all active subscribers regardless
-    // of leader schedule.
-    // pub fn send_heartbeat(&self, count: &u64) -> Vec<Pubkey> {
-    //     let active_subscriptions = self.packet_subs.read().unwrap().clone();
-    //     let mut failed_subscriptions = Vec::new();
-    //
-    //     let ts = prost_types::Timestamp::from(SystemTime::now());
-    //     for (pk, subscription) in active_subscriptions.iter() {
-    //         if let Err(e) = subscription.tx.send(Ok(PacketStreamMsg {
-    //             msg: Some(Msg::Heartbeat(Heartbeat {
-    //                 count: *count,
-    //                 ts: Some(ts.clone()),
-    //             })),
-    //         })) {
-    //             warn!("error sending heartbeat to subscriber [{}]", e);
-    //             datapoint_info!(
-    //                 "validator_subscription",
-    //                 ("subscriber", pk.to_string(), String),
-    //                 ("heartbeat_error", 1, i64)
-    //             );
-    //             failed_subscriptions.push(*pk);
-    //         } else {
-    //             debug!("sent heartbeat to subscriber [{}]", pk);
-    //             datapoint_info!(
-    //                 "validator_subscription",
-    //                 ("subscriber", pk.to_string(), String),
-    //                 ("heartbeat", 1, i64)
-    //             );
-    //         }
-    //     }
-    //     failed_subscriptions
-    // }
-
-    // returns true if subscription was added successfully, false if the given pubkey is already connected
-    // pub(crate) fn add_packet_subscription(
-    //     &self,
-    //     pk: &Pubkey,
-    //     tx: UnboundedSender<Result<PacketStreamMsg, Status>>,
-    // ) -> bool {
-    //     let mut active_subs = self.packet_subs.write().unwrap();
-    //
-    //     if active_subs.contains_key(pk) {
-    //         datapoint_warn!(
-    //             "validator_interface_add_packet_subscription",
-    //             ("subscriber", pk.to_string(), String),
-    //             ("add_packet_subscription_error", 1, i64)
-    //         );
-    //         false
-    //     } else {
-    //         active_subs.insert(Pubkey::new(&pk.to_bytes()), PacketSubscription { tx });
-    //         info!(
-    //             "validator_interface_add_packet_subscription - Subscriber: {}",
-    //             pk.to_string()
-    //         );
-    //
-    //         datapoint_info!(
-    //             "validator_interface_add_packet_subscription",
-    //             ("subscriber", pk.to_string(), String),
-    //             ("added", 1, i64),
-    //             ("num_subs", active_subs.keys().len(), i64)
-    //         );
-    //         true
-    //     }
-    // }
-
-    // pub(crate) fn disconnect(&self, keys: &[Pubkey]) {
-    //     if keys.is_empty() {
-    //         return;
-    //     }
-    //     self.remove_packet_subscription(keys);
-    // }
-    //
-    // pub(crate) fn remove_packet_subscription(&self, keys: &[Pubkey]) {
-    //     if keys.is_empty() {
-    //         return;
-    //     }
-    //     let mut active_subs = self.packet_subs.write().unwrap();
-    //     for pk in keys {
-    //         active_subs.remove(pk);
-    //         datapoint_info!(
-    //             "validator_interface_remove_packet_subscription",
-    //             ("subscriber", pk.to_string(), String),
-    //             ("removed", 1, i64),
-    //             ("num_subs", active_subs.keys().len(), i64)
-    //         );
-    //     }
-    // }
 
     // Sends packet streams to eligible connections over TCP.
     // Eligible connections are ones where the `Leader` (connected node) has a slot scheduled

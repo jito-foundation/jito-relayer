@@ -23,7 +23,26 @@ pub struct LeaderScheduleCacheUpdater {
 
 #[derive(Clone)]
 pub struct LeaderScheduleUpdatingHandle {
-    pub schedule: Arc<RwLock<HashMap<Slot, Pubkey>>>,
+    schedule: Arc<RwLock<HashMap<Slot, Pubkey>>>,
+}
+
+/// Access handle to a constantly updating leader schedule
+impl LeaderScheduleUpdatingHandle {
+    pub fn new(schedule: Arc<RwLock<HashMap<Slot, Pubkey>>>) -> LeaderScheduleUpdatingHandle {
+        LeaderScheduleUpdatingHandle { schedule }
+    }
+
+    pub fn leader_for_slot(&self, slot: &Slot) -> Option<Pubkey> {
+        self.schedule.read().unwrap().get(slot).cloned()
+    }
+
+    pub fn leaders_for_slots(&self, slots: &[Slot]) -> Vec<Pubkey> {
+        let schedule = self.schedule.read().unwrap();
+        slots
+            .iter()
+            .filter_map(|s| schedule.get(s).cloned())
+            .collect()
+    }
 }
 
 impl LeaderScheduleCacheUpdater {
@@ -41,9 +60,7 @@ impl LeaderScheduleCacheUpdater {
 
     /// Gets a handle to a constantly updating leader schedule handler
     pub fn handle(&self) -> LeaderScheduleUpdatingHandle {
-        LeaderScheduleUpdatingHandle {
-            schedule: self.schedules.clone(),
-        }
+        LeaderScheduleUpdatingHandle::new(self.schedules.clone())
     }
 
     fn refresh_thread(
@@ -87,7 +104,6 @@ impl LeaderScheduleCacheUpdater {
                         }
                     }
                 }
-                //Todo: Add Metrics Here
             } else {
                 error!("Couldn't Get Leader Schedule Update from RPC!!!")
             };
