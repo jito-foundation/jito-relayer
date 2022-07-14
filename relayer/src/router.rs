@@ -18,7 +18,7 @@ use jito_protos::{
     relayer::{subscribe_packets_response::Msg, SubscribePacketsResponse},
     shared::{Header, Heartbeat},
 };
-use log::{error, info};
+use log::{error, info, warn};
 use prost_types::Timestamp;
 use solana_perf::packet::PacketBatch;
 use solana_sdk::{
@@ -26,7 +26,7 @@ use solana_sdk::{
     pubkey::Pubkey,
 };
 use thiserror::Error;
-use tokio::sync::mpsc::Sender as TokioSender;
+use tokio::sync::mpsc::{error::TrySendError, Sender as TokioSender};
 use tonic::Status;
 
 use crate::schedule_cache::LeaderScheduleUpdatingHandle;
@@ -177,19 +177,20 @@ impl Router {
         let failed_pubkey_updates = subscriptions
             .iter()
             .filter_map(|(pubkey, sender)| {
-                // TODO: don't want to use blocking_send here
-                if let Err(e) = sender.blocking_send(Ok(SubscribePacketsResponse {
+                match sender.try_send(Ok(SubscribePacketsResponse {
                     header: None,
                     msg: Some(Msg::Heartbeat(Heartbeat {
                         ts: Some(Timestamp::from(SystemTime::now())),
                         count: *heartbeat_count,
                     })),
                 })) {
-                    error!("failed to heartbeat: {:?}", e);
-                    Some(*pubkey)
-                } else {
-                    None
+                    Ok(_) => {}
+                    Err(TrySendError::Closed(_)) => return Some(*pubkey),
+                    Err(TrySendError::Full(_)) => {
+                        warn!("heartbeat channel is full for: {:?}", pubkey);
+                    }
                 }
+                None
             })
             .collect();
 
@@ -225,14 +226,21 @@ impl Router {
                 let sender = subscriptions.get(pubkey)?;
 
                 for batch in &proto_batches {
-                    if let Err(e) = sender.try_send(Ok(SubscribePacketsResponse {
+                    match sender.try_send(Ok(SubscribePacketsResponse {
                         header: Some(Header {
                             ts: Some(Timestamp::from(SystemTime::now())),
                         }),
                         msg: Some(Msg::Batch(batch.clone())),
                     })) {
-                        error!("error sending packets to pubkey: {:?}", pubkey);
-                        return Some(*pubkey);
+                        Ok(_) => {}
+                        Err(TrySendError::Full(_)) => {
+                            error!("packet channel is full for pubkey: {:?}", pubkey);
+                            break;
+                        }
+                        Err(TrySendError::Closed(_)) => {
+                            error!("channel is closed for pubkey: {:?}", pubkey);
+                            return Some(*pubkey);
+                        }
                     }
                 }
 
