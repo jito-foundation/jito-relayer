@@ -6,14 +6,14 @@ use std::{
 
 use crossbeam_channel::Receiver;
 use jito_protos::{
-    packet::PacketBatch,
     relayer::{
         relayer_server::Relayer, GetTpuConfigsRequest, GetTpuConfigsResponse,
         SubscribePacketsRequest, SubscribePacketsResponse,
     },
     shared::Socket,
 };
-use solana_sdk::{clock::Slot, pubkey::Pubkey};
+use solana_perf::packet::PacketBatch;
+use solana_sdk::clock::Slot;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
@@ -29,7 +29,7 @@ pub struct RelayerImpl {
 impl RelayerImpl {
     pub fn new(
         slot_receiver: Receiver<Slot>,
-        packet_receiver: Receiver<PacketBatch>,
+        packet_receiver: Receiver<Vec<PacketBatch>>,
         leader_schedule_cache: Arc<LeaderScheduleCache>,
         exit: Arc<AtomicBool>,
         public_ip: IpAddr,

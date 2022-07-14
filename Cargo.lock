@@ -1868,6 +1868,7 @@ dependencies = [
  "log",
  "prost-types 0.10.1",
  "solana-core",
+ "solana-perf",
  "solana-sdk",
  "thiserror",
  "tokio",

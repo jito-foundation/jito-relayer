@@ -12,8 +12,8 @@ use std::{
 };
 
 use crossbeam_channel::{unbounded, Receiver, RecvError, Sender};
-use jito_protos::{self, packet::PacketBatch};
 use log::error;
+use solana_perf::packet::PacketBatch;
 use solana_sdk::{clock::Slot, pubkey::Pubkey};
 use thiserror::Error;
 
@@ -37,7 +37,7 @@ pub struct Router {
 impl Router {
     pub fn new(
         slot_receiver: Receiver<Slot>,
-        packet_receiver: Receiver<PacketBatch>,
+        packet_receiver: Receiver<Vec<PacketBatch>>,
         leader_schedule_cache: Arc<LeaderScheduleCache>,
         exit: Arc<AtomicBool>,
     ) -> Router {
@@ -65,7 +65,7 @@ impl Router {
     fn start_router_thread(
         slot_receiver: Receiver<Slot>,
         subscription_receiver: Receiver<Subscription>,
-        packet_receiver: Receiver<PacketBatch>,
+        packet_receiver: Receiver<Vec<PacketBatch>>,
         leader_schedule_cache: Arc<LeaderScheduleCache>,
         exit: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
@@ -86,7 +86,7 @@ impl Router {
     fn run_event_loop(
         slot_receiver: Receiver<Slot>,
         subscription_receiver: Receiver<Subscription>,
-        packet_receiver: Receiver<PacketBatch>,
+        packet_receiver: Receiver<Vec<PacketBatch>>,
         leader_schedule_cache: Arc<LeaderScheduleCache>,
         exit: Arc<AtomicBool>,
     ) -> Result<()> {
@@ -99,8 +99,8 @@ impl Router {
                 recv(slot_receiver) -> maybe_slot => {
                     Self::update_highest_slot(maybe_slot, &mut highest_slot)?;
                 },
-                recv(packet_receiver) -> maybe_packet_batch => {
-                    Self::forward_packets(&packet_receiver, &subscriptions, &leader_schedule_cache)?;
+                recv(packet_receiver) -> maybe_packet_batches => {
+                    Self::forward_packets(maybe_packet_batches, &subscriptions, &leader_schedule_cache)?;
                 },
                 recv(subscription_receiver) -> maybe_subscription => {
                     Self::handle_subscription(maybe_subscription, &mut subscriptions, &leader_schedule_cache)?;
@@ -118,7 +118,7 @@ impl Router {
     }
 
     fn forward_packets(
-        packet_receiver: &Receiver<PacketBatch>,
+        maybe_packet_batches: result::Result<Vec<PacketBatch>, crossbeam_channel::RecvError>,
         subscriptions: &HashMap<Pubkey, Sender<()>>,
         leader_schedule_cache: &LeaderScheduleCache,
     ) -> Result<()> {

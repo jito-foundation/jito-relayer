@@ -8,23 +8,14 @@ use std::{
     },
     thread,
     thread::{sleep, spawn, JoinHandle},
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant},
 };
 
 use clap::Parser;
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use jito_block_engine::block_engine::BlockEngineRelayerHandler;
 use jito_core::tpu::{Tpu, TpuSockets};
-use jito_protos::{
-    packet::{
-        Meta as PbMeta, Packet as PbPacket, PacketBatch as PbPacketBatch,
-        PacketFlags as PbPacketFlags,
-    },
-    shared::Header,
-    validator_interface_service::{
-        validator_interface_server::ValidatorInterfaceServer, ExpiringPacketBatches,
-    },
-};
+use jito_protos::relayer::relayer_server::RelayerServer;
 use jito_relayer::{
     auth::AuthenticationInterceptor, relayer::RelayerImpl, schedule_cache::LeaderScheduleCache,
 };
@@ -157,58 +148,59 @@ fn get_sockets(args: &Args) -> Sockets {
     }
 }
 
-/// Returns the batches as a wrapped ExpiringPacketBatches protobuf with an expiration
-/// attached to them.
-pub fn packet_batches_to_expiring_packet_batches(
-    batches: Vec<PacketBatch>,
-    packet_delay_ms: u32,
-) -> ExpiringPacketBatches {
-    let now = SystemTime::now();
-
-    ExpiringPacketBatches {
-        header: Some(Header {
-            ts: Some(prost_types::Timestamp::from(now)),
-        }),
-        batch_list: batches
-            .into_iter()
-            .map(|batch| PbPacketBatch {
-                packets: batch
-                    .iter()
-                    .filter(|p| !p.meta.discard())
-                    .filter_map(|p| {
-                        Some(PbPacket {
-                            data: p.data(0..p.meta.size)?.to_vec(),
-                            meta: Some(PbMeta {
-                                size: p.meta.size as u64,
-                                addr: p.meta.addr.to_string(),
-                                port: p.meta.port as u32,
-                                flags: Some(PbPacketFlags {
-                                    discard: p.meta.discard(),
-                                    forwarded: p.meta.forwarded(),
-                                    repair: p.meta.repair(),
-                                    simple_vote_tx: p.meta.is_simple_vote_tx(),
-                                    tracer_packet: p.meta.is_tracer_packet(),
-                                }),
-                                sender_stake: p.meta.sender_stake,
-                            }),
-                        })
-                    })
-                    .collect(),
-            })
-            .collect(),
-        expiry_ms: packet_delay_ms,
-    }
-}
+// Returns the batches as a wrapped ExpiringPacketBatches protobuf with an expiration
+// attached to them.
+// pub fn packet_batches_to_expiring_packet_batches(
+//     batches: Vec<PacketBatch>,
+//     packet_delay_ms: u32,
+// ) -> ExpiringPacketBatches {
+//     let now = SystemTime::now();
+//
+//     ExpiringPacketBatches {
+//         header: Some(Header {
+//             ts: Some(prost_types::Timestamp::from(now)),
+//         }),
+//         batch_list: batches
+//             .into_iter()
+//             .map(|batch| PbPacketBatch {
+//                 packets: batch
+//                     .iter()
+//                     .filter(|p| !p.meta.discard())
+//                     .filter_map(|p| {
+//                         Some(PbPacket {
+//                             data: p.data(0..p.meta.size)?.to_vec(),
+//                             meta: Some(PbMeta {
+//                                 size: p.meta.size as u64,
+//                                 addr: p.meta.addr.to_string(),
+//                                 port: p.meta.port as u32,
+//                                 flags: Some(PbPacketFlags {
+//                                     discard: p.meta.discard(),
+//                                     forwarded: p.meta.forwarded(),
+//                                     repair: p.meta.repair(),
+//                                     simple_vote_tx: p.meta.is_simple_vote_tx(),
+//                                     tracer_packet: p.meta.is_tracer_packet(),
+//                                 }),
+//                                 sender_stake: p.meta.sender_stake,
+//                             }),
+//                         })
+//                     })
+//                     .collect(),
+//             })
+//             .collect(),
+//         expiry_ms: packet_delay_ms,
+//     }
+// }
 
 /// Forwards packets to the Block Engine handler thread then delays transactions for packet_delay_ms
 /// before forwarding them to the validator.
 fn start_forward_and_delay_thread(
     packet_receiver: Receiver<BankingPacketBatch>,
-    delay_sender: Sender<ExpiringPacketBatches>,
+    delay_sender: Sender<Vec<PacketBatch>>,
     packet_delay_ms: u32,
-    block_engine_sender: tokio::sync::mpsc::Sender<ExpiringPacketBatches>,
+    block_engine_sender: tokio::sync::mpsc::Sender<Vec<PacketBatch>>,
 ) -> JoinHandle<()> {
     const SLEEP_DURATION: Duration = Duration::from_millis(5);
+    let packet_delay = Duration::from_millis(packet_delay_ms as u64);
 
     thread::Builder::new()
         .name("jito-forward_packets_to_block_engine".into())
@@ -218,14 +210,14 @@ fn start_forward_and_delay_thread(
             loop {
                 match packet_receiver.recv_timeout(SLEEP_DURATION) {
                     Ok(packet_batch) => {
-                        let batch_list = packet_batches_to_expiring_packet_batches(
-                            packet_batch.0,
-                            packet_delay_ms,
-                        );
+                        // let batch_list = packet_batches_to_expiring_packet_batches(
+                        //     packet_batch.0,
+                        //     packet_delay_ms,
+                        // );
 
                         // try_send because the block engine receiver only drains when it's connected
                         // and we don't want to OOM on packet_receiver
-                        match block_engine_sender.try_send(batch_list.clone()) {
+                        match block_engine_sender.try_send(packet_batch.0.clone()) {
                             Ok(_) => {}
                             Err(TrySendError::Closed(_)) => {
                                 error!("error sending packet batch to block engine handler");
@@ -235,7 +227,7 @@ fn start_forward_and_delay_thread(
                                 warn!("buffer is full!");
                             }
                         }
-                        buffered_packet_batches.push_back((Instant::now(), batch_list));
+                        buffered_packet_batches.push_back((Instant::now(), packet_batch.0));
                     }
                     Err(RecvTimeoutError::Timeout) => {}
                     Err(RecvTimeoutError::Disconnected) => {
@@ -243,10 +235,8 @@ fn start_forward_and_delay_thread(
                     }
                 }
 
-                // double check to see if any batches expired and shall be pushed through to the validator
                 while let Some((pushed_time, packet_batch)) = buffered_packet_batches.front() {
-                    // Instant is monotonically increasing
-                    if pushed_time.elapsed() >= Duration::from_secs(packet_batch.expiry_ms as u64) {
+                    if pushed_time.elapsed() >= packet_delay {
                         if let Err(e) =
                             delay_sender.send(buffered_packet_batches.pop_front().unwrap().1)
                         {
@@ -342,7 +332,7 @@ fn main() {
 
         let cache = leader_cache.clone();
         let auth_interceptor = AuthenticationInterceptor { cache };
-        let svc = ValidatorInterfaceServer::with_interceptor(relayer, auth_interceptor);
+        let svc = RelayerServer::with_interceptor(relayer, auth_interceptor);
 
         Server::builder()
             .add_service(svc)

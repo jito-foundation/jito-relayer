@@ -12,11 +12,11 @@ use jito_protos::{
         packet_batches_update::Msg, AccountsOfInterestRequest, AccountsOfInterestUpdate,
         ExpiringPacketBatches, PacketBatchesUpdate,
     },
-    packet::PacketBatch,
     shared::Heartbeat,
 };
 use log::{error, *};
 use prost_types::Timestamp;
+use solana_perf::packet::PacketBatch;
 use solana_sdk::pubkey::Pubkey;
 use thiserror::Error;
 use tokio::{
@@ -53,7 +53,7 @@ pub struct BlockEngineRelayerHandler {
 impl BlockEngineRelayerHandler {
     pub fn new(
         block_engine_url: String,
-        block_engine_receiver: Receiver<PacketBatch>,
+        block_engine_receiver: Receiver<Vec<PacketBatch>>,
     ) -> BlockEngineRelayerHandler {
         let block_engine_forwarder =
             Self::start_block_engine_relayer_stream(block_engine_url, block_engine_receiver);
@@ -68,7 +68,7 @@ impl BlockEngineRelayerHandler {
 
     fn start_block_engine_relayer_stream(
         block_engine_url: String,
-        mut block_engine_receiver: Receiver<PacketBatch>,
+        mut block_engine_receiver: Receiver<Vec<PacketBatch>>,
     ) -> JoinHandle<()> {
         Builder::new()
             .name("jito_block_engine_relayer_stream".into())
@@ -114,7 +114,7 @@ impl BlockEngineRelayerHandler {
     /// try to re-establish connection
     async fn start_event_loop(
         client: &mut BlockEngineRelayerClient<Channel>,
-        block_engine_receiver: &mut Receiver<PacketBatch>,
+        block_engine_receiver: &mut Receiver<Vec<PacketBatch>>,
     ) -> BlockEngineResult<()> {
         let (packet_msg_sender, packet_msg_receiver) = channel::<PacketBatchesUpdate>(100);
         let receiver_stream = ReceiverStream::new(packet_msg_receiver);
@@ -136,7 +136,7 @@ impl BlockEngineRelayerHandler {
 
     async fn handle_packet_stream(
         block_engine_packet_sender: Sender<PacketBatchesUpdate>,
-        block_engine_receiver: &mut Receiver<PacketBatch>,
+        block_engine_receiver: &mut Receiver<Vec<PacketBatch>>,
         subscribe_aoi_stream: Response<Streaming<AccountsOfInterestUpdate>>,
     ) -> BlockEngineResult<()> {
         let mut aoi_stream = subscribe_aoi_stream.into_inner();
@@ -157,8 +157,8 @@ impl BlockEngineRelayerHandler {
                 maybe_aoi = aoi_stream.message() => {
                     Self::handle_aoi(maybe_aoi, &mut accounts_of_interest).await?;
                 }
-                block_engine_packets = block_engine_receiver.recv() => {
-                    Self::forward_packets(&block_engine_packet_sender, block_engine_packets).await?;
+                block_engine_batches = block_engine_receiver.recv() => {
+                    Self::forward_packets(&block_engine_packet_sender, block_engine_batches).await?;
                 }
             }
         }
@@ -213,16 +213,16 @@ impl BlockEngineRelayerHandler {
     /// Forwards packets to the Block Engine
     async fn forward_packets(
         block_engine_packet_sender: &Sender<PacketBatchesUpdate>,
-        block_engine_packets: Option<PacketBatch>,
+        block_engine_batches: Option<Vec<PacketBatch>>,
     ) -> BlockEngineResult<()> {
-        match block_engine_packets {
+        match block_engine_batches {
             None => Err(BlockEngineError::ConnectionClosedError),
-            Some(block_engine_packets) => {
+            Some(block_engine_batches) => {
                 if block_engine_packet_sender
                     .send(PacketBatchesUpdate {
                         msg: Some(Msg::Batches(ExpiringPacketBatches {
                             header: None,
-                            batch_list: vec![block_engine_packets],
+                            batch_list: vec![], // TODO (LB): do it
                             expiry_ms: 0,
                         })),
                     })
