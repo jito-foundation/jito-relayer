@@ -5,6 +5,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex, RwLock,
     },
+    thread,
     thread::{sleep, Builder, JoinHandle},
     time::Duration,
 };
@@ -43,6 +44,14 @@ impl LeaderScheduleUpdatingHandle {
             .filter_map(|s| schedule.get(s).cloned())
             .collect()
     }
+
+    pub fn is_scheduled_validator(&self, pubkey: &Pubkey) -> bool {
+        self.schedule
+            .read()
+            .unwrap()
+            .iter()
+            .any(|(_, scheduled_pubkey)| scheduled_pubkey == pubkey)
+    }
 }
 
 impl LeaderScheduleCacheUpdater {
@@ -61,6 +70,10 @@ impl LeaderScheduleCacheUpdater {
     /// Gets a handle to a constantly updating leader schedule handler
     pub fn handle(&self) -> LeaderScheduleUpdatingHandle {
         LeaderScheduleUpdatingHandle::new(self.schedules.clone())
+    }
+
+    pub fn join(self) -> thread::Result<()> {
+        self.refresh_thread.join()
     }
 
     fn refresh_thread(

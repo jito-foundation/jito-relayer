@@ -12,7 +12,9 @@ use jito_protos::{
         packet_batches_update::Msg, AccountsOfInterestRequest, AccountsOfInterestUpdate,
         ExpiringPacketBatches, PacketBatchesUpdate,
     },
-    shared::Heartbeat,
+    convert::packet_to_proto_packet,
+    packet::PacketBatch as ProtoPacketBatch,
+    shared::{Header, Heartbeat},
 };
 use log::{error, *};
 use prost_types::Timestamp;
@@ -221,9 +223,16 @@ impl BlockEngineRelayerHandler {
                 if block_engine_packet_sender
                     .send(PacketBatchesUpdate {
                         msg: Some(Msg::Batches(ExpiringPacketBatches {
-                            header: None,
-                            batch_list: vec![], // TODO (LB): do it
-                            expiry_ms: 0,
+                            header: Some(Header {
+                                ts: Some(Timestamp::from(SystemTime::now())),
+                            }),
+                            batch_list: block_engine_batches
+                                .into_iter()
+                                .map(|b| ProtoPacketBatch {
+                                    packets: b.iter().filter_map(packet_to_proto_packet).collect(),
+                                })
+                                .collect(),
+                            expiry_ms: 100, // TODO (LB)
                         })),
                     })
                     .await
@@ -246,7 +255,6 @@ impl BlockEngineRelayerHandler {
         if block_engine_packet_sender
             .send(PacketBatchesUpdate {
                 msg: Some(Msg::Heartbeat(Heartbeat {
-                    ts: Some(Timestamp::from(SystemTime::now())),
                     count: *heartbeat_count,
                 })),
             })

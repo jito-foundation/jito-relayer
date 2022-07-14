@@ -1,6 +1,5 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
-    fmt::Display,
     result,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -14,7 +13,7 @@ use std::{
 use crossbeam_channel::{unbounded, Receiver, RecvError, SendError, Sender};
 use jito_protos::{
     convert::packet_to_proto_packet,
-    packet::{Packet as ProtoPacket, PacketBatch as ProtoPacketBatch},
+    packet::PacketBatch as ProtoPacketBatch,
     relayer::{subscribe_packets_response::Msg, SubscribePacketsResponse},
     shared::{Header, Heartbeat},
 };
@@ -139,9 +138,9 @@ impl Router {
                     Self::drop_connections(failed_forwards, &mut packet_subscriptions);
                 },
                 recv(subscription_receiver) -> maybe_subscription => {
-                    Self::handle_subscription(maybe_subscription, &mut packet_subscriptions, &leader_schedule_cache)?;
+                    Self::handle_subscription(maybe_subscription, &mut packet_subscriptions)?;
                 }
-                recv(heartbeat_tick) -> stamp => {
+                recv(heartbeat_tick) -> _ => {
                     let failed_heartbeats = Self::handle_heartbeat(&packet_subscriptions, &heartbeat_count);
                     Self::drop_connections(failed_heartbeats, &mut packet_subscriptions);
 
@@ -180,7 +179,6 @@ impl Router {
                 match sender.try_send(Ok(SubscribePacketsResponse {
                     header: None,
                     msg: Some(Msg::Heartbeat(Heartbeat {
-                        ts: Some(Timestamp::from(SystemTime::now())),
                         count: *heartbeat_count,
                     })),
                 })) {
@@ -256,7 +254,6 @@ impl Router {
             Pubkey,
             TokioSender<result::Result<SubscribePacketsResponse, Status>>,
         >,
-        leader_schedule_cache: &LeaderScheduleUpdatingHandle,
     ) -> Result<()> {
         match maybe_subscription? {
             Subscription::ValidatorPacketSubscription { pubkey, sender } => {

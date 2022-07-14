@@ -226,6 +226,7 @@ fn main() {
     exit.store(true, Ordering::Relaxed);
 
     tpu.join().unwrap();
+    leader_cache.join().unwrap();
     forward_and_delay_thread.join().unwrap();
     block_engine_forwarder.join().unwrap();
 }

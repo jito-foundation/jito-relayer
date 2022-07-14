@@ -86,7 +86,7 @@ impl Relayer for RelayerImpl {
                 pubkey: Pubkey::new_unique(), // TODO fill this out
                 sender,
             })
-            .map_err(|e| Status::internal("internal error adding subscription"))?;
+            .map_err(|_| Status::internal("internal error adding subscription"))?;
         Ok(Response::new(ReceiverStream::new(receiver)))
     }
 }

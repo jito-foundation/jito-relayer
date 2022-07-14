@@ -25,12 +25,11 @@ impl AuthenticationInterceptor {
 
         let validator_pubkey = Pubkey::new(&pubkey.to_bytes());
 
-        // TODO: is this called in async runtime?
-        // if !cache.is_validator_scheduled(validator_pubkey) {
-        //     return Err(Status::permission_denied(
-        //         "not a validator scheduled for this epoch",
-        //     ));
-        // }
+        if !cache.is_scheduled_validator(&validator_pubkey) {
+            return Err(Status::permission_denied(
+                "not a validator scheduled for this epoch",
+            ));
+        }
 
         req.extensions_mut().insert(validator_pubkey);
 
