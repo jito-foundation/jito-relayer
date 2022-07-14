@@ -1,4 +1,5 @@
 use std::{
+    cmp::max,
     collections::{hash_map::Entry, HashMap},
     result,
     sync::{
@@ -7,10 +8,11 @@ use std::{
     },
     thread,
     thread::{Builder, JoinHandle},
-    time::{Duration, SystemTime},
+    time::{Duration, Instant, SystemTime},
 };
 
 use crossbeam_channel::{unbounded, Receiver, RecvError, SendError, Sender};
+use histogram::Histogram;
 use jito_protos::{
     convert::packet_to_proto_packet,
     packet::PacketBatch as ProtoPacketBatch,
@@ -19,6 +21,7 @@ use jito_protos::{
 };
 use log::{error, info, warn};
 use prost_types::Timestamp;
+use solana_metrics::datapoint_info;
 use solana_perf::packet::PacketBatch;
 use solana_sdk::{
     clock::{Slot, NUM_CONSECUTIVE_LEADER_SLOTS},
@@ -44,6 +47,78 @@ pub enum RouterError {
 }
 
 pub type Result<T> = result::Result<T, RouterError>;
+
+#[derive(Default)]
+struct RouterMetrics {
+    pub highest_slot: u64,
+    pub num_added_connections: u64,
+    pub num_removed_connections: u64,
+    pub num_current_connections: u64,
+    pub num_heartbeats: u64,
+    pub num_batches_forwarded: u64,
+    pub num_packets_forwarded: u64,
+    pub max_heartbeat_tick_latency_us: u64,
+    pub metrics_latency_us: u64,
+    pub num_try_send_channel_full: u64,
+    pub packet_latencies_us: Histogram,
+}
+
+impl RouterMetrics {
+    fn report(&self) {
+        datapoint_info!(
+            "router_metrics",
+            ("highest_slot", self.highest_slot, i64),
+            ("num_added_connections", self.num_added_connections, i64),
+            ("num_removed_connections", self.num_removed_connections, i64),
+            ("num_current_connections", self.num_current_connections, i64),
+            ("num_heartbeats", self.num_heartbeats, i64),
+            ("num_batches_forwarded", self.num_batches_forwarded, i64),
+            ("num_packets_forwarded", self.num_packets_forwarded, i64),
+            (
+                "num_try_send_channel_full",
+                self.num_try_send_channel_full,
+                i64
+            ),
+            ("metrics_latency_us", self.metrics_latency_us, i64),
+            (
+                "max_heartbeat_tick_latency_us",
+                self.max_heartbeat_tick_latency_us,
+                i64
+            ),
+            (
+                "packet_latencies_us_min",
+                self.packet_latencies_us.minimum().unwrap_or_default(),
+                i64
+            ),
+            (
+                "packet_latencies_us_max",
+                self.packet_latencies_us.maximum().unwrap_or_default(),
+                i64
+            ),
+            (
+                "packet_latencies_us_p50",
+                self.packet_latencies_us
+                    .percentile(50.0)
+                    .unwrap_or_default(),
+                i64
+            ),
+            (
+                "packet_latencies_us_p90",
+                self.packet_latencies_us
+                    .percentile(90.0)
+                    .unwrap_or_default(),
+                i64
+            ),
+            (
+                "packet_latencies_us_p99",
+                self.packet_latencies_us
+                    .percentile(99.0)
+                    .unwrap_or_default(),
+                i64
+            ),
+        );
+    }
+}
 
 pub struct Router {
     threads: Vec<JoinHandle<()>>,
@@ -127,24 +202,42 @@ impl Router {
         > = HashMap::default();
 
         let mut heartbeat_count = 0;
+
         let heartbeat_tick = crossbeam_channel::tick(Duration::from_millis(500));
+        let metrics_tick = crossbeam_channel::tick(Duration::from_millis(1000));
+
+        let mut router_metrics = RouterMetrics::default();
+
         while !exit.load(Ordering::Relaxed) {
             crossbeam_channel::select! {
                 recv(slot_receiver) -> maybe_slot => {
-                    Self::update_highest_slot(maybe_slot, &mut highest_slot)?;
+                    Self::update_highest_slot(maybe_slot, &mut highest_slot, &mut router_metrics)?;
                 },
                 recv(packet_receiver) -> maybe_packet_batches => {
-                    let failed_forwards = Self::forward_packets(maybe_packet_batches, &packet_subscriptions, &leader_schedule_cache, &highest_slot, &leader_lookahead)?;
-                    Self::drop_connections(failed_forwards, &mut packet_subscriptions);
+                    let failed_forwards = Self::forward_packets(maybe_packet_batches, &packet_subscriptions, &leader_schedule_cache, &highest_slot, &leader_lookahead, &mut router_metrics)?;
+                    Self::drop_connections(failed_forwards, &mut packet_subscriptions, &mut router_metrics);
                 },
                 recv(subscription_receiver) -> maybe_subscription => {
-                    Self::handle_subscription(maybe_subscription, &mut packet_subscriptions)?;
+                    Self::handle_subscription(maybe_subscription, &mut packet_subscriptions, &mut router_metrics)?;
                 }
-                recv(heartbeat_tick) -> _ => {
-                    let failed_heartbeats = Self::handle_heartbeat(&packet_subscriptions, &heartbeat_count);
-                    Self::drop_connections(failed_heartbeats, &mut packet_subscriptions);
+                recv(heartbeat_tick) -> time_generated => {
+                    if let Ok(time_generated) = time_generated {
+                        router_metrics.max_heartbeat_tick_latency_us = max(router_metrics.max_heartbeat_tick_latency_us, Instant::now().duration_since(time_generated).as_micros() as u64);
+                    }
+
+                    let failed_heartbeats = Self::handle_heartbeat(&packet_subscriptions, &heartbeat_count, &mut router_metrics);
+                    Self::drop_connections(failed_heartbeats, &mut packet_subscriptions, &mut router_metrics);
 
                     heartbeat_count += 1;
+                }
+                recv(metrics_tick) -> time_generated => {
+                    router_metrics.num_current_connections = packet_subscriptions.len() as u64;
+                    if let Ok(time_generated) = time_generated {
+                        router_metrics.metrics_latency_us = time_generated.elapsed().as_micros() as u64;
+                    }
+
+                    router_metrics.report();
+                    router_metrics = RouterMetrics::default();
                 }
             }
         }
@@ -157,7 +250,10 @@ impl Router {
             Pubkey,
             TokioSender<result::Result<SubscribePacketsResponse, Status>>,
         >,
+        router_metrics: &mut RouterMetrics,
     ) {
+        router_metrics.num_removed_connections += disconnected_pubkeys.len() as u64;
+
         for failed in disconnected_pubkeys {
             if let Some(sender) = subscriptions.remove(&failed) {
                 info!("dropping subscription: {:?}", failed);
@@ -172,6 +268,7 @@ impl Router {
             TokioSender<result::Result<SubscribePacketsResponse, Status>>,
         >,
         heartbeat_count: &u64,
+        router_metrics: &mut RouterMetrics,
     ) -> Vec<Pubkey> {
         let failed_pubkey_updates = subscriptions
             .iter()
@@ -185,12 +282,15 @@ impl Router {
                     Ok(_) => {}
                     Err(TrySendError::Closed(_)) => return Some(*pubkey),
                     Err(TrySendError::Full(_)) => {
+                        router_metrics.num_try_send_channel_full += 1;
                         warn!("heartbeat channel is full for: {:?}", pubkey);
                     }
                 }
                 None
             })
             .collect();
+
+        router_metrics.num_heartbeats += 1;
 
         failed_pubkey_updates
     }
@@ -204,6 +304,7 @@ impl Router {
         leader_schedule_cache: &LeaderScheduleUpdatingHandle,
         highest_slot: &u64,
         leader_lookahead: &u64,
+        router_metrics: &mut RouterMetrics,
     ) -> Result<Vec<Pubkey>> {
         let packet_batches = maybe_packet_batches?;
         let slots: Vec<_> = (*highest_slot
@@ -233,6 +334,7 @@ impl Router {
                         Ok(_) => {}
                         Err(TrySendError::Full(_)) => {
                             error!("packet channel is full for pubkey: {:?}", pubkey);
+                            router_metrics.num_try_send_channel_full += 1;
                             break;
                         }
                         Err(TrySendError::Closed(_)) => {
@@ -241,10 +343,16 @@ impl Router {
                         }
                     }
                 }
-
                 None
             })
             .collect();
+
+        router_metrics.num_batches_forwarded += proto_batches.len() as u64;
+        router_metrics.num_packets_forwarded += proto_batches
+            .iter()
+            .map(|b| b.packets.len() as u64)
+            .sum::<u64>();
+
         Ok(failed_forwards)
     }
 
@@ -254,6 +362,7 @@ impl Router {
             Pubkey,
             TokioSender<result::Result<SubscribePacketsResponse, Status>>,
         >,
+        router_metrics: &mut RouterMetrics,
     ) -> Result<()> {
         match maybe_subscription? {
             Subscription::ValidatorPacketSubscription { pubkey, sender } => {
@@ -261,6 +370,8 @@ impl Router {
                     Entry::Vacant(entry) => {
                         info!("new subscription: {:?}", pubkey);
                         entry.insert(sender);
+
+                        router_metrics.num_added_connections += 1;
                     }
                     Entry::Occupied(_) => {
                         error!("already connected, dropping new connection: {:?}", pubkey);
@@ -278,81 +389,10 @@ impl Router {
     fn update_highest_slot(
         maybe_slot: result::Result<u64, RecvError>,
         highest_slot: &mut Slot,
+        router_metrics: &mut RouterMetrics,
     ) -> Result<()> {
         *highest_slot = maybe_slot?;
+        router_metrics.highest_slot = *highest_slot;
         Ok(())
     }
-
-    // Sends packet streams to eligible connections over TCP.
-    // Eligible connections are ones where the `Leader` (connected node) has a slot scheduled
-    // between `start_slot` & `end_slot`.
-    //
-    // returns a tuple where:
-    //     tuple.0 = list of connection ids (pubkey) where an error was encountered on stream attempt
-    //     tuple.1 = a set of slots that were streamed for
-    // pub fn stream_batch_list(
-    //     &self,
-    //     batch_list: &ExpiringPacketBatches,
-    //     start_slot: Slot,
-    //     end_slot: Slot,
-    // ) -> (Vec<Pubkey>, HashSet<Slot>) {
-    //     let mut failed_stream_pks: Vec<Pubkey> = Vec::new();
-    //     let mut slots_sent: HashSet<Slot> = HashSet::new();
-    //
-    //     let active_subscriptions = self.packet_subs.read().unwrap();
-    //     if active_subscriptions.is_empty() {
-    //         warn!("stream_batch_list: No Active Subscriptions");
-    //         return (failed_stream_pks, slots_sent);
-    //     }
-    //
-    //     let validators_to_send =
-    //         Self::validators_in_slot_range(start_slot, end_slot, &self.leader_schedule_cache);
-    //     let iter = active_subscriptions.iter();
-    //     for (pk, subscription) in iter {
-    //         let slot_to_send = validators_to_send.get(pk);
-    //         debug!("Slot to Send: {:?}", slot_to_send);
-    //         if let Some(slot) = slot_to_send {
-    //             if let Err(e) = subscription.tx.send(Ok(PacketStreamMsg {
-    //                 msg: Some(Msg::Batches(batch_list.clone())),
-    //             })) {
-    //                 datapoint_warn!(
-    //                     "validator_interface_stream_batch_list",
-    //                     ("subscriber", pk.to_string(), String),
-    //                     ("batch_stream_error", 1, i64),
-    //                     ("error", e.to_string(), String)
-    //                 );
-    //                 failed_stream_pks.push(*pk);
-    //             } else {
-    //                 datapoint_info!(
-    //                     "validator_interface_stream_batch_list",
-    //                     ("subscriber", pk.to_string(), String),
-    //                     ("batches_streamed", batch_list.batch_list.len(), i64)
-    //                 );
-    //                 slots_sent.insert(*slot);
-    //             }
-    //         }
-    //     }
-    //
-    //     (failed_stream_pks, slots_sent)
-    // }
-
-    // fn validators_in_slot_range(
-    //     start_slot: Slot,
-    //     end_slot: Slot,
-    //     leader_schedule_cache: &LeaderScheduleCache,
-    // ) -> HashMap<Pubkey, Slot> {
-    //     let n_leader_slots = NUM_CONSECUTIVE_LEADER_SLOTS as usize;
-    //     let mut validators_to_send = HashMap::new();
-    //     for slot in (start_slot..end_slot).step_by(n_leader_slots) {
-    //         if let Some(pk) = leader_schedule_cache.fetch_scheduled_validator(&slot) {
-    //             validators_to_send.insert(pk, slot);
-    //         }
-    //     }
-    //     debug!(
-    //         "validators_in_slot_range: {}  -  {},   val: {:?}",
-    //         start_slot, end_slot, validators_to_send
-    //     );
-    //
-    //     validators_to_send
-    // }
 }

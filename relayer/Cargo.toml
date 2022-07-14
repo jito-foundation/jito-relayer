@@ -14,6 +14,7 @@ jito-protos = { path = "../jito-protos" }
 jito-rpc = { path = "../rpc" }
 log = "0.4.17"
 prost-types = "0.10.1"
+histogram = "0.6.9"
 jito-core = {path = "../core"}
 solana-client = "=1.11.2"
 solana-core = "=1.11.2"

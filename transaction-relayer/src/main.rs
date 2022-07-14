@@ -188,6 +188,7 @@ fn main() {
     // with packets when the block engine isn't connected
     let (block_engine_sender, block_engine_receiver) = channel(1000);
 
+    // TODO (LB): make sure discarding packets!
     let forward_and_delay_thread = start_forward_and_delay_thread(
         packet_receiver,
         delay_sender,

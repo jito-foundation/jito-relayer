@@ -1932,6 +1932,7 @@ version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
  "ed25519-dalek",
+ "histogram",
  "jito-core",
  "jito-protos",
  "jito-rpc",
