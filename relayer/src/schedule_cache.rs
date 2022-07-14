@@ -1,32 +1,72 @@
 use std::{
     collections::HashMap,
     str::FromStr,
-    sync::{Arc, Mutex, RwLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, RwLock,
+    },
+    thread::{sleep, Builder, JoinHandle},
+    time::Duration,
 };
 
 use jito_rpc::load_balancer::LoadBalancer;
 use log::{debug, error};
 use solana_sdk::{clock::Slot, pubkey::Pubkey};
 
-pub struct LeaderScheduleCache {
+pub struct LeaderScheduleCacheUpdater {
     /// Maps slots to scheduled pubkey
-    schedules: RwLock<HashMap<Slot, Pubkey>>,
-    /// RPC Client
-    load_balancer: Arc<Mutex<LoadBalancer>>,
+    schedules: Arc<RwLock<HashMap<Slot, Pubkey>>>,
+
+    /// Refreshes leader schedule
+    refresh_thread: JoinHandle<()>,
 }
 
-impl LeaderScheduleCache {
-    pub fn new(rpc: &Arc<Mutex<LoadBalancer>>) -> LeaderScheduleCache {
-        LeaderScheduleCache {
-            schedules: RwLock::new(HashMap::new()),
-            load_balancer: rpc.clone(),
+#[derive(Clone)]
+pub struct LeaderScheduleUpdatingHandle {
+    pub schedule: Arc<RwLock<HashMap<Slot, Pubkey>>>,
+}
+
+impl LeaderScheduleCacheUpdater {
+    pub fn new(
+        load_balancer: &Arc<Mutex<LoadBalancer>>,
+        exit: Arc<AtomicBool>,
+    ) -> LeaderScheduleCacheUpdater {
+        let schedules = Arc::new(RwLock::new(HashMap::new()));
+        let refresh_thread = Self::refresh_thread(schedules.clone(), load_balancer.clone(), exit);
+        LeaderScheduleCacheUpdater {
+            schedules,
+            refresh_thread,
         }
     }
 
-    pub fn update_leader_cache(&self) {
-        debug!("Update Leader Cache !!!");
+    /// Gets a handle to a constantly updating leader schedule handler
+    pub fn handle(&self) -> LeaderScheduleUpdatingHandle {
+        LeaderScheduleUpdatingHandle {
+            schedule: self.schedules.clone(),
+        }
+    }
 
-        let rpc_client = self.load_balancer.lock().unwrap().rpc_client();
+    fn refresh_thread(
+        schedule: Arc<RwLock<HashMap<Slot, Pubkey>>>,
+        load_balancer: Arc<Mutex<LoadBalancer>>,
+        exit: Arc<AtomicBool>,
+    ) -> JoinHandle<()> {
+        Builder::new()
+            .name("leader-schedule-refresh".into())
+            .spawn(move || {
+                while !exit.load(Ordering::Relaxed) {
+                    Self::update_leader_cache(&load_balancer, &schedule);
+                    sleep(Duration::from_secs(10));
+                }
+            })
+            .unwrap()
+    }
+
+    pub fn update_leader_cache(
+        load_balancer: &Arc<Mutex<LoadBalancer>>,
+        schedule: &Arc<RwLock<HashMap<Slot, Pubkey>>>,
+    ) {
+        let rpc_client = load_balancer.lock().unwrap().rpc_client();
 
         if let Ok(epoch_info) = rpc_client.get_epoch_info() {
             if let Ok(Some(leader_schedule)) = rpc_client.get_leader_schedule(None) {
@@ -34,7 +74,7 @@ impl LeaderScheduleCache {
 
                 debug!("Got Leader Schedule. Length = {}", leader_schedule.len());
 
-                let mut schedule = self.schedules.write().unwrap();
+                let mut schedule = schedule.write().unwrap();
 
                 // Remove Old Slots
                 schedule.retain(|s, _| *s >= epoch_info.absolute_slot);
@@ -54,22 +94,5 @@ impl LeaderScheduleCache {
         } else {
             error!("Couldn't Get Epoch Info from RPC!!!")
         };
-    }
-
-    pub fn fetch_scheduled_validator(&self, slot: &Slot) -> Option<Pubkey> {
-        Some(*self.schedules.read().unwrap().get(slot)?)
-    }
-
-    pub fn is_validator_scheduled(&self, pubkey: Pubkey) -> bool {
-        debug!("Is Validator Scheduled Called for {}", pubkey.to_string());
-        debug!("Schedule {:?}", self.schedules.read().unwrap());
-
-        let sched = self.schedules.read().unwrap().clone();
-        for (_, pk) in sched.iter() {
-            if *pk == pubkey {
-                return true;
-            }
-        }
-        false
     }
 }

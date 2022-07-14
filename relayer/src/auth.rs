@@ -1,21 +1,20 @@
-use std::sync::Arc;
-
 use ed25519_dalek::{PublicKey, Signature, Verifier};
 use solana_sdk::pubkey::Pubkey;
 use tonic::{metadata::MetadataMap, service::Interceptor, Request, Status};
 
-use crate::schedule_cache::LeaderScheduleCache;
+use crate::schedule_cache::LeaderScheduleUpdatingHandle;
 
 #[derive(Clone)]
 pub struct AuthenticationInterceptor {
-    pub cache: Arc<LeaderScheduleCache>,
+    cache: LeaderScheduleUpdatingHandle,
 }
 
 impl AuthenticationInterceptor {
-    pub fn auth(
-        req: &mut tonic::Request<()>,
-        cache: &Arc<LeaderScheduleCache>,
-    ) -> Result<(), Status> {
+    pub fn new(cache: LeaderScheduleUpdatingHandle) -> AuthenticationInterceptor {
+        AuthenticationInterceptor { cache }
+    }
+
+    pub fn auth(req: &mut Request<()>, cache: &LeaderScheduleUpdatingHandle) -> Result<(), Status> {
         let meta = req.metadata();
         let pubkey = extract_signer_pubkey(meta)?;
         let msg = Self::extract_msg(meta)?;
@@ -27,11 +26,11 @@ impl AuthenticationInterceptor {
         let validator_pubkey = Pubkey::new(&pubkey.to_bytes());
 
         // TODO: is this called in async runtime?
-        if !cache.is_validator_scheduled(validator_pubkey) {
-            return Err(Status::permission_denied(
-                "not a validator scheduled for this epoch",
-            ));
-        }
+        // if !cache.is_validator_scheduled(validator_pubkey) {
+        //     return Err(Status::permission_denied(
+        //         "not a validator scheduled for this epoch",
+        //     ));
+        // }
 
         req.extensions_mut().insert(validator_pubkey);
 
@@ -65,10 +64,7 @@ impl AuthenticationInterceptor {
 }
 
 impl Interceptor for AuthenticationInterceptor {
-    fn call(
-        &mut self,
-        mut request: tonic::Request<()>,
-    ) -> std::result::Result<Request<()>, Status> {
+    fn call(&mut self, mut request: Request<()>) -> Result<Request<()>, Status> {
         Self::auth(&mut request, &self.cache)?;
         Ok(request)
     }

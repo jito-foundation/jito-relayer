@@ -1,34 +1,27 @@
 use std::{
-    collections::VecDeque,
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    thread,
-    thread::{sleep, spawn, JoinHandle},
-    time::{Duration, Instant},
 };
 
 use clap::Parser;
-use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
+use crossbeam_channel::unbounded;
 use jito_block_engine::block_engine::BlockEngineRelayerHandler;
 use jito_core::tpu::{Tpu, TpuSockets};
 use jito_protos::relayer::relayer_server::RelayerServer;
 use jito_relayer::{
-    auth::AuthenticationInterceptor, relayer::RelayerImpl, schedule_cache::LeaderScheduleCache,
+    auth::AuthenticationInterceptor, relayer::RelayerImpl,
+    schedule_cache::LeaderScheduleCacheUpdater,
 };
 use jito_rpc::load_balancer::LoadBalancer;
-use log::{error, info, warn};
-use solana_core::banking_stage::BankingPacketBatch;
+use jito_transaction_relayer::forwarder::start_forward_and_delay_thread;
+use log::info;
 use solana_net_utils::multi_bind_in_range;
-use solana_perf::packet::PacketBatch;
 use solana_sdk::signature::{Keypair, Signer};
-use tokio::{
-    runtime::Builder,
-    sync::mpsc::{channel, error::TrySendError},
-};
+use tokio::{runtime::Builder, sync::mpsc::channel};
 use tonic::transport::Server;
 
 #[derive(Parser, Debug)]
@@ -148,108 +141,6 @@ fn get_sockets(args: &Args) -> Sockets {
     }
 }
 
-// Returns the batches as a wrapped ExpiringPacketBatches protobuf with an expiration
-// attached to them.
-// pub fn packet_batches_to_expiring_packet_batches(
-//     batches: Vec<PacketBatch>,
-//     packet_delay_ms: u32,
-// ) -> ExpiringPacketBatches {
-//     let now = SystemTime::now();
-//
-//     ExpiringPacketBatches {
-//         header: Some(Header {
-//             ts: Some(prost_types::Timestamp::from(now)),
-//         }),
-//         batch_list: batches
-//             .into_iter()
-//             .map(|batch| PbPacketBatch {
-//                 packets: batch
-//                     .iter()
-//                     .filter(|p| !p.meta.discard())
-//                     .filter_map(|p| {
-//                         Some(PbPacket {
-//                             data: p.data(0..p.meta.size)?.to_vec(),
-//                             meta: Some(PbMeta {
-//                                 size: p.meta.size as u64,
-//                                 addr: p.meta.addr.to_string(),
-//                                 port: p.meta.port as u32,
-//                                 flags: Some(PbPacketFlags {
-//                                     discard: p.meta.discard(),
-//                                     forwarded: p.meta.forwarded(),
-//                                     repair: p.meta.repair(),
-//                                     simple_vote_tx: p.meta.is_simple_vote_tx(),
-//                                     tracer_packet: p.meta.is_tracer_packet(),
-//                                 }),
-//                                 sender_stake: p.meta.sender_stake,
-//                             }),
-//                         })
-//                     })
-//                     .collect(),
-//             })
-//             .collect(),
-//         expiry_ms: packet_delay_ms,
-//     }
-// }
-
-/// Forwards packets to the Block Engine handler thread then delays transactions for packet_delay_ms
-/// before forwarding them to the validator.
-fn start_forward_and_delay_thread(
-    packet_receiver: Receiver<BankingPacketBatch>,
-    delay_sender: Sender<Vec<PacketBatch>>,
-    packet_delay_ms: u32,
-    block_engine_sender: tokio::sync::mpsc::Sender<Vec<PacketBatch>>,
-) -> JoinHandle<()> {
-    const SLEEP_DURATION: Duration = Duration::from_millis(5);
-    let packet_delay = Duration::from_millis(packet_delay_ms as u64);
-
-    thread::Builder::new()
-        .name("jito-forward_packets_to_block_engine".into())
-        .spawn(move || {
-            let mut buffered_packet_batches = VecDeque::with_capacity(100_000);
-
-            loop {
-                match packet_receiver.recv_timeout(SLEEP_DURATION) {
-                    Ok(packet_batch) => {
-                        // let batch_list = packet_batches_to_expiring_packet_batches(
-                        //     packet_batch.0,
-                        //     packet_delay_ms,
-                        // );
-
-                        // try_send because the block engine receiver only drains when it's connected
-                        // and we don't want to OOM on packet_receiver
-                        match block_engine_sender.try_send(packet_batch.0.clone()) {
-                            Ok(_) => {}
-                            Err(TrySendError::Closed(_)) => {
-                                error!("error sending packet batch to block engine handler");
-                                break;
-                            }
-                            Err(TrySendError::Full(_)) => {
-                                warn!("buffer is full!");
-                            }
-                        }
-                        buffered_packet_batches.push_back((Instant::now(), packet_batch.0));
-                    }
-                    Err(RecvTimeoutError::Timeout) => {}
-                    Err(RecvTimeoutError::Disconnected) => {
-                        break;
-                    }
-                }
-
-                while let Some((pushed_time, packet_batch)) = buffered_packet_batches.front() {
-                    if pushed_time.elapsed() >= packet_delay {
-                        if let Err(e) =
-                            delay_sender.send(buffered_packet_batches.pop_front().unwrap().1)
-                        {
-                            error!("exiting forwarding delayed packets: {:?}", e);
-                            break;
-                        }
-                    }
-                }
-            }
-        })
-        .unwrap()
-}
-
 fn main() {
     env_logger::init();
 
@@ -259,7 +150,7 @@ fn main() {
 
     let keypair = Keypair::new();
     solana_metrics::set_host_id(keypair.pubkey().to_string());
-    info!("Relayer Started with pubkey: {}", keypair.pubkey());
+    info!("Relayer started with pubkey: {}", keypair.pubkey());
 
     let exit = Arc::new(AtomicBool::new(false));
 
@@ -289,16 +180,7 @@ fn main() {
         &rpc_load_balancer,
     );
 
-    let leader_cache = Arc::new(LeaderScheduleCache::new(&rpc_load_balancer));
-    let lc = leader_cache.clone();
-    // ToDo:  Put this somewhere more reasonable and align with epoch updates
-    let exit_l = exit.clone();
-    spawn(move || {
-        while !exit_l.load(Ordering::Relaxed) {
-            lc.update_leader_cache();
-            sleep(Duration::from_secs(10));
-        }
-    });
+    let leader_cache = LeaderScheduleCacheUpdater::new(&rpc_load_balancer, exit.clone());
 
     let (delay_sender, delay_receiver) = unbounded();
 
@@ -323,15 +205,15 @@ fn main() {
         let relayer = RelayerImpl::new(
             slot_receiver,
             delay_receiver,
-            leader_cache.clone(),
+            leader_cache.handle(),
             exit.clone(),
             args.public_ip,
             args.tpu_port,
             args.tpu_fwd_port,
         );
 
-        let cache = leader_cache.clone();
-        let auth_interceptor = AuthenticationInterceptor { cache };
+        let cache = leader_cache.handle();
+        let auth_interceptor = AuthenticationInterceptor::new(cache);
         let svc = RelayerServer::with_interceptor(relayer, auth_interceptor);
 
         Server::builder()

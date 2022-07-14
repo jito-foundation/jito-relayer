@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{hash_map::Entry, HashMap},
     fmt::Display,
     result,
     sync::{
@@ -8,18 +8,31 @@ use std::{
     },
     thread,
     thread::{Builder, JoinHandle},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
-use crossbeam_channel::{unbounded, Receiver, RecvError, Sender};
-use log::error;
+use crossbeam_channel::{unbounded, Receiver, RecvError, SendError, Sender};
+use jito_protos::{
+    self,
+    relayer::{subscribe_packets_response::Msg, SubscribePacketsResponse},
+    shared::Heartbeat,
+};
+use log::{error, info};
+use prost_types::Timestamp;
 use solana_perf::packet::PacketBatch;
 use solana_sdk::{clock::Slot, pubkey::Pubkey};
 use thiserror::Error;
+use tokio::sync::mpsc::Sender as TokioSender;
+use tonic::Status;
 
-use crate::schedule_cache::LeaderScheduleCache;
+use crate::schedule_cache::LeaderScheduleUpdatingHandle;
 
-pub enum Subscription {}
+pub enum Subscription {
+    ValidatorPacketSubscription {
+        pubkey: Pubkey,
+        sender: TokioSender<result::Result<SubscribePacketsResponse, Status>>,
+    },
+}
 
 #[derive(Error, Debug)]
 pub enum RouterError {
@@ -38,7 +51,7 @@ impl Router {
     pub fn new(
         slot_receiver: Receiver<Slot>,
         packet_receiver: Receiver<Vec<PacketBatch>>,
-        leader_schedule_cache: Arc<LeaderScheduleCache>,
+        leader_schedule_cache: LeaderScheduleUpdatingHandle,
         exit: Arc<AtomicBool>,
     ) -> Router {
         let (subscription_sender, subscription_receiver) = unbounded();
@@ -55,6 +68,14 @@ impl Router {
         }
     }
 
+    /// Adds a subscription to the router
+    pub fn add_subscription(
+        &self,
+        subscription: Subscription,
+    ) -> result::Result<(), SendError<Subscription>> {
+        self.subscription_sender.send(subscription)
+    }
+
     pub fn join(self) -> thread::Result<()> {
         for t in self.threads {
             t.join()?
@@ -66,11 +87,11 @@ impl Router {
         slot_receiver: Receiver<Slot>,
         subscription_receiver: Receiver<Subscription>,
         packet_receiver: Receiver<Vec<PacketBatch>>,
-        leader_schedule_cache: Arc<LeaderScheduleCache>,
+        leader_schedule_cache: LeaderScheduleUpdatingHandle,
         exit: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
         Builder::new()
-            .name("packet-router".into())
+            .name("jito-packet-router".into())
             .spawn(move || {
                 let _ = Self::run_event_loop(
                     slot_receiver,
@@ -87,12 +108,16 @@ impl Router {
         slot_receiver: Receiver<Slot>,
         subscription_receiver: Receiver<Subscription>,
         packet_receiver: Receiver<Vec<PacketBatch>>,
-        leader_schedule_cache: Arc<LeaderScheduleCache>,
+        leader_schedule_cache: LeaderScheduleUpdatingHandle,
         exit: Arc<AtomicBool>,
     ) -> Result<()> {
         let mut highest_slot = Slot::default();
-        let mut subscriptions: HashMap<Pubkey, Sender<()>> = HashMap::default();
+        let mut packet_subscriptions: HashMap<
+            Pubkey,
+            TokioSender<result::Result<SubscribePacketsResponse, Status>>,
+        > = HashMap::default();
 
+        let mut heartbeat_count = 0;
         let heartbeat_tick = crossbeam_channel::tick(Duration::from_millis(500));
         while !exit.load(Ordering::Relaxed) {
             crossbeam_channel::select! {
@@ -100,36 +125,107 @@ impl Router {
                     Self::update_highest_slot(maybe_slot, &mut highest_slot)?;
                 },
                 recv(packet_receiver) -> maybe_packet_batches => {
-                    Self::forward_packets(maybe_packet_batches, &subscriptions, &leader_schedule_cache)?;
+                    let failed_forwards = Self::forward_packets(maybe_packet_batches, &packet_subscriptions, &leader_schedule_cache)?;
+                    Self::drop_connections(failed_forwards, &mut packet_subscriptions);
                 },
                 recv(subscription_receiver) -> maybe_subscription => {
-                    Self::handle_subscription(maybe_subscription, &mut subscriptions, &leader_schedule_cache)?;
+                    Self::handle_subscription(maybe_subscription, &mut packet_subscriptions, &leader_schedule_cache)?;
                 }
                 recv(heartbeat_tick) -> stamp => {
-                    Self::handle_heartbeat(&mut subscriptions)?;
+                    let failed_heartbeats = Self::handle_heartbeat(&packet_subscriptions, &heartbeat_count);
+                    Self::drop_connections(failed_heartbeats, &mut packet_subscriptions);
+
+                    heartbeat_count += 1;
                 }
             }
         }
         Ok(())
     }
 
-    fn handle_heartbeat(subscriptions: &mut HashMap<Pubkey, Sender<()>>) -> Result<()> {
-        Ok(())
+    fn drop_connections(
+        disconnected_pubkeys: Vec<Pubkey>,
+        subscriptions: &mut HashMap<
+            Pubkey,
+            TokioSender<result::Result<SubscribePacketsResponse, Status>>,
+        >,
+    ) {
+        for failed in disconnected_pubkeys {
+            if let Some(sender) = subscriptions.remove(&failed) {
+                info!("dropping subscription: {:?}", failed);
+                drop(sender);
+            }
+        }
+    }
+
+    fn handle_heartbeat(
+        subscriptions: &HashMap<
+            Pubkey,
+            TokioSender<result::Result<SubscribePacketsResponse, Status>>,
+        >,
+        heartbeat_count: &u64,
+    ) -> Vec<Pubkey> {
+        let failed_pubkey_updates = subscriptions
+            .iter()
+            .filter_map(|(pubkey, sender)| {
+                // TODO: don't want to use blocking_send here
+                if let Err(e) = sender.blocking_send(Ok(SubscribePacketsResponse {
+                    header: None,
+                    msg: Some(Msg::Heartbeat(Heartbeat {
+                        ts: Some(Timestamp::from(SystemTime::now())),
+                        count: *heartbeat_count,
+                    })),
+                })) {
+                    error!("failed to heartbeat: {:?}", e);
+                    Some(*pubkey)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        failed_pubkey_updates
     }
 
     fn forward_packets(
-        maybe_packet_batches: result::Result<Vec<PacketBatch>, crossbeam_channel::RecvError>,
-        subscriptions: &HashMap<Pubkey, Sender<()>>,
-        leader_schedule_cache: &LeaderScheduleCache,
-    ) -> Result<()> {
-        Ok(())
+        maybe_packet_batches: result::Result<Vec<PacketBatch>, RecvError>,
+        subscriptions: &HashMap<
+            Pubkey,
+            TokioSender<result::Result<SubscribePacketsResponse, Status>>,
+        >,
+        leader_schedule_cache: &LeaderScheduleUpdatingHandle,
+    ) -> Result<Vec<Pubkey>> {
+        Ok(vec![])
     }
 
     fn handle_subscription(
-        maybe_subscription: result::Result<Subscription, crossbeam_channel::RecvError>,
-        subscriptions: &mut HashMap<Pubkey, Sender<()>>,
-        leader_schedule_cache: &LeaderScheduleCache,
+        maybe_subscription: result::Result<Subscription, RecvError>,
+        subscriptions: &mut HashMap<
+            Pubkey,
+            TokioSender<result::Result<SubscribePacketsResponse, Status>>,
+        >,
+        leader_schedule_cache: &LeaderScheduleUpdatingHandle,
     ) -> Result<()> {
+        match maybe_subscription {
+            Ok(Subscription::ValidatorPacketSubscription { pubkey, sender }) => {
+                match subscriptions.entry(pubkey) {
+                    Entry::Vacant(entry) => {
+                        info!("new subscription: {:?}", pubkey);
+                        entry.insert(sender);
+                    }
+                    Entry::Occupied(_) => {
+                        error!("already connected, dropping new connection: {:?}", pubkey);
+                        let _ = sender.try_send(Err(Status::resource_exhausted(
+                            "validator already connected",
+                        )));
+                        drop(sender);
+                    }
+                }
+            }
+            Err(e) => {
+                error!("error receiving subscription: {:?}", e);
+                return Err(RouterError::Shutdown);
+            }
+        }
         Ok(())
     }
 
