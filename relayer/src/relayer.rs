@@ -61,7 +61,6 @@ impl RelayerImpl {
         }
     }
 
-    /// Blocking call
     pub fn start_server(self) {
         let rt = Builder::new_multi_thread().enable_all().build().unwrap();
         rt.block_on(async {

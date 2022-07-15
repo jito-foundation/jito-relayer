@@ -15,7 +15,7 @@ use crossbeam_channel::{unbounded, Receiver, RecvError, SendError, Sender};
 use histogram::Histogram;
 use jito_protos::{
     convert::packet_to_proto_packet,
-    packet::PacketBatch as ProtoPacketBatch,
+    packet::{Packet as ProtoPacket, PacketBatch as ProtoPacketBatch},
     relayer::{subscribe_packets_response::Msg, SubscribePacketsResponse},
     shared::{Header, Heartbeat},
 };
@@ -316,14 +316,6 @@ impl Router {
     ) -> Result<Vec<Pubkey>> {
         let packet_batches = maybe_packet_batches?;
 
-        let proto_batches: Vec<ProtoPacketBatch> = packet_batches
-            .batches
-            .into_iter()
-            .map(|b| ProtoPacketBatch {
-                packets: b.iter().filter_map(packet_to_proto_packet).collect(),
-            })
-            .collect();
-
         let _ = router_metrics
             .packet_latencies_us
             .increment(packet_batches.stamp.elapsed().as_micros() as u64);
@@ -333,40 +325,45 @@ impl Router {
             .collect();
         let slot_leaders = leader_schedule_cache.leaders_for_slots(&slots);
 
+        let proto_packet_batch = ProtoPacketBatch {
+            packets: packet_batches
+                .batches
+                .into_iter()
+                .flat_map(|b| {
+                    b.iter()
+                        .filter_map(packet_to_proto_packet)
+                        .collect::<Vec<ProtoPacket>>()
+                })
+                .collect(),
+        };
+
         let failed_forwards = slot_leaders
             .iter()
             .filter_map(|pubkey| {
                 let sender = subscriptions.get(pubkey)?;
 
-                for batch in &proto_batches {
-                    match sender.try_send(Ok(SubscribePacketsResponse {
-                        header: Some(Header {
-                            ts: Some(Timestamp::from(SystemTime::now())),
-                        }),
-                        msg: Some(Msg::Batch(batch.clone())),
-                    })) {
-                        Ok(_) => {}
-                        Err(TrySendError::Full(_)) => {
-                            error!("packet channel is full for pubkey: {:?}", pubkey);
-                            router_metrics.num_try_send_channel_full += 1;
-                            break;
-                        }
-                        Err(TrySendError::Closed(_)) => {
-                            error!("channel is closed for pubkey: {:?}", pubkey);
-                            return Some(*pubkey);
-                        }
+                return match sender.try_send(Ok(SubscribePacketsResponse {
+                    header: Some(Header {
+                        ts: Some(Timestamp::from(SystemTime::now())),
+                    }),
+                    msg: Some(Msg::Batch(proto_packet_batch.clone())),
+                })) {
+                    Ok(_) => None,
+                    Err(TrySendError::Full(_)) => {
+                        error!("packet channel is full for pubkey: {:?}", pubkey);
+                        router_metrics.num_try_send_channel_full += 1;
+                        None
                     }
-                }
-                None
+                    Err(TrySendError::Closed(_)) => {
+                        error!("channel is closed for pubkey: {:?}", pubkey);
+                        Some(*pubkey)
+                    }
+                };
             })
             .collect();
 
-        router_metrics.num_batches_forwarded += proto_batches.len() as u64;
-        router_metrics.num_packets_forwarded += proto_batches
-            .iter()
-            .map(|b| b.packets.len() as u64)
-            .sum::<u64>();
-
+        router_metrics.num_batches_forwarded += 1;
+        router_metrics.num_packets_forwarded += proto_packet_batch.packets.len() as u64;
         Ok(failed_forwards)
     }
 

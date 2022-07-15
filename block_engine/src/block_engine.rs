@@ -9,11 +9,11 @@ use std::{
 use jito_protos::{
     block_engine::{
         accounts_of_interest_update, block_engine_relayer_client::BlockEngineRelayerClient,
-        packet_batches_update::Msg, AccountsOfInterestRequest, AccountsOfInterestUpdate,
-        ExpiringPacketBatches, PacketBatchesUpdate,
+        packet_batch_update::Msg, AccountsOfInterestRequest, AccountsOfInterestUpdate,
+        ExpiringPacketBatch, PacketBatchUpdate,
     },
     convert::packet_to_proto_packet,
-    packet::PacketBatch as ProtoPacketBatch,
+    packet::{Packet as ProtoPacket, PacketBatch as ProtoPacketBatch},
     shared::{Header, Heartbeat},
 };
 use log::{error, *};
@@ -124,7 +124,7 @@ impl BlockEngineRelayerHandler {
         client: &mut BlockEngineRelayerClient<Channel>,
         block_engine_receiver: &mut Receiver<BlockEnginePackets>,
     ) -> BlockEngineResult<()> {
-        let (packet_msg_sender, packet_msg_receiver) = channel::<PacketBatchesUpdate>(100);
+        let (packet_msg_sender, packet_msg_receiver) = channel::<PacketBatchUpdate>(100);
         let receiver_stream = ReceiverStream::new(packet_msg_receiver);
 
         let subscribe_aoi_stream = client
@@ -143,7 +143,7 @@ impl BlockEngineRelayerHandler {
     }
 
     async fn handle_packet_stream(
-        block_engine_packet_sender: Sender<PacketBatchesUpdate>,
+        block_engine_packet_sender: Sender<PacketBatchUpdate>,
         block_engine_receiver: &mut Receiver<BlockEnginePackets>,
         subscribe_aoi_stream: Response<Streaming<AccountsOfInterestUpdate>>,
     ) -> BlockEngineResult<()> {
@@ -221,25 +221,29 @@ impl BlockEngineRelayerHandler {
 
     /// Forwards packets to the Block Engine
     async fn forward_packets(
-        block_engine_packet_sender: &Sender<PacketBatchesUpdate>,
+        block_engine_packet_sender: &Sender<PacketBatchUpdate>,
         block_engine_batches: Option<BlockEnginePackets>,
     ) -> BlockEngineResult<()> {
         let block_engine_batches =
             block_engine_batches.ok_or(BlockEngineError::ConnectionClosedError)?;
         if block_engine_packet_sender
-            .send(PacketBatchesUpdate {
-                msg: Some(Msg::Batches(ExpiringPacketBatches {
+            .send(PacketBatchUpdate {
+                msg: Some(Msg::Batches(ExpiringPacketBatch {
                     header: Some(Header {
                         ts: Some(Timestamp::from(block_engine_batches.stamp)),
                     }),
-                    batch_list: block_engine_batches
-                        .packet_batches
-                        .into_iter()
-                        .map(|b| ProtoPacketBatch {
-                            packets: b.iter().filter_map(packet_to_proto_packet).collect(),
-                        })
-                        .collect(),
-                    expiry_ms: block_engine_batches.expiration, // TODO (LB)
+                    batch: Some(ProtoPacketBatch {
+                        packets: block_engine_batches
+                            .packet_batches
+                            .into_iter()
+                            .flat_map(|b| {
+                                b.iter()
+                                    .filter_map(packet_to_proto_packet)
+                                    .collect::<Vec<ProtoPacket>>()
+                            })
+                            .collect(),
+                    }),
+                    expiry_ms: block_engine_batches.expiration,
                 })),
             })
             .await
@@ -254,11 +258,11 @@ impl BlockEngineRelayerHandler {
     /// Checks the heartbeat timeout and errors out if the heartbeat didn't come in time.
     /// Assuming that's okay, sends a heartbeat back and if that fails, disconnect.
     async fn check_and_send_heartbeat(
-        block_engine_packet_sender: &Sender<PacketBatchesUpdate>,
+        block_engine_packet_sender: &Sender<PacketBatchUpdate>,
         heartbeat_count: &u64,
     ) -> BlockEngineResult<()> {
         if block_engine_packet_sender
-            .send(PacketBatchesUpdate {
+            .send(PacketBatchUpdate {
                 msg: Some(Msg::Heartbeat(Heartbeat {
                     count: *heartbeat_count,
                 })),
