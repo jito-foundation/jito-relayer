@@ -1906,6 +1906,7 @@ name = "jito-packet-blaster"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "clap 3.2.11",
  "env_logger",
  "log",
  "solana-client",

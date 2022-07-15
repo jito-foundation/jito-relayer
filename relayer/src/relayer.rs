@@ -12,14 +12,13 @@ use jito_protos::{
     },
     shared::Socket,
 };
-use solana_perf::packet::PacketBatch;
 use solana_sdk::{clock::Slot, pubkey::Pubkey};
 use tokio::sync::mpsc::channel;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use crate::{
-    router::{Router, Subscription},
+    router::{Router, RouterPacketBatches, Subscription},
     schedule_cache::LeaderScheduleUpdatingHandle,
 };
 
@@ -33,7 +32,7 @@ pub struct RelayerImpl {
 impl RelayerImpl {
     pub fn new(
         slot_receiver: Receiver<Slot>,
-        packet_receiver: Receiver<Vec<PacketBatch>>,
+        packet_receiver: Receiver<RouterPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
         exit: Arc<AtomicBool>,
         public_ip: IpAddr,

@@ -33,6 +33,11 @@ use tonic::Status;
 
 use crate::schedule_cache::LeaderScheduleUpdatingHandle;
 
+pub struct RouterPacketBatches {
+    pub stamp: Instant,
+    pub batches: Vec<PacketBatch>,
+}
+
 pub enum Subscription {
     ValidatorPacketSubscription {
         pubkey: Pubkey,
@@ -128,7 +133,7 @@ pub struct Router {
 impl Router {
     pub fn new(
         slot_receiver: Receiver<Slot>,
-        packet_receiver: Receiver<Vec<PacketBatch>>,
+        packet_receiver: Receiver<RouterPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
         exit: Arc<AtomicBool>,
     ) -> Router {
@@ -167,7 +172,7 @@ impl Router {
     fn start_router_thread(
         slot_receiver: Receiver<Slot>,
         subscription_receiver: Receiver<Subscription>,
-        packet_receiver: Receiver<Vec<PacketBatch>>,
+        packet_receiver: Receiver<RouterPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
         exit: Arc<AtomicBool>,
         leader_lookahead: u64,
@@ -190,7 +195,7 @@ impl Router {
     fn run_event_loop(
         slot_receiver: Receiver<Slot>,
         subscription_receiver: Receiver<Subscription>,
-        packet_receiver: Receiver<Vec<PacketBatch>>,
+        packet_receiver: Receiver<RouterPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
         exit: Arc<AtomicBool>,
         leader_lookahead: u64,
@@ -296,7 +301,7 @@ impl Router {
     }
 
     fn forward_packets(
-        maybe_packet_batches: result::Result<Vec<PacketBatch>, RecvError>,
+        maybe_packet_batches: result::Result<RouterPacketBatches, RecvError>,
         subscriptions: &HashMap<
             Pubkey,
             TokioSender<result::Result<SubscribePacketsResponse, Status>>,
@@ -307,17 +312,23 @@ impl Router {
         router_metrics: &mut RouterMetrics,
     ) -> Result<Vec<Pubkey>> {
         let packet_batches = maybe_packet_batches?;
-        let slots: Vec<_> = (*highest_slot
-            ..highest_slot + leader_lookahead * NUM_CONSECUTIVE_LEADER_SLOTS)
-            .collect();
-        let slot_leaders = leader_schedule_cache.leaders_for_slots(&slots);
 
         let proto_batches: Vec<ProtoPacketBatch> = packet_batches
+            .batches
             .into_iter()
             .map(|b| ProtoPacketBatch {
                 packets: b.iter().filter_map(packet_to_proto_packet).collect(),
             })
             .collect();
+
+        let _ = router_metrics
+            .packet_latencies_us
+            .increment(packet_batches.stamp.elapsed().as_micros() as u64);
+
+        let slots: Vec<_> = (*highest_slot
+            ..highest_slot + leader_lookahead * NUM_CONSECUTIVE_LEADER_SLOTS)
+            .collect();
+        let slot_leaders = leader_schedule_cache.leaders_for_slots(&slots);
 
         let failed_forwards = slot_leaders
             .iter()

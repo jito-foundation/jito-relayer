@@ -30,6 +30,12 @@ use tokio::{
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{transport::Channel, IntoStreamingRequest, Response, Status, Streaming};
 
+pub struct BlockEnginePackets {
+    pub packet_batches: Vec<PacketBatch>,
+    pub stamp: SystemTime,
+    pub expiration: u32,
+}
+
 #[derive(Error, Debug)]
 pub enum BlockEngineError {
     #[error("connection closed")]
@@ -55,7 +61,7 @@ pub struct BlockEngineRelayerHandler {
 impl BlockEngineRelayerHandler {
     pub fn new(
         block_engine_url: String,
-        block_engine_receiver: Receiver<Vec<PacketBatch>>,
+        block_engine_receiver: Receiver<BlockEnginePackets>,
     ) -> BlockEngineRelayerHandler {
         let block_engine_forwarder =
             Self::start_block_engine_relayer_stream(block_engine_url, block_engine_receiver);
@@ -70,7 +76,7 @@ impl BlockEngineRelayerHandler {
 
     fn start_block_engine_relayer_stream(
         block_engine_url: String,
-        mut block_engine_receiver: Receiver<Vec<PacketBatch>>,
+        mut block_engine_receiver: Receiver<BlockEnginePackets>,
     ) -> JoinHandle<()> {
         Builder::new()
             .name("jito_block_engine_relayer_stream".into())
@@ -116,7 +122,7 @@ impl BlockEngineRelayerHandler {
     /// try to re-establish connection
     async fn start_event_loop(
         client: &mut BlockEngineRelayerClient<Channel>,
-        block_engine_receiver: &mut Receiver<Vec<PacketBatch>>,
+        block_engine_receiver: &mut Receiver<BlockEnginePackets>,
     ) -> BlockEngineResult<()> {
         let (packet_msg_sender, packet_msg_receiver) = channel::<PacketBatchesUpdate>(100);
         let receiver_stream = ReceiverStream::new(packet_msg_receiver);
@@ -138,7 +144,7 @@ impl BlockEngineRelayerHandler {
 
     async fn handle_packet_stream(
         block_engine_packet_sender: Sender<PacketBatchesUpdate>,
-        block_engine_receiver: &mut Receiver<Vec<PacketBatch>>,
+        block_engine_receiver: &mut Receiver<BlockEnginePackets>,
         subscribe_aoi_stream: Response<Streaming<AccountsOfInterestUpdate>>,
     ) -> BlockEngineResult<()> {
         let mut aoi_stream = subscribe_aoi_stream.into_inner();
@@ -216,34 +222,32 @@ impl BlockEngineRelayerHandler {
     /// Forwards packets to the Block Engine
     async fn forward_packets(
         block_engine_packet_sender: &Sender<PacketBatchesUpdate>,
-        block_engine_batches: Option<Vec<PacketBatch>>,
+        block_engine_batches: Option<BlockEnginePackets>,
     ) -> BlockEngineResult<()> {
-        match block_engine_batches {
-            None => Err(BlockEngineError::ConnectionClosedError),
-            Some(block_engine_batches) => {
-                if block_engine_packet_sender
-                    .send(PacketBatchesUpdate {
-                        msg: Some(Msg::Batches(ExpiringPacketBatches {
-                            header: Some(Header {
-                                ts: Some(Timestamp::from(SystemTime::now())),
-                            }),
-                            batch_list: block_engine_batches
-                                .into_iter()
-                                .map(|b| ProtoPacketBatch {
-                                    packets: b.iter().filter_map(packet_to_proto_packet).collect(),
-                                })
-                                .collect(),
-                            expiry_ms: 100, // TODO (LB)
-                        })),
-                    })
-                    .await
-                    .is_err()
-                {
-                    Err(BlockEngineError::ConnectionClosedError)
-                } else {
-                    Ok(())
-                }
-            }
+        let block_engine_batches =
+            block_engine_batches.ok_or(BlockEngineError::ConnectionClosedError)?;
+        if block_engine_packet_sender
+            .send(PacketBatchesUpdate {
+                msg: Some(Msg::Batches(ExpiringPacketBatches {
+                    header: Some(Header {
+                        ts: Some(Timestamp::from(block_engine_batches.stamp)),
+                    }),
+                    batch_list: block_engine_batches
+                        .packet_batches
+                        .into_iter()
+                        .map(|b| ProtoPacketBatch {
+                            packets: b.iter().filter_map(packet_to_proto_packet).collect(),
+                        })
+                        .collect(),
+                    expiry_ms: block_engine_batches.expiration, // TODO (LB)
+                })),
+            })
+            .await
+            .is_err()
+        {
+            Err(BlockEngineError::ConnectionClosedError)
+        } else {
+            Ok(())
         }
     }
 
