@@ -149,7 +149,7 @@ impl BlockEngineRelayerHandler {
     ) -> BlockEngineResult<()> {
         let mut aoi_stream = subscribe_aoi_stream.into_inner();
 
-        // drain anything buffered before sending new packets
+        // drain old buffered packets
         while let Ok(_) = block_engine_receiver.try_recv() {}
 
         let mut accounts_of_interest: HashSet<Pubkey, RandomState> = HashSet::new();

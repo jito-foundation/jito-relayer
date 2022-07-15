@@ -88,10 +88,12 @@ pub fn start_forward_and_delay_thread(
 
                         match packet_receiver.recv_timeout(SLEEP_DURATION) {
                             Ok(banking_packet_batch) => {
+                                // TODO (LB): need to filter discards out here
                                 let mut packet_batches = banking_packet_batch.0;
                                 while let Ok((batches, _)) = packet_receiver.try_recv() {
                                     packet_batches.extend(batches.into_iter());
                                 }
+
                                 let instant = Instant::now();
                                 let system_time = SystemTime::now();
 

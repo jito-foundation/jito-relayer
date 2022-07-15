@@ -19,7 +19,7 @@ use jito_protos::{
     relayer::{subscribe_packets_response::Msg, SubscribePacketsResponse},
     shared::{Header, Heartbeat},
 };
-use log::{error, info, warn};
+use log::{error, warn};
 use prost_types::Timestamp;
 use solana_metrics::datapoint_info;
 use solana_perf::packet::PacketBatch;
@@ -261,7 +261,10 @@ impl Router {
 
         for failed in disconnected_pubkeys {
             if let Some(sender) = subscriptions.remove(&failed) {
-                info!("dropping subscription: {:?}", failed);
+                datapoint_info!(
+                    "router-removed-subscription",
+                    ("pubkey", failed.to_string(), String)
+                );
                 drop(sender);
             }
         }
@@ -379,12 +382,19 @@ impl Router {
             Subscription::ValidatorPacketSubscription { pubkey, sender } => {
                 match subscriptions.entry(pubkey) {
                     Entry::Vacant(entry) => {
-                        info!("new subscription: {:?}", pubkey);
                         entry.insert(sender);
 
                         router_metrics.num_added_connections += 1;
+                        datapoint_info!(
+                            "router-new-subscription",
+                            ("pubkey", pubkey.to_string(), String)
+                        );
                     }
                     Entry::Occupied(_) => {
+                        datapoint_info!(
+                            "router-duplicate-subscription",
+                            ("pubkey", pubkey.to_string(), String)
+                        );
                         error!("already connected, dropping new connection: {:?}", pubkey);
                         let _ = sender.try_send(Err(Status::resource_exhausted(
                             "validator already connected",
