@@ -7,15 +7,14 @@ use std::{
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use jito_block_engine::block_engine::BlockEnginePackets;
 use jito_relayer::router::RouterPacketBatches;
-use log::{error, info};
+use log::error;
 use solana_core::banking_stage::BankingPacketBatch;
 use solana_metrics::datapoint_info;
-use solana_perf::packet;
-use solana_sdk::packet::Packet;
 use tokio::sync::mpsc::error::TrySendError;
 
 #[derive(Default)]
 struct ForwarderMetrics {
+    pub num_batches_received: u64,
     pub num_packets_received: u64,
     pub num_filtered_packets: u64,
 
@@ -32,6 +31,7 @@ impl ForwarderMetrics {
             "forward_and_delay",
             ("id", id, i64),
             ("delay", delay, i64),
+            ("num_batches_receiver", self.num_batches_received, i64),
             ("num_packets_received", self.num_packets_received, i64),
             ("num_filtered_packets", self.num_filtered_packets, i64),
             // Relayer -> Block Engine Metrics
@@ -92,30 +92,15 @@ pub fn start_forward_and_delay_thread(
                                 while let Ok((batches, _)) = packet_receiver.try_recv() {
                                     packet_batches.extend(batches.into_iter());
                                 }
-                                info!("got packets");
                                 let instant = Instant::now();
                                 let system_time = SystemTime::now();
 
-                                // let filtered_packets: Vec<Packet> = banking_packet_batch
-                                //     .0
-                                //     .iter()
-                                //     .map(|b| {
-                                //         b.iter().filter(|p| !p.meta.discard()).map(|p| p.clone())
-                                //     })
-                                //     .flatten()
-                                //     .collect();
-                                // let packet_batch = packet::PacketBatch::new(filtered_packets);
-                                // let packet_batches = banking_packet_batch.0;
+                                let num_packets_received =
+                                    packet_batches.iter().map(|b| b.len() as u64).sum::<u64>();
+                                let num_batches_received = packet_batches.len() as u64;
 
-                                // let num_packets_received = banking_packet_batch
-                                //     .0
-                                //     .iter()
-                                //     .map(|b| b.len() as u64)
-                                //     .sum::<u64>();
-                                // let num_filtered_packets = packet_batch.len() as u64;
-
-                                // forwarder_metrics.num_packets_received += num_packets_received;
-                                // forwarder_metrics.num_filtered_packets += num_filtered_packets;
+                                forwarder_metrics.num_packets_received += num_packets_received;
+                                forwarder_metrics.num_batches_received += num_batches_received;
 
                                 // try_send because the block engine receiver only drains when it's connected
                                 // and we don't want to OOM on packet_receiver
@@ -138,7 +123,7 @@ pub fn start_forward_and_delay_thread(
                                         // block engine most likely not connected
                                         // forwarder_metrics.num_be_packets_dropped +=
                                         //     num_filtered_packets;
-                                        // forwarder_metrics.num_be_times_full += 1;
+                                        forwarder_metrics.num_be_times_full += 1;
                                     }
                                 }
                                 buffered_packet_batches.push_back(RouterPacketBatches {

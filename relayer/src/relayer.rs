@@ -1,5 +1,5 @@
 use std::{
-    net::IpAddr,
+    net::{IpAddr, SocketAddr},
     sync::{atomic::AtomicBool, Arc},
     thread,
 };
@@ -7,22 +7,27 @@ use std::{
 use crossbeam_channel::Receiver;
 use jito_protos::{
     relayer::{
-        relayer_server::Relayer, GetTpuConfigsRequest, GetTpuConfigsResponse,
-        SubscribePacketsRequest, SubscribePacketsResponse,
+        relayer_server::{Relayer, RelayerServer},
+        GetTpuConfigsRequest, GetTpuConfigsResponse, SubscribePacketsRequest,
+        SubscribePacketsResponse,
     },
     shared::Socket,
 };
+use log::info;
 use solana_sdk::{clock::Slot, pubkey::Pubkey};
-use tokio::sync::mpsc::channel;
+use tokio::{runtime::Builder, sync::mpsc::channel};
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::{Request, Response, Status};
+use tonic::{transport::Server, Request, Response, Status};
 
 use crate::{
+    auth::AuthenticationInterceptor,
     router::{Router, RouterPacketBatches, Subscription},
     schedule_cache::LeaderScheduleUpdatingHandle,
 };
 
 pub struct RelayerImpl {
+    server_addr: SocketAddr,
+    leader_schedule_cache: LeaderScheduleUpdatingHandle,
     router: Router,
     public_ip: IpAddr,
     tpu_port: u16,
@@ -31,6 +36,7 @@ pub struct RelayerImpl {
 
 impl RelayerImpl {
     pub fn new(
+        server_addr: SocketAddr,
         slot_receiver: Receiver<Slot>,
         packet_receiver: Receiver<RouterPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
@@ -39,13 +45,38 @@ impl RelayerImpl {
         tpu_port: u16,
         tpu_fwd_port: u16,
     ) -> Self {
-        let router = Router::new(slot_receiver, packet_receiver, leader_schedule_cache, exit);
+        let router = Router::new(
+            slot_receiver,
+            packet_receiver,
+            leader_schedule_cache.clone(),
+            exit,
+        );
         Self {
+            server_addr,
+            leader_schedule_cache,
             router,
             public_ip,
             tpu_port,
             tpu_fwd_port,
         }
+    }
+
+    /// Blocking call
+    pub fn start_server(self) {
+        let rt = Builder::new_multi_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            let addr = self.server_addr;
+            let auth_interceptor =
+                AuthenticationInterceptor::new(self.leader_schedule_cache.clone());
+            let svc = RelayerServer::with_interceptor(self, auth_interceptor);
+
+            info!("starting relayer at: {:?}", addr);
+            Server::builder()
+                .add_service(svc)
+                .serve(addr)
+                .await
+                .expect("serve server");
+        });
     }
 
     pub fn join(self) -> thread::Result<()> {
