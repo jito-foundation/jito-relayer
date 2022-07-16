@@ -207,8 +207,6 @@ fn main() {
 
     relayer_server.start_server();
 
-    // TODO (LB): stall here
-
     exit.store(true, Ordering::Relaxed);
 
     tpu.join().unwrap();

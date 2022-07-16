@@ -6,10 +6,11 @@ use std::{
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use jito_block_engine::block_engine::BlockEnginePackets;
-use jito_relayer::router::RouterPacketBatches;
+use jito_relayer::relayer::RouterPacketBatches;
 use log::error;
 use solana_core::banking_stage::BankingPacketBatch;
 use solana_metrics::datapoint_info;
+use solana_perf::packet::PacketBatch;
 use tokio::sync::mpsc::error::TrySendError;
 
 #[derive(Default)]
@@ -88,11 +89,25 @@ pub fn start_forward_and_delay_thread(
 
                         match packet_receiver.recv_timeout(SLEEP_DURATION) {
                             Ok(banking_packet_batch) => {
-                                // TODO (LB): need to filter discards out here
                                 let mut packet_batches = banking_packet_batch.0;
                                 while let Ok((batches, _)) = packet_receiver.try_recv() {
                                     packet_batches.extend(batches.into_iter());
                                 }
+
+                                let total_packets: u64 =
+                                    packet_batches.iter().map(|b| b.len() as u64).sum();
+
+                                let packet_batches: Vec<PacketBatch> = packet_batches
+                                    .into_iter()
+                                    .map(|b| {
+                                        PacketBatch::new(
+                                            b.iter()
+                                                .filter(|p| !p.meta.discard())
+                                                .map(|p| p.clone())
+                                                .collect(),
+                                        )
+                                    })
+                                    .collect();
 
                                 let instant = Instant::now();
                                 let system_time = SystemTime::now();
@@ -101,7 +116,9 @@ pub fn start_forward_and_delay_thread(
                                     packet_batches.iter().map(|b| b.len() as u64).sum::<u64>();
                                 let num_batches_received = packet_batches.len() as u64;
 
-                                forwarder_metrics.num_packets_received += num_packets_received;
+                                forwarder_metrics.num_packets_received += total_packets;
+                                forwarder_metrics.num_filtered_packets +=
+                                    total_packets - num_packets_received;
                                 forwarder_metrics.num_batches_received += num_batches_received;
 
                                 // try_send because the block engine receiver only drains when it's connected
@@ -112,8 +129,8 @@ pub fn start_forward_and_delay_thread(
                                     expiration: packet_delay_ms,
                                 }) {
                                     Ok(_) => {
-                                        // forwarder_metrics.num_be_packets_forwarded +=
-                                        //     num_filtered_packets;
+                                        forwarder_metrics.num_be_packets_forwarded +=
+                                            num_packets_received;
                                     }
                                     Err(TrySendError::Closed(_)) => {
                                         error!(
@@ -123,8 +140,8 @@ pub fn start_forward_and_delay_thread(
                                     }
                                     Err(TrySendError::Full(_)) => {
                                         // block engine most likely not connected
-                                        // forwarder_metrics.num_be_packets_dropped +=
-                                        //     num_filtered_packets;
+                                        forwarder_metrics.num_be_packets_dropped +=
+                                            num_packets_received;
                                         forwarder_metrics.num_be_times_full += 1;
                                     }
                                 }

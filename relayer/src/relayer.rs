@@ -1,37 +1,147 @@
 use std::{
+    cmp::max,
+    collections::{hash_map::Entry, HashMap},
     net::{IpAddr, SocketAddr},
-    sync::{atomic::AtomicBool, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     thread,
+    thread::JoinHandle,
+    time::{Duration, Instant, SystemTime},
 };
 
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{unbounded, Receiver, RecvError, Sender};
+use histogram::Histogram;
 use jito_protos::{
+    convert::packet_to_proto_packet,
+    packet::{Packet as ProtoPacket, PacketBatch as ProtoPacketBatch},
     relayer::{
         relayer_server::{Relayer, RelayerServer},
-        GetTpuConfigsRequest, GetTpuConfigsResponse, SubscribePacketsRequest,
-        SubscribePacketsResponse,
+        subscribe_packets_response, GetTpuConfigsRequest, GetTpuConfigsResponse,
+        SubscribePacketsRequest, SubscribePacketsResponse,
     },
-    shared::Socket,
+    shared::{Header, Heartbeat, Socket},
 };
-use log::info;
-use solana_sdk::{clock::Slot, pubkey::Pubkey};
-use tokio::{runtime::Builder, sync::mpsc::channel};
+use log::{error, info, warn};
+use prost_types::Timestamp;
+use solana_metrics::datapoint_info;
+use solana_perf::packet::PacketBatch;
+use solana_sdk::{
+    clock::{Slot, NUM_CONSECUTIVE_LEADER_SLOTS},
+    pubkey::Pubkey,
+};
+use thiserror::Error;
+use tokio::{
+    runtime::Builder,
+    sync::mpsc::{channel, error::TrySendError, Sender as TokioSender},
+};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{transport::Server, Request, Response, Status};
 
-use crate::{
-    auth::AuthenticationInterceptor,
-    router::{Router, RouterPacketBatches, Subscription},
-    schedule_cache::LeaderScheduleUpdatingHandle,
-};
+use crate::{auth::AuthenticationInterceptor, schedule_cache::LeaderScheduleUpdatingHandle};
+
+#[derive(Default)]
+struct RelayerMetrics {
+    pub highest_slot: u64,
+    pub num_added_connections: u64,
+    pub num_removed_connections: u64,
+    pub num_current_connections: u64,
+    pub num_heartbeats: u64,
+    pub num_batches_forwarded: u64,
+    pub num_packets_forwarded: u64,
+    pub max_heartbeat_tick_latency_us: u64,
+    pub metrics_latency_us: u64,
+    pub num_try_send_channel_full: u64,
+    pub packet_latencies_us: Histogram,
+}
+
+impl RelayerMetrics {
+    fn report(&self) {
+        datapoint_info!(
+            "router_metrics",
+            ("highest_slot", self.highest_slot, i64),
+            ("num_added_connections", self.num_added_connections, i64),
+            ("num_removed_connections", self.num_removed_connections, i64),
+            ("num_current_connections", self.num_current_connections, i64),
+            ("num_heartbeats", self.num_heartbeats, i64),
+            ("num_batches_forwarded", self.num_batches_forwarded, i64),
+            ("num_packets_forwarded", self.num_packets_forwarded, i64),
+            (
+                "num_try_send_channel_full",
+                self.num_try_send_channel_full,
+                i64
+            ),
+            ("metrics_latency_us", self.metrics_latency_us, i64),
+            (
+                "max_heartbeat_tick_latency_us",
+                self.max_heartbeat_tick_latency_us,
+                i64
+            ),
+            (
+                "packet_latencies_us_min",
+                self.packet_latencies_us.minimum().unwrap_or_default(),
+                i64
+            ),
+            (
+                "packet_latencies_us_max",
+                self.packet_latencies_us.maximum().unwrap_or_default(),
+                i64
+            ),
+            (
+                "packet_latencies_us_p50",
+                self.packet_latencies_us
+                    .percentile(50.0)
+                    .unwrap_or_default(),
+                i64
+            ),
+            (
+                "packet_latencies_us_p90",
+                self.packet_latencies_us
+                    .percentile(90.0)
+                    .unwrap_or_default(),
+                i64
+            ),
+            (
+                "packet_latencies_us_p99",
+                self.packet_latencies_us
+                    .percentile(99.0)
+                    .unwrap_or_default(),
+                i64
+            ),
+        );
+    }
+}
+
+pub struct RouterPacketBatches {
+    pub stamp: Instant,
+    pub batches: Vec<PacketBatch>,
+}
+
+pub enum Subscription {
+    ValidatorPacketSubscription {
+        pubkey: Pubkey,
+        sender: TokioSender<Result<SubscribePacketsResponse, Status>>,
+    },
+}
+
+#[derive(Error, Debug)]
+pub enum RouterError {
+    #[error("shutdown")]
+    Shutdown(#[from] RecvError),
+}
+
+pub type RelayerResult<T> = Result<T, RouterError>;
 
 pub struct RelayerImpl {
-    server_addr: SocketAddr,
-    leader_schedule_cache: LeaderScheduleUpdatingHandle,
-    router: Router,
-    public_ip: IpAddr,
     tpu_port: u16,
     tpu_fwd_port: u16,
+    server_addr: SocketAddr,
+    public_ip: IpAddr,
+
+    leader_schedule_cache: LeaderScheduleUpdatingHandle,
+    subscription_sender: Sender<Subscription>,
+    threads: Vec<JoinHandle<()>>,
 }
 
 impl RelayerImpl {
@@ -45,20 +155,34 @@ impl RelayerImpl {
         tpu_port: u16,
         tpu_fwd_port: u16,
     ) -> Self {
-        let router = Router::new(
+        const LEADER_LOOKAHEAD: u64 = 2;
+
+        let (subscription_sender, subscription_receiver) = unbounded();
+        let threads = vec![Self::start_router_thread(
             slot_receiver,
+            subscription_receiver,
             packet_receiver,
             leader_schedule_cache.clone(),
             exit,
-        );
+            LEADER_LOOKAHEAD,
+        )];
+
         Self {
-            server_addr,
-            leader_schedule_cache,
-            router,
-            public_ip,
             tpu_port,
             tpu_fwd_port,
+            server_addr,
+            leader_schedule_cache,
+            subscription_sender,
+            public_ip,
+            threads,
         }
+    }
+
+    pub fn join(self) -> thread::Result<()> {
+        for t in self.threads {
+            t.join()?;
+        }
+        Ok(())
     }
 
     pub fn start_server(self) {
@@ -78,8 +202,236 @@ impl RelayerImpl {
         });
     }
 
-    pub fn join(self) -> thread::Result<()> {
-        self.router.join()
+    fn start_router_thread(
+        slot_receiver: Receiver<Slot>,
+        subscription_receiver: Receiver<Subscription>,
+        packet_receiver: Receiver<RouterPacketBatches>,
+        leader_schedule_cache: LeaderScheduleUpdatingHandle,
+        exit: Arc<AtomicBool>,
+        leader_lookahead: u64,
+    ) -> JoinHandle<()> {
+        thread::Builder::new()
+            .name("jito-packet-router".into())
+            .spawn(move || {
+                let _ = Self::run_event_loop(
+                    slot_receiver,
+                    subscription_receiver,
+                    packet_receiver,
+                    leader_schedule_cache,
+                    exit,
+                    leader_lookahead,
+                );
+            })
+            .unwrap()
+    }
+
+    fn run_event_loop(
+        slot_receiver: Receiver<Slot>,
+        subscription_receiver: Receiver<Subscription>,
+        packet_receiver: Receiver<RouterPacketBatches>,
+        leader_schedule_cache: LeaderScheduleUpdatingHandle,
+        exit: Arc<AtomicBool>,
+        leader_lookahead: u64,
+    ) -> RelayerResult<()> {
+        let mut highest_slot = Slot::default();
+        let mut packet_subscriptions: HashMap<
+            Pubkey,
+            TokioSender<Result<SubscribePacketsResponse, Status>>,
+        > = HashMap::default();
+
+        let mut heartbeat_count = 0;
+
+        let heartbeat_tick = crossbeam_channel::tick(Duration::from_millis(500));
+        let metrics_tick = crossbeam_channel::tick(Duration::from_millis(1000));
+
+        let mut router_metrics = RelayerMetrics::default();
+
+        while !exit.load(Ordering::Relaxed) {
+            crossbeam_channel::select! {
+                recv(slot_receiver) -> maybe_slot => {
+                    Self::update_highest_slot(maybe_slot, &mut highest_slot, &mut router_metrics)?;
+                },
+                recv(packet_receiver) -> maybe_packet_batches => {
+                    let failed_forwards = Self::forward_packets(maybe_packet_batches, &packet_subscriptions, &leader_schedule_cache, &highest_slot, &leader_lookahead, &mut router_metrics)?;
+                    Self::drop_connections(failed_forwards, &mut packet_subscriptions, &mut router_metrics);
+                },
+                recv(subscription_receiver) -> maybe_subscription => {
+                    Self::handle_subscription(maybe_subscription, &mut packet_subscriptions, &mut router_metrics)?;
+                }
+                recv(heartbeat_tick) -> time_generated => {
+                    if let Ok(time_generated) = time_generated {
+                        router_metrics.max_heartbeat_tick_latency_us = max(router_metrics.max_heartbeat_tick_latency_us, Instant::now().duration_since(time_generated).as_micros() as u64);
+                    }
+
+                    let failed_heartbeats = Self::handle_heartbeat(&packet_subscriptions, &heartbeat_count, &mut router_metrics);
+                    Self::drop_connections(failed_heartbeats, &mut packet_subscriptions, &mut router_metrics);
+
+                    heartbeat_count += 1;
+                }
+                recv(metrics_tick) -> time_generated => {
+                    router_metrics.num_current_connections = packet_subscriptions.len() as u64;
+                    if let Ok(time_generated) = time_generated {
+                        router_metrics.metrics_latency_us = time_generated.elapsed().as_micros() as u64;
+                    }
+
+                    router_metrics.report();
+                    router_metrics = RelayerMetrics::default();
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn drop_connections(
+        disconnected_pubkeys: Vec<Pubkey>,
+        subscriptions: &mut HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>,
+        router_metrics: &mut RelayerMetrics,
+    ) {
+        router_metrics.num_removed_connections += disconnected_pubkeys.len() as u64;
+
+        for failed in disconnected_pubkeys {
+            if let Some(sender) = subscriptions.remove(&failed) {
+                datapoint_info!(
+                    "router-removed-subscription",
+                    ("pubkey", failed.to_string(), String)
+                );
+                drop(sender);
+            }
+        }
+    }
+
+    fn handle_heartbeat(
+        subscriptions: &HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>,
+        heartbeat_count: &u64,
+        router_metrics: &mut RelayerMetrics,
+    ) -> Vec<Pubkey> {
+        let failed_pubkey_updates = subscriptions
+            .iter()
+            .filter_map(|(pubkey, sender)| {
+                match sender.try_send(Ok(SubscribePacketsResponse {
+                    header: None,
+                    msg: Some(subscribe_packets_response::Msg::Heartbeat(Heartbeat {
+                        count: *heartbeat_count,
+                    })),
+                })) {
+                    Ok(_) => {}
+                    Err(TrySendError::Closed(_)) => return Some(*pubkey),
+                    Err(TrySendError::Full(_)) => {
+                        router_metrics.num_try_send_channel_full += 1;
+                        warn!("heartbeat channel is full for: {:?}", pubkey);
+                    }
+                }
+                None
+            })
+            .collect();
+
+        router_metrics.num_heartbeats += 1;
+
+        failed_pubkey_updates
+    }
+
+    fn forward_packets(
+        maybe_packet_batches: Result<RouterPacketBatches, RecvError>,
+        subscriptions: &HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>,
+        leader_schedule_cache: &LeaderScheduleUpdatingHandle,
+        highest_slot: &u64,
+        leader_lookahead: &u64,
+        router_metrics: &mut RelayerMetrics,
+    ) -> RelayerResult<Vec<Pubkey>> {
+        let packet_batches = maybe_packet_batches?;
+
+        let _ = router_metrics
+            .packet_latencies_us
+            .increment(packet_batches.stamp.elapsed().as_micros() as u64);
+
+        let slots: Vec<_> = (*highest_slot
+            ..highest_slot + leader_lookahead * NUM_CONSECUTIVE_LEADER_SLOTS)
+            .collect();
+        let slot_leaders = leader_schedule_cache.leaders_for_slots(&slots);
+
+        let proto_packet_batch = ProtoPacketBatch {
+            packets: packet_batches
+                .batches
+                .into_iter()
+                .flat_map(|b| {
+                    b.iter()
+                        .filter_map(packet_to_proto_packet)
+                        .collect::<Vec<ProtoPacket>>()
+                })
+                .collect(),
+        };
+
+        let failed_forwards = slot_leaders
+            .iter()
+            .filter_map(|pubkey| {
+                let sender = subscriptions.get(pubkey)?;
+
+                return match sender.try_send(Ok(SubscribePacketsResponse {
+                    header: Some(Header {
+                        ts: Some(Timestamp::from(SystemTime::now())),
+                    }),
+                    msg: Some(subscribe_packets_response::Msg::Batch(
+                        proto_packet_batch.clone(),
+                    )),
+                })) {
+                    Ok(_) => None,
+                    Err(TrySendError::Full(_)) => {
+                        error!("packet channel is full for pubkey: {:?}", pubkey);
+                        router_metrics.num_try_send_channel_full += 1;
+                        None
+                    }
+                    Err(TrySendError::Closed(_)) => {
+                        error!("channel is closed for pubkey: {:?}", pubkey);
+                        Some(*pubkey)
+                    }
+                };
+            })
+            .collect();
+
+        router_metrics.num_batches_forwarded += 1;
+        router_metrics.num_packets_forwarded += proto_packet_batch.packets.len() as u64;
+        Ok(failed_forwards)
+    }
+
+    fn handle_subscription(
+        maybe_subscription: Result<Subscription, RecvError>,
+        subscriptions: &mut HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>,
+        router_metrics: &mut RelayerMetrics,
+    ) -> RelayerResult<()> {
+        match maybe_subscription? {
+            Subscription::ValidatorPacketSubscription { pubkey, sender } => {
+                match subscriptions.entry(pubkey) {
+                    Entry::Vacant(entry) => {
+                        entry.insert(sender);
+
+                        router_metrics.num_added_connections += 1;
+                        datapoint_info!(
+                            "router-new-subscription",
+                            ("pubkey", pubkey.to_string(), String)
+                        );
+                    }
+                    Entry::Occupied(mut entry) => {
+                        datapoint_info!(
+                            "router-duplicate-subscription",
+                            ("pubkey", pubkey.to_string(), String)
+                        );
+                        error!("already connected, dropping old connection: {:?}", pubkey);
+                        entry.insert(sender);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn update_highest_slot(
+        maybe_slot: Result<u64, RecvError>,
+        highest_slot: &mut Slot,
+        router_metrics: &mut RelayerMetrics,
+    ) -> RelayerResult<()> {
+        *highest_slot = maybe_slot?;
+        router_metrics.highest_slot = *highest_slot;
+        Ok(())
     }
 }
 
@@ -115,8 +467,8 @@ impl Relayer for RelayerImpl {
             .ok_or(Status::internal("internal error fetching public key"))?;
 
         let (sender, receiver) = channel(1_000);
-        self.router
-            .add_subscription(Subscription::ValidatorPacketSubscription {
+        self.subscription_sender
+            .send(Subscription::ValidatorPacketSubscription {
                 pubkey: *pubkey,
                 sender,
             })

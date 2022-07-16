@@ -12,6 +12,7 @@ use std::{
 
 use jito_rpc::load_balancer::LoadBalancer;
 use log::{debug, error};
+use solana_metrics::datapoint_info;
 use solana_sdk::{clock::Slot, pubkey::Pubkey};
 
 pub struct LeaderScheduleCacheUpdater {
@@ -85,7 +86,27 @@ impl LeaderScheduleCacheUpdater {
             .name("leader-schedule-refresh".into())
             .spawn(move || {
                 while !exit.load(Ordering::Relaxed) {
-                    Self::update_leader_cache(&load_balancer, &schedule);
+                    let mut update_ok_count = 0;
+                    let mut update_fail_count = 0;
+
+                    match Self::update_leader_cache(&load_balancer, &schedule) {
+                        true => {
+                            update_ok_count += 1;
+                        }
+                        false => {
+                            update_fail_count += 1;
+                        }
+                    }
+
+                    let slots_in_schedule = schedule.read().unwrap().len();
+
+                    datapoint_info!(
+                        "schedule-cache-update",
+                        ("update_ok_count", update_ok_count, i64),
+                        ("update_fail_count", update_fail_count, i64),
+                        ("slots_in_schedule", slots_in_schedule, i64),
+                    );
+
                     sleep(Duration::from_secs(10));
                 }
             })
@@ -95,7 +116,7 @@ impl LeaderScheduleCacheUpdater {
     pub fn update_leader_cache(
         load_balancer: &Arc<Mutex<LoadBalancer>>,
         schedule: &Arc<RwLock<HashMap<Slot, Pubkey>>>,
-    ) {
+    ) -> bool {
         let rpc_client = load_balancer.lock().unwrap().rpc_client();
 
         if let Ok(epoch_info) = rpc_client.get_epoch_info() {
@@ -117,11 +138,13 @@ impl LeaderScheduleCacheUpdater {
                         }
                     }
                 }
+                return true;
             } else {
                 error!("Couldn't Get Leader Schedule Update from RPC!!!")
             };
         } else {
             error!("Couldn't Get Epoch Info from RPC!!!")
         };
+        return false;
     }
 }
