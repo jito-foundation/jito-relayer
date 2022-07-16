@@ -159,7 +159,6 @@ impl BlockEngineRelayerHandler {
         loop {
             select! {
                 _ = heartbeat.tick() => {
-                    info!("sending heartbeat: {:?}", heartbeat_count);
                     Self::check_and_send_heartbeat(&block_engine_packet_sender, &heartbeat_count).await?;
                     heartbeat_count += 1;
                 }

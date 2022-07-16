@@ -8,8 +8,8 @@ publish = false
 bytes = "1.1.0"
 prost = "0.10.3"
 prost-types = "0.10.1"
-tonic = "0.7.2"
 solana-perf = "=1.11.2"
+tonic = "0.7.2"
 
 [build-dependencies]
 tonic-build = "0.7.2"
