@@ -143,7 +143,7 @@ fn main() {
 
     let sockets = get_sockets(&args);
 
-    let keypair = Keypair::new();
+    let keypair = Arc::new(Keypair::new());
     solana_metrics::set_host_id(keypair.pubkey().to_string());
     info!("Relayer started with pubkey: {}", keypair.pubkey());
 
@@ -169,7 +169,7 @@ fn main() {
         sockets.tpu_sockets,
         &exit,
         5,
-        &keypair,
+        &keypair.clone(),
         &sockets.tpu_ip,
         &sockets.tpu_fwd_ip,
         &rpc_load_balancer,
@@ -191,7 +191,7 @@ fn main() {
         1,
     );
     let block_engine_forwarder =
-        BlockEngineRelayerHandler::new(args.block_engine_url, block_engine_receiver);
+        BlockEngineRelayerHandler::new(args.block_engine_url, block_engine_receiver, keypair);
 
     let server_addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
     let relayer_server = RelayerImpl::new(

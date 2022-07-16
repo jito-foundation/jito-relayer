@@ -37,17 +37,16 @@ use tonic::{
     IntoStreamingRequest, Request, Response, Status, Streaming,
 };
 
+#[derive(Clone)]
 pub struct AuthenticationInterceptor {
-    keypair: Arc<Keypair>,
+    pub keypair: Arc<Keypair>,
 }
-
-impl AuthenticationInterceptor {}
 
 impl Interceptor for AuthenticationInterceptor {
     fn call(&mut self, mut request: Request<()>) -> Result<Request<()>, Status> {
         let pubkey = AsciiMetadataValue::try_from(self.keypair.pubkey().to_string()).unwrap();
+        // TODO (LB): add better authentication here by signing a message with keypair
         // Block Engine expects pubkey to be set
-        // TODO (LB): add better authentication here!
         request.metadata_mut().insert("pubkey", pubkey);
         Ok(request)
     }
@@ -85,9 +84,13 @@ impl BlockEngineRelayerHandler {
     pub fn new(
         block_engine_url: String,
         block_engine_receiver: Receiver<BlockEnginePackets>,
+        keypair: Arc<Keypair>,
     ) -> BlockEngineRelayerHandler {
-        let block_engine_forwarder =
-            Self::start_block_engine_relayer_stream(block_engine_url, block_engine_receiver);
+        let block_engine_forwarder = Self::start_block_engine_relayer_stream(
+            block_engine_url,
+            block_engine_receiver,
+            keypair,
+        );
         BlockEngineRelayerHandler {
             block_engine_forwarder,
         }
@@ -100,17 +103,16 @@ impl BlockEngineRelayerHandler {
     fn start_block_engine_relayer_stream(
         block_engine_url: String,
         mut block_engine_receiver: Receiver<BlockEnginePackets>,
+        keypair: Arc<Keypair>,
     ) -> JoinHandle<()> {
         Builder::new()
             .name("jito_block_engine_relayer_stream".into())
             .spawn(move || {
                 let rt = Runtime::new().unwrap();
                 rt.block_on(async move {
+                    let auth_interceptor = AuthenticationInterceptor { keypair };
                     loop {
                         sleep(Duration::from_secs(1)).await;
-                        let auth_interceptor = AuthenticationInterceptor {
-                            keypair: Arc::new(Keypair::new()),
-                        };
 
                         info!("connecting to block engine at url: {:?}", block_engine_url);
                         // TODO (LB): don't unwrap
@@ -120,7 +122,7 @@ impl BlockEngineRelayerHandler {
                             Ok(channel) => {
                                 let mut client = BlockEngineRelayerClient::with_interceptor(
                                     channel,
-                                    auth_interceptor,
+                                    auth_interceptor.clone(),
                                 );
                                 match Self::start_event_loop(
                                     &mut client,
