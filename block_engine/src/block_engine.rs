@@ -1,6 +1,7 @@
 use std::{
     collections::{hash_map::RandomState, HashSet},
     str::FromStr,
+    sync::Arc,
     thread,
     thread::{Builder, JoinHandle},
     time::{Duration, SystemTime},
@@ -19,7 +20,7 @@ use jito_protos::{
 use log::{error, *};
 use prost_types::Timestamp;
 use solana_perf::packet::PacketBatch;
-use solana_sdk::pubkey::Pubkey;
+use solana_sdk::{pubkey::Pubkey, signature::Signer, signer::keypair::Keypair};
 use thiserror::Error;
 use tokio::{
     runtime::Runtime,
@@ -28,7 +29,29 @@ use tokio::{
     time::{interval, sleep},
 };
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::{transport::Channel, IntoStreamingRequest, Response, Status, Streaming};
+use tonic::{
+    codegen::InterceptedService,
+    metadata::AsciiMetadataValue,
+    service::Interceptor,
+    transport::{Channel, Endpoint},
+    IntoStreamingRequest, Request, Response, Status, Streaming,
+};
+
+pub struct AuthenticationInterceptor {
+    keypair: Arc<Keypair>,
+}
+
+impl AuthenticationInterceptor {}
+
+impl Interceptor for AuthenticationInterceptor {
+    fn call(&mut self, mut request: Request<()>) -> Result<Request<()>, Status> {
+        let pubkey = AsciiMetadataValue::try_from(self.keypair.pubkey().to_string()).unwrap();
+        // Block Engine expects pubkey to be set
+        // TODO (LB): add better authentication here!
+        request.metadata_mut().insert("pubkey", pubkey);
+        Ok(request)
+    }
+}
 
 pub struct BlockEnginePackets {
     pub packet_batches: Vec<PacketBatch>,
@@ -85,11 +108,20 @@ impl BlockEngineRelayerHandler {
                 rt.block_on(async move {
                     loop {
                         sleep(Duration::from_secs(1)).await;
+                        let auth_interceptor = AuthenticationInterceptor {
+                            keypair: Arc::new(Keypair::new()),
+                        };
 
                         info!("connecting to block engine at url: {:?}", block_engine_url);
-                        match BlockEngineRelayerClient::connect(block_engine_url.to_string()).await
-                        {
-                            Ok(mut client) => {
+                        // TODO (LB): don't unwrap
+                        let connection =
+                            Endpoint::from_shared(block_engine_url.to_string()).unwrap();
+                        match connection.connect().await {
+                            Ok(channel) => {
+                                let mut client = BlockEngineRelayerClient::with_interceptor(
+                                    channel,
+                                    auth_interceptor,
+                                );
                                 match Self::start_event_loop(
                                     &mut client,
                                     &mut block_engine_receiver,
@@ -103,10 +135,7 @@ impl BlockEngineRelayerHandler {
                                 }
                             }
                             Err(e) => {
-                                error!(
-                                    "can't connect to block engine: {:?}, error: {:?}",
-                                    block_engine_url, e
-                                );
+                                error!("error connecting: {:?}", e);
                             }
                         }
                     }
@@ -121,7 +150,9 @@ impl BlockEngineRelayerHandler {
     /// If there's a missed heartbeat or any issues responding to each other, they'll disconnect and
     /// try to re-establish connection
     async fn start_event_loop(
-        client: &mut BlockEngineRelayerClient<Channel>,
+        client: &mut BlockEngineRelayerClient<
+            InterceptedService<Channel, AuthenticationInterceptor>,
+        >,
         block_engine_receiver: &mut Receiver<BlockEnginePackets>,
     ) -> BlockEngineResult<()> {
         let (packet_msg_sender, packet_msg_receiver) = channel::<PacketBatchUpdate>(100);
