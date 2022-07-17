@@ -1,4 +1,5 @@
 use std::{
+    fmt::Write,
     io,
     net::{SocketAddr, UdpSocket},
     str::FromStr,
