@@ -1,25 +1,19 @@
 [package]
-name = "jito-relayer"
+name = "jito-block-engine"
 version = "0.1.0"
-description = "Relayer GRPC server"
+description = "Relayer Block Engine Client"
 authors = ["Jito Team <team@jito.wtf>"]
 homepage = "https://jito.wtf/"
 edition = "2021"
 publish = false
 
 [dependencies]
-crossbeam-channel = "0.5.4"
-ed25519-dalek = "1.0.1"
-histogram = "0.6.9"
 jito-protos = { path = "../jito-protos" }
-jito-rpc = { path = "../rpc" }
 log = "0.4.17"
 prost-types = "0.10.1"
-solana-client = "=1.11.2"
-solana-metrics = "=1.11.2"
 solana-perf = "=1.11.2"
 solana-sdk = "=1.11.2"
 thiserror = "1.0.31"
-tokio = { version = "1.14.1" }
+tokio = { version = "1.14.1", features = ["full"] }
 tokio-stream = "0.1.9"
 tonic = "0.7.2"

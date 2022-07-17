@@ -5,22 +5,19 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    thread::spawn,
-    time::Duration,
 };
 
 use clap::Parser;
+use crossbeam_channel::unbounded;
+use jito_block_engine::block_engine::BlockEngineRelayerHandler;
 use jito_core::tpu::{Tpu, TpuSockets};
-use jito_protos::validator_interface_service::validator_interface_server::ValidatorInterfaceServer;
-use jito_relayer::{
-    auth::AuthenticationInterceptor, relayer::Relayer, schedule_cache::LeaderScheduleCache,
-};
+use jito_relayer::{relayer::RelayerImpl, schedule_cache::LeaderScheduleCacheUpdater};
 use jito_rpc::load_balancer::LoadBalancer;
+use jito_transaction_relayer::forwarder::start_forward_and_delay_thread;
 use log::info;
 use solana_net_utils::multi_bind_in_range;
 use solana_sdk::signature::{Keypair, Signer};
-use tokio::runtime::Builder;
-use tonic::transport::Server;
+use tokio::sync::mpsc::channel;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -30,19 +27,19 @@ struct Args {
     tpu_bind_ip: IpAddr,
 
     /// Port to bind to for tpu packets
-    #[clap(long, env, value_parser, default_value_t = 10_500)]
+    #[clap(long, env, value_parser, default_value_t = 11_222)]
     tpu_port: u16,
 
     /// Port to bind to for tpu fwd packets
-    #[clap(long, env, value_parser, default_value_t = 10_501)]
+    #[clap(long, env, value_parser, default_value_t = 11_223)]
     tpu_fwd_port: u16,
 
     /// Port to bind to for tpu packets
-    #[clap(long, env, value_parser, default_value_t = 10_502)]
+    #[clap(long, env, value_parser, default_value_t = 11_224)]
     tpu_quic_port: u16,
 
     /// Port to bind to for tpu fwd packets
-    #[clap(long, env, value_parser, default_value_t = 10_503)]
+    #[clap(long, env, value_parser, default_value_t = 11_225)]
     tpu_quic_fwd_port: u16,
 
     /// Bind IP address for GRPC server
@@ -50,7 +47,7 @@ struct Args {
     grpc_bind_ip: IpAddr,
 
     /// Bind port address for GRPC server
-    #[clap(long, env, value_parser, default_value_t = 10101)]
+    #[clap(long, env, value_parser, default_value_t = 11_226)]
     grpc_bind_port: u16,
 
     /// Number of TPU threads
@@ -69,13 +66,22 @@ struct Args {
     #[clap(long, env, value_parser, default_value = "ws://127.0.0.1:8900")]
     websocket_servers: Vec<String>,
 
-    /// The public-facing IP address of this server
+    /// This is the IP address that will be shared with the validator. The validator will
+    /// tell the rest of the network to send packets here.
     #[clap(long, env, value_parser, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
     public_ip: IpAddr,
 
     /// Skip authentication
     #[clap(long, env, value_parser)]
     no_auth: bool,
+
+    /// Packet delay in milliseconds
+    #[clap(long, env, value_parser, default_value_t = 200)]
+    packet_delay_ms: u32,
+
+    /// Block engine address
+    #[clap(long, env, value_parser, default_value = "http://127.0.0.1:13334")]
+    block_engine_url: String,
 }
 
 struct Sockets {
@@ -137,9 +143,9 @@ fn main() {
 
     let sockets = get_sockets(&args);
 
-    let keypair = Keypair::new();
+    let keypair = Arc::new(Keypair::new());
     solana_metrics::set_host_id(keypair.pubkey().to_string());
-    info!("Relayer Started with Pub Key: {}", keypair.pubkey());
+    info!("Relayer started with pubkey: {}", keypair.pubkey());
 
     let exit = Arc::new(AtomicBool::new(false));
 
@@ -169,44 +175,44 @@ fn main() {
         &rpc_load_balancer,
     );
 
-    let leader_cache = Arc::new(LeaderScheduleCache::new(&rpc_load_balancer));
-    let lc = leader_cache.clone();
-    // ToDo:  Put this somewhere more reasonable and align with epoch updates
-    let exit_l = exit.clone();
-    spawn(move || {
-        while !exit_l.load(Ordering::Relaxed) {
-            lc.update_leader_cache();
-            std::thread::sleep(Duration::from_secs(10));
-        }
-    });
+    let leader_cache = LeaderScheduleCacheUpdater::new(&rpc_load_balancer, exit.clone());
 
-    let rt = Builder::new_multi_thread().enable_all().build().unwrap();
-    rt.block_on(async {
-        let addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
-        println!("Relayer listening on: {}", addr);
+    let (delay_sender, delay_receiver) = unbounded();
 
-        let relayer = Relayer::new(
-            slot_receiver,
-            packet_receiver,
-            leader_cache.clone(),
-            exit.clone(),
-            args.public_ip,
-            args.tpu_port,
-            args.tpu_fwd_port,
-        );
+    // NOTE: make sure the channel here isn't too big because it will get backed up
+    // with packets when the block engine isn't connected
+    let (block_engine_sender, block_engine_receiver) = channel(1000);
 
-        let cache = leader_cache.clone();
-        let auth_interceptor = AuthenticationInterceptor { cache };
-        let svc = ValidatorInterfaceServer::with_interceptor(relayer, auth_interceptor);
+    let forward_and_delay_threads = start_forward_and_delay_thread(
+        packet_receiver,
+        delay_sender,
+        args.packet_delay_ms,
+        block_engine_sender,
+        1,
+    );
+    let block_engine_forwarder =
+        BlockEngineRelayerHandler::new(args.block_engine_url, block_engine_receiver, keypair);
 
-        // let svc = ValidatorInterfaceServer::new(relayer);
-        Server::builder()
-            .add_service(svc)
-            .serve(addr)
-            .await
-            .expect("serve server");
-    });
+    let server_addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
+    let relayer_server = RelayerImpl::new(
+        server_addr,
+        slot_receiver,
+        delay_receiver,
+        leader_cache.handle(),
+        exit.clone(),
+        args.public_ip,
+        args.tpu_port,
+        args.tpu_fwd_port,
+    );
+
+    relayer_server.start_server();
 
     exit.store(true, Ordering::Relaxed);
+
     tpu.join().unwrap();
+    leader_cache.join().unwrap();
+    for t in forward_and_delay_threads {
+        t.join().unwrap();
+    }
+    block_engine_forwarder.join().unwrap();
 }
