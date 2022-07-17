@@ -42,6 +42,12 @@ fn main() {
         .collect();
 
     let pubkeys: Vec<_> = keypairs.iter().map(|kp| kp.pubkey()).collect();
+    let mut pubkeys_str = pubkeys.iter().fold(String::new(), |mut s, pubkey| {
+        s.push_str(&format!("{},", pubkey.to_string()));
+        s
+    });
+    let _ = pubkeys_str.pop();
+    info!("using keypairs: {:?}", pubkeys_str);
 
     let client = Arc::new(RpcClient::new(&args.rpc_addr));
     assert!(request_and_confirm_airdrop(&client, &pubkeys));

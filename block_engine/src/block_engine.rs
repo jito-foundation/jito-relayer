@@ -105,6 +105,8 @@ impl BlockEngineRelayerHandler {
         mut block_engine_receiver: Receiver<BlockEnginePackets>,
         keypair: Arc<Keypair>,
     ) -> JoinHandle<()> {
+        let endpoint = Endpoint::from_shared(block_engine_url.to_string())
+            .expect("valid block engine endpoint");
         Builder::new()
             .name("jito_block_engine_relayer_stream".into())
             .spawn(move || {
@@ -115,10 +117,7 @@ impl BlockEngineRelayerHandler {
                         sleep(Duration::from_secs(1)).await;
 
                         info!("connecting to block engine at url: {:?}", block_engine_url);
-                        // TODO (LB): don't unwrap
-                        let connection =
-                            Endpoint::from_shared(block_engine_url.to_string()).unwrap();
-                        match connection.connect().await {
+                        match endpoint.connect().await {
                             Ok(channel) => {
                                 let mut client = BlockEngineRelayerClient::with_interceptor(
                                     channel,

@@ -4,7 +4,6 @@ members = [
     "core",
     "jito-protos",
     "packet_blaster",
-    "packet_blaster",
     "relayer",
     "rpc",
     "transaction-relayer"
