@@ -145,6 +145,7 @@ pub struct RelayerImpl {
 }
 
 impl RelayerImpl {
+    #![allow(clippy::too_many_arguments)]
     pub fn new(
         server_addr: SocketAddr,
         slot_receiver: Receiver<Slot>,
@@ -308,6 +309,7 @@ impl RelayerImpl {
         let failed_pubkey_updates = subscriptions
             .iter()
             .filter_map(|(pubkey, sender)| {
+                // try send because it's a bounded channel and we don't want to block if the channel is full
                 match sender.try_send(Ok(SubscribePacketsResponse {
                     header: None,
                     msg: Some(subscribe_packets_response::Msg::Heartbeat(Heartbeat {
@@ -366,7 +368,8 @@ impl RelayerImpl {
             .filter_map(|pubkey| {
                 let sender = subscriptions.get(pubkey)?;
 
-                return match sender.try_send(Ok(SubscribePacketsResponse {
+                // try send because it's a bounded channel and we don't want to block if the channel is full
+                match sender.try_send(Ok(SubscribePacketsResponse {
                     header: Some(Header {
                         ts: Some(Timestamp::from(SystemTime::now())),
                     }),
@@ -384,7 +387,7 @@ impl RelayerImpl {
                         error!("channel is closed for pubkey: {:?}", pubkey);
                         Some(*pubkey)
                     }
-                };
+                }
             })
             .collect();
 
@@ -464,7 +467,7 @@ impl Relayer for RelayerImpl {
         let pubkey: &Pubkey = request
             .extensions()
             .get()
-            .ok_or(Status::internal("internal error fetching public key"))?;
+            .ok_or_else(|| Status::internal("internal error fetching public key"))?;
 
         let (sender, receiver) = channel(1_000);
         self.subscription_sender

@@ -212,26 +212,26 @@ impl BlockEngineRelayerHandler {
             Ok(Some(aoi_update)) => match aoi_update.msg {
                 None => Err(BlockEngineError::MalformedMessage),
                 Some(accounts_of_interest_update::Msg::Add(accounts)) => {
-                    let new_accounts: HashSet<Pubkey> = accounts
+                    let accounts: HashSet<Pubkey> = accounts
                         .accounts
                         .iter()
                         .filter_map(|a| Pubkey::from_str(a).ok())
                         .collect();
 
-                    for a in new_accounts {
+                    for a in accounts {
                         accounts_of_interest.insert(a);
                     }
 
                     Ok(())
                 }
                 Some(accounts_of_interest_update::Msg::Remove(accounts)) => {
-                    let new_accounts: HashSet<Pubkey> = accounts
+                    let accounts: HashSet<Pubkey> = accounts
                         .accounts
                         .iter()
                         .filter_map(|a| Pubkey::from_str(a).ok())
                         .collect();
 
-                    for a in new_accounts {
+                    for a in accounts {
                         accounts_of_interest.remove(&a);
                     }
                     Ok(())
