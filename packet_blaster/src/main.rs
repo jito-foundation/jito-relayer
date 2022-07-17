@@ -43,9 +43,10 @@ fn main() {
 
     let pubkeys: Vec<_> = keypairs.iter().map(|kp| kp.pubkey()).collect();
     let mut pubkeys_str = pubkeys.iter().fold(String::new(), |mut s, pubkey| {
-        s.push_str(&format!("{},", pubkey.to_string()));
+        let _ = write!(s, "{},", pubkey);
         s
     });
+    // remove last comma
     let _ = pubkeys_str.pop();
     info!("using keypairs: {:?}", pubkeys_str);
 

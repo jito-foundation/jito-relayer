@@ -169,7 +169,7 @@ fn main() {
         sockets.tpu_sockets,
         &exit,
         5,
-        &keypair.clone(),
+        &keypair,
         &sockets.tpu_ip,
         &sockets.tpu_fwd_ip,
         &rpc_load_balancer,

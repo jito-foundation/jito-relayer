@@ -181,8 +181,8 @@ impl BlockEngineRelayerHandler {
     ) -> BlockEngineResult<()> {
         let mut aoi_stream = subscribe_aoi_stream.into_inner();
 
-        // drain old buffered packets
-        while let Ok(_) = block_engine_receiver.try_recv() {}
+        // drain old buffered packets before streaming packets to the block engine
+        while block_engine_receiver.try_recv().is_ok() {}
 
         let mut accounts_of_interest: HashSet<Pubkey, RandomState> = HashSet::new();
         let mut heartbeat_count = 0;

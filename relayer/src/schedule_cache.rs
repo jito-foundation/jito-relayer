@@ -145,6 +145,6 @@ impl LeaderScheduleCacheUpdater {
         } else {
             error!("Couldn't Get Epoch Info from RPC!!!")
         };
-        return false;
+        false
     }
 }

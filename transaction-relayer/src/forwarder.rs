@@ -81,7 +81,7 @@ pub fn start_forward_and_delay_thread(
 
                     loop {
                         if last_metrics_upload.elapsed() >= Duration::from_secs(1) {
-                            forwarder_metrics.report(i, packet_delay_ms.clone());
+                            forwarder_metrics.report(i, packet_delay_ms);
 
                             forwarder_metrics = ForwarderMetrics::default();
                             last_metrics_upload = Instant::now();
@@ -103,7 +103,7 @@ pub fn start_forward_and_delay_thread(
                                         PacketBatch::new(
                                             b.iter()
                                                 .filter(|p| !p.meta.discard())
-                                                .map(|p| p.clone())
+                                                .cloned()
                                                 .collect(),
                                         )
                                     })
