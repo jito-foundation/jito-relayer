@@ -1,5 +1,7 @@
 use std::{
+    cell::RefCell,
     collections::{hash_map::RandomState, HashSet},
+    rc::Rc,
     str::FromStr,
     sync::Arc,
     thread,
@@ -20,37 +22,17 @@ use jito_protos::{
 use log::{error, *};
 use prost_types::Timestamp;
 use solana_perf::packet::PacketBatch;
-use solana_sdk::{pubkey::Pubkey, signature::Signer, signer::keypair::Keypair};
+use solana_sdk::{pubkey::Pubkey, signer::keypair::Keypair};
 use thiserror::Error;
 use tokio::{
     runtime::Runtime,
     select,
-    sync::mpsc::{channel, Receiver, Sender},
+    sync::mpsc::{Receiver, Sender},
     time::{interval, sleep},
 };
-use tokio_stream::wrappers::ReceiverStream;
-use tonic::{
-    codegen::InterceptedService,
-    metadata::AsciiMetadataValue,
-    service::Interceptor,
-    transport::{Channel, Endpoint},
-    IntoStreamingRequest, Request, Response, Status, Streaming,
-};
+use tonic::{transport::Endpoint, Response, Status, Streaming};
 
-#[derive(Clone)]
-pub struct AuthenticationInterceptor {
-    pub keypair: Arc<Keypair>,
-}
-
-impl Interceptor for AuthenticationInterceptor {
-    fn call(&mut self, mut request: Request<()>) -> Result<Request<()>, Status> {
-        let pubkey = AsciiMetadataValue::try_from(self.keypair.pubkey().to_string()).unwrap();
-        // TODO (LB): add better authentication here by signing a message with keypair
-        // Block Engine expects pubkey to be set
-        request.metadata_mut().insert("pubkey", pubkey);
-        Ok(request)
-    }
-}
+use crate::auth::{AuthClient, AuthInterceptor};
 
 pub struct BlockEnginePackets {
     pub packet_batches: Vec<PacketBatch>,
@@ -112,17 +94,20 @@ impl BlockEngineRelayerHandler {
             .spawn(move || {
                 let rt = Runtime::new().unwrap();
                 rt.block_on(async move {
-                    let auth_interceptor = AuthenticationInterceptor { keypair };
+                    let auth_interceptor =
+                        AuthInterceptor::new(keypair, Rc::new(RefCell::new(String::default())));
                     loop {
                         sleep(Duration::from_secs(1)).await;
 
                         info!("connecting to block engine at url: {:?}", block_engine_url);
                         match endpoint.connect().await {
                             Ok(channel) => {
-                                let mut client = BlockEngineRelayerClient::with_interceptor(
+                                let client = BlockEngineRelayerClient::with_interceptor(
                                     channel,
                                     auth_interceptor.clone(),
                                 );
+                                let mut client = AuthClient::new(client, 3);
+
                                 match Self::start_event_loop(
                                     &mut client,
                                     &mut block_engine_receiver,
@@ -151,20 +136,13 @@ impl BlockEngineRelayerHandler {
     /// If there's a missed heartbeat or any issues responding to each other, they'll disconnect and
     /// try to re-establish connection
     async fn start_event_loop(
-        client: &mut BlockEngineRelayerClient<
-            InterceptedService<Channel, AuthenticationInterceptor>,
-        >,
+        client: &mut AuthClient,
         block_engine_receiver: &mut Receiver<BlockEnginePackets>,
     ) -> BlockEngineResult<()> {
-        let (packet_msg_sender, packet_msg_receiver) = channel::<PacketBatchUpdate>(100);
-        let receiver_stream = ReceiverStream::new(packet_msg_receiver);
-
         let subscribe_aoi_stream = client
             .subscribe_accounts_of_interest(AccountsOfInterestRequest {})
             .await?;
-        let _response = client
-            .start_expiring_packet_stream(receiver_stream.into_streaming_request())
-            .await?;
+        let (packet_msg_sender, _response) = client.start_expiring_packet_stream(100).await?;
 
         Self::handle_packet_stream(
             packet_msg_sender,
