@@ -11,7 +11,11 @@ use std::{
 use bincode::serialize;
 use clap::Parser;
 use log::*;
+use solana_client::connection_cache::ConnectionCacheStats;
+use solana_client::nonblocking::quic_client::QuicLazyInitializedEndpoint;
+use solana_client::quic_client::QuicTpuConnection;
 use solana_client::rpc_client::RpcClient;
+use solana_client::tpu_connection::TpuConnection;
 use solana_sdk::{
     signature::{Keypair, Signature, Signer},
     system_transaction::transfer,
@@ -31,6 +35,53 @@ struct Args {
     /// Socket address for relayer TPU
     #[clap(long, env, value_parser, default_value = "127.0.0.1:11222")]
     tpu_addr: String,
+
+    /// Flag to use quic for relayer TPU
+    #[clap(long, env, value_parser, default_value_t = false)]
+    use_quic: bool,
+}
+
+enum TpuSender {
+    UdpSender {
+        address: SocketAddr,
+        sock: UdpSocket,
+    },
+    QuicSender {
+        client: QuicTpuConnection,
+    },
+}
+
+impl TpuSender {
+    fn new(addr: SocketAddr, use_quic: &bool) -> TpuSender {
+        if *use_quic {
+            TpuSender::QuicSender {
+                client: QuicTpuConnection::new(
+                    Arc::new(QuicLazyInitializedEndpoint::default()),
+                    addr,
+                    Arc::new(ConnectionCacheStats::default()),
+                ),
+            }
+        } else {
+            TpuSender::UdpSender {
+                address: addr,
+                sock: UdpSocket::bind("0.0.0.0:0").unwrap(),
+            }
+        }
+    }
+
+    fn send(&self, serialized_txs: Vec<Vec<u8>>) -> () {
+        match self {
+            TpuSender::UdpSender { address, sock } => {
+                let _: Vec<io::Result<usize>> = serialized_txs
+                    .iter()
+                    .map(|tx| sock.send_to(tx, address))
+                    .collect();
+            }
+            TpuSender::QuicSender { client } => client
+                .send_wire_transaction_batch_async(serialized_txs)
+                .expect("quic send panic"),
+        }
+    }
 }
 
 fn main() {
@@ -61,7 +112,7 @@ fn main() {
             let client = Arc::new(RpcClient::new(&args.rpc_addr));
             Builder::new()
                 .spawn(move || {
-                    let udp_sender = UdpSocket::bind("0.0.0.0:0").unwrap();
+                    let tpu_sender = TpuSender::new(tpu_addr, &args.use_quic);
                     let mut last_blockhash_refresh = Instant::now();
                     let mut latest_blockhash = client.get_latest_blockhash().unwrap();
                     let mut last_count = 0;
@@ -94,10 +145,7 @@ fn main() {
                             })
                             .collect();
 
-                        let _: Vec<io::Result<usize>> = serialized_txs
-                            .iter()
-                            .map(|tx| udp_sender.send_to(tx, tpu_addr))
-                            .collect();
+                        tpu_sender.send(serialized_txs);
                     }
                 })
                 .unwrap()
