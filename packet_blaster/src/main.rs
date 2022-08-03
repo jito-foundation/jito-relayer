@@ -11,11 +11,10 @@ use std::{
 use bincode::serialize;
 use clap::Parser;
 use log::*;
-use solana_client::connection_cache::ConnectionCacheStats;
-use solana_client::nonblocking::quic_client::QuicLazyInitializedEndpoint;
-use solana_client::quic_client::QuicTpuConnection;
-use solana_client::rpc_client::RpcClient;
-use solana_client::tpu_connection::TpuConnection;
+use solana_client::{
+    connection_cache::ConnectionCacheStats, nonblocking::quic_client::QuicLazyInitializedEndpoint,
+    quic_client::QuicTpuConnection, rpc_client::RpcClient, tpu_connection::TpuConnection,
+};
 use solana_sdk::{
     signature::{Keypair, Signature, Signer},
     system_transaction::transfer,
@@ -39,49 +38,6 @@ struct Args {
     /// Flag to use quic for relayer TPU
     #[clap(long, env, value_parser, default_value_t = false)]
     use_quic: bool,
-}
-
-enum TpuSender {
-    UdpSender {
-        address: SocketAddr,
-        sock: UdpSocket,
-    },
-    QuicSender {
-        client: QuicTpuConnection,
-    },
-}
-
-impl TpuSender {
-    fn new(addr: SocketAddr, use_quic: &bool) -> TpuSender {
-        if *use_quic {
-            TpuSender::QuicSender {
-                client: QuicTpuConnection::new(
-                    Arc::new(QuicLazyInitializedEndpoint::default()),
-                    addr,
-                    Arc::new(ConnectionCacheStats::default()),
-                ),
-            }
-        } else {
-            TpuSender::UdpSender {
-                address: addr,
-                sock: UdpSocket::bind("0.0.0.0:0").unwrap(),
-            }
-        }
-    }
-
-    fn send(&self, serialized_txs: Vec<Vec<u8>>) -> () {
-        match self {
-            TpuSender::UdpSender { address, sock } => {
-                let _: Vec<io::Result<usize>> = serialized_txs
-                    .iter()
-                    .map(|tx| sock.send_to(tx, address))
-                    .collect();
-            }
-            TpuSender::QuicSender { client } => client
-                .send_wire_transaction_batch_async(serialized_txs)
-                .expect("quic send panic"),
-        }
-    }
 }
 
 fn main() {
@@ -176,4 +132,47 @@ fn request_and_confirm_airdrop(client: &RpcClient, pubkeys: &[solana_sdk::pubkey
         }
     }
     false
+}
+
+enum TpuSender {
+    UdpSender {
+        address: SocketAddr,
+        sock: UdpSocket,
+    },
+    QuicSender {
+        client: QuicTpuConnection,
+    },
+}
+
+impl TpuSender {
+    fn new(addr: SocketAddr, use_quic: &bool) -> TpuSender {
+        if *use_quic {
+            TpuSender::QuicSender {
+                client: QuicTpuConnection::new(
+                    Arc::new(QuicLazyInitializedEndpoint::default()),
+                    addr,
+                    Arc::new(ConnectionCacheStats::default()),
+                ),
+            }
+        } else {
+            TpuSender::UdpSender {
+                address: addr,
+                sock: UdpSocket::bind("0.0.0.0:0").unwrap(),
+            }
+        }
+    }
+
+    fn send(&self, serialized_txs: Vec<Vec<u8>>) -> () {
+        match self {
+            TpuSender::UdpSender { address, sock } => {
+                let _: Vec<io::Result<usize>> = serialized_txs
+                    .iter()
+                    .map(|tx| sock.send_to(tx, address))
+                    .collect();
+            }
+            TpuSender::QuicSender { client } => client
+                .send_wire_transaction_batch_async(serialized_txs)
+                .expect("quic send panic"),
+        }
+    }
 }
