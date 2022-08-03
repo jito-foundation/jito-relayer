@@ -162,7 +162,7 @@ impl TpuSender {
         }
     }
 
-    fn send(&self, serialized_txs: Vec<Vec<u8>>) -> () {
+    fn send(&self, serialized_txs: Vec<Vec<u8>>) {
         match self {
             TpuSender::UdpSender { address, sock } => {
                 let _: Vec<io::Result<usize>> = serialized_txs
