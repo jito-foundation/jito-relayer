@@ -3,7 +3,7 @@ use std::{
     collections::{hash_map::RandomState, HashSet},
     rc::Rc,
     str::FromStr,
-    sync::Arc,
+    sync::{Arc, Mutex},
     thread,
     thread::{Builder, JoinHandle},
     time::{Duration, SystemTime},
@@ -31,12 +31,31 @@ use thiserror::Error;
 use tokio::{
     runtime::Runtime,
     select,
-    sync::mpsc::{Receiver, Sender},
+    sync::mpsc::{channel, Receiver, Sender},
     time::{interval, sleep},
 };
-use tonic::{transport::Endpoint, Response, Status, Streaming};
+use tonic::{
+    codegen::{Body, InterceptedService},
+    service::{interceptor, Interceptor},
+    transport::{Channel, Endpoint},
+    Request, Response, Status, Streaming,
+};
 
-use crate::auth::{AuthClient, AuthInterceptor};
+struct AuthInterceptor {
+    access_token: Arc<Mutex<String>>,
+}
+
+impl AuthInterceptor {
+    pub fn new(access_token: Arc<Mutex<String>>) -> Self {
+        AuthInterceptor { access_token }
+    }
+}
+
+impl Interceptor for AuthInterceptor {
+    fn call(&mut self, mut request: tonic::Request<()>) -> Result<tonic::Request<()>, Status> {
+        Ok(request)
+    }
+}
 
 pub struct BlockEnginePackets {
     pub packet_batches: Vec<PacketBatch>,
@@ -46,8 +65,11 @@ pub struct BlockEnginePackets {
 
 #[derive(Error, Debug)]
 pub enum BlockEngineError {
-    #[error("auth service failed connection: {0}")]
+    #[error("auth service failed: {0}")]
     AuthServiceFailure(String),
+
+    #[error("block engine failed: {0}")]
+    BlockEngineFailure(String),
 
     #[error("connection closed")]
     ConnectionClosedError,
@@ -57,9 +79,6 @@ pub enum BlockEngineError {
 
     #[error("heartbeat timeout")]
     HeartbeatTimeout,
-
-    #[error("GRPC error: {0}")]
-    GrpcError(#[from] Status),
 }
 
 pub type BlockEngineResult<T> = Result<T, BlockEngineError>;
@@ -106,7 +125,7 @@ impl BlockEngineRelayerHandler {
                         match Self::auth_and_connect(
                             &block_engine_url,
                             &auth_service_url,
-                            &block_engine_receiver,
+                            &mut block_engine_receiver,
                             &keypair,
                         )
                         .await
@@ -126,7 +145,7 @@ impl BlockEngineRelayerHandler {
     async fn auth_and_connect(
         block_engine_url: &str,
         auth_service_url: &str,
-        block_engine_receiver: &Receiver<BlockEnginePackets>,
+        block_engine_receiver: &mut Receiver<BlockEnginePackets>,
         keypair: &Arc<Keypair>,
     ) -> BlockEngineResult<()> {
         let auth_endpoint = Endpoint::from_str(auth_service_url).expect("valid auth url");
@@ -172,10 +191,42 @@ impl BlockEngineRelayerHandler {
         let access_token = maybe_access_token.unwrap();
         let refresh_token = maybe_refresh_token.unwrap();
 
+        if access_token.expires_at_utc.is_none() || refresh_token.expires_at_utc.is_none() {
+            return Err(BlockEngineError::AuthServiceFailure(
+                "auth tokens don't have valid expiration time".to_string(),
+            ));
+        }
+        let access_token_expiration =
+            SystemTime::try_from(access_token.expires_at_utc.as_ref().unwrap().clone()).unwrap();
+        let refresh_token_expiration =
+            SystemTime::try_from(refresh_token.expires_at_utc.as_ref().unwrap().clone()).unwrap();
+
         info!(
             "access_token: {:?}, refresh_token:{:?}",
             access_token, refresh_token
         );
+        info!(
+            "access_token_expiration: {:?}, refresh_token_expiration: {:?}",
+            access_token_expiration
+                .duration_since(SystemTime::now())
+                .unwrap(),
+            refresh_token_expiration
+                .duration_since(SystemTime::now())
+                .unwrap()
+        );
+
+        let shared_access_token = Arc::new(Mutex::new(access_token.value));
+        let auth_interceptor = AuthInterceptor::new(shared_access_token.clone());
+
+        let block_engine_endpoint =
+            Endpoint::from_str(block_engine_url).expect("valid block engine url");
+        let block_engine_channel = block_engine_endpoint
+            .connect()
+            .await
+            .map_err(|e| BlockEngineError::BlockEngineFailure(e.to_string()))?;
+        let mut block_engine_client =
+            BlockEngineRelayerClient::with_interceptor(block_engine_channel, auth_interceptor);
+        Self::start_event_loop(&mut block_engine_client, block_engine_receiver).await
 
         //
         // let auth_interceptor =
@@ -209,7 +260,6 @@ impl BlockEngineRelayerHandler {
         //         }
         //     }
         // }
-        Ok(())
     }
 
     /// Starts the bi-directional packet stream.
@@ -218,13 +268,18 @@ impl BlockEngineRelayerHandler {
     /// If there's a missed heartbeat or any issues responding to each other, they'll disconnect and
     /// try to re-establish connection
     async fn start_event_loop(
-        client: &mut AuthClient,
+        client: &mut BlockEngineRelayerClient<InterceptedService<Channel, AuthInterceptor>>,
         block_engine_receiver: &mut Receiver<BlockEnginePackets>,
     ) -> BlockEngineResult<()> {
         let subscribe_aoi_stream = client
             .subscribe_accounts_of_interest(AccountsOfInterestRequest {})
-            .await?;
-        let (packet_msg_sender, _response) = client.start_expiring_packet_stream(100).await?;
+            .await
+            .map_err(|e| BlockEngineError::BlockEngineFailure(e.to_string()))?;
+        let (packet_msg_sender, packet_msg_receiver) = channel(100);
+        let _response = client
+            .start_expiring_packet_stream(packet_msg_receiver)
+            .await
+            .map_err(|e| BlockEngineError::BlockEngineFailure(e.to_string()))?;
 
         Self::handle_packet_stream(
             packet_msg_sender,
