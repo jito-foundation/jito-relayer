@@ -10,6 +10,10 @@ use std::{
 };
 
 use jito_protos::{
+    auth::{
+        auth_service_client::AuthServiceClient, GenerateAuthChallengeRequest,
+        GenerateAuthTokensRequest, GenerateAuthTokensResponse, Role,
+    },
     block_engine::{
         accounts_of_interest_update, block_engine_relayer_client::BlockEngineRelayerClient,
         packet_batch_update::Msg, AccountsOfInterestRequest, AccountsOfInterestUpdate,
@@ -22,7 +26,7 @@ use jito_protos::{
 use log::{error, *};
 use prost_types::Timestamp;
 use solana_perf::packet::PacketBatch;
-use solana_sdk::{pubkey::Pubkey, signer::keypair::Keypair};
+use solana_sdk::{pubkey::Pubkey, signature::Signer, signer::keypair::Keypair};
 use thiserror::Error;
 use tokio::{
     runtime::Runtime,
@@ -42,6 +46,9 @@ pub struct BlockEnginePackets {
 
 #[derive(Error, Debug)]
 pub enum BlockEngineError {
+    #[error("auth service failed connection: {0}")]
+    AuthServiceFailure(String),
+
     #[error("connection closed")]
     ConnectionClosedError,
 
@@ -65,11 +72,13 @@ pub struct BlockEngineRelayerHandler {
 impl BlockEngineRelayerHandler {
     pub fn new(
         block_engine_url: String,
+        auth_service_url: String,
         block_engine_receiver: Receiver<BlockEnginePackets>,
         keypair: Arc<Keypair>,
     ) -> BlockEngineRelayerHandler {
         let block_engine_forwarder = Self::start_block_engine_relayer_stream(
             block_engine_url,
+            auth_service_url,
             block_engine_receiver,
             keypair,
         );
@@ -84,50 +93,123 @@ impl BlockEngineRelayerHandler {
 
     fn start_block_engine_relayer_stream(
         block_engine_url: String,
+        auth_service_url: String,
         mut block_engine_receiver: Receiver<BlockEnginePackets>,
         keypair: Arc<Keypair>,
     ) -> JoinHandle<()> {
-        let endpoint = Endpoint::from_shared(block_engine_url.to_string())
-            .expect("valid block engine endpoint");
         Builder::new()
             .name("jito_block_engine_relayer_stream".into())
             .spawn(move || {
                 let rt = Runtime::new().unwrap();
                 rt.block_on(async move {
-                    let auth_interceptor =
-                        AuthInterceptor::new(keypair, Rc::new(RefCell::new(String::default())));
                     loop {
-                        sleep(Duration::from_secs(1)).await;
-
-                        info!("connecting to block engine at url: {:?}", block_engine_url);
-                        match endpoint.connect().await {
-                            Ok(channel) => {
-                                let client = BlockEngineRelayerClient::with_interceptor(
-                                    channel,
-                                    auth_interceptor.clone(),
-                                );
-                                let mut client = AuthClient::new(client, 3);
-
-                                match Self::start_event_loop(
-                                    &mut client,
-                                    &mut block_engine_receiver,
-                                )
-                                .await
-                                {
-                                    Ok(_) => {}
-                                    Err(e) => {
-                                        error!("error with packet stream: {:?}", e);
-                                    }
-                                }
-                            }
+                        match Self::auth_and_connect(
+                            &block_engine_url,
+                            &auth_service_url,
+                            &block_engine_receiver,
+                            &keypair,
+                        )
+                        .await
+                        {
+                            Ok(_) => {}
                             Err(e) => {
-                                error!("error connecting: {:?}", e);
+                                error!("error authenticating and connecting: {:?}", e);
                             }
                         }
                     }
                 });
             })
             .unwrap()
+    }
+
+    /// Authenticates the relayer with the block engine and connects to the forwarding service
+    async fn auth_and_connect(
+        block_engine_url: &str,
+        auth_service_url: &str,
+        block_engine_receiver: &Receiver<BlockEnginePackets>,
+        keypair: &Arc<Keypair>,
+    ) -> BlockEngineResult<()> {
+        let auth_endpoint = Endpoint::from_str(auth_service_url).expect("valid auth url");
+        let channel = auth_endpoint
+            .connect()
+            .await
+            .map_err(|e| BlockEngineError::AuthServiceFailure(e.to_string()))?;
+        let mut auth_client = AuthServiceClient::new(channel);
+
+        let auth_response = auth_client
+            .generate_auth_challenge(GenerateAuthChallengeRequest {
+                role: Role::Relayer.into(),
+                pubkey: keypair.pubkey().to_bytes().to_vec(),
+            })
+            .await
+            .map_err(|e| BlockEngineError::AuthServiceFailure(e.to_string()))?;
+
+        let challenge = format!(
+            "{}-{}",
+            keypair.pubkey(),
+            auth_response.into_inner().challenge
+        );
+        let signed_challenge = keypair.sign_message(challenge.as_bytes()).as_ref().to_vec();
+
+        let GenerateAuthTokensResponse {
+            access_token: maybe_access_token,
+            refresh_token: maybe_refresh_token,
+        } = auth_client
+            .generate_auth_tokens(GenerateAuthTokensRequest {
+                challenge,
+                client_pubkey: keypair.pubkey().as_ref().to_vec(),
+                signed_challenge,
+            })
+            .await
+            .map_err(|e| BlockEngineError::AuthServiceFailure(e.to_string()))?
+            .into_inner();
+
+        if maybe_access_token.is_none() || maybe_refresh_token.is_none() {
+            return Err(BlockEngineError::AuthServiceFailure(
+                "failed to get valid auth tokens".to_string(),
+            ));
+        }
+        let access_token = maybe_access_token.unwrap();
+        let refresh_token = maybe_refresh_token.unwrap();
+
+        info!(
+            "access_token: {:?}, refresh_token:{:?}",
+            access_token, refresh_token
+        );
+
+        //
+        // let auth_interceptor =
+        //     AuthInterceptor::new(keypair, Rc::new(RefCell::new(String::default())));
+        // loop {
+        //     sleep(Duration::from_secs(1)).await;
+        //
+        //     info!("connecting to block engine at url: {:?}", block_engine_url);
+        //     match endpoint.connect().await {
+        //         Ok(channel) => {
+        //             let client = BlockEngineRelayerClient::with_interceptor(
+        //                 channel,
+        //                 auth_interceptor.clone(),
+        //             );
+        //             let mut client = AuthClient::new(client, 3);
+        //
+        //             match Self::start_event_loop(
+        //                 &mut client,
+        //                 &mut block_engine_receiver,
+        //             )
+        //             .await
+        //             {
+        //                 Ok(_) => {}
+        //                 Err(e) => {
+        //                     error!("error with packet stream: {:?}", e);
+        //                 }
+        //             }
+        //         }
+        //         Err(e) => {
+        //             error!("error connecting: {:?}", e);
+        //         }
+        //     }
+        // }
+        Ok(())
     }
 
     /// Starts the bi-directional packet stream.
