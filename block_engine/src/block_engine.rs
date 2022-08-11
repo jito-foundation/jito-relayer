@@ -207,10 +207,6 @@ impl BlockEngineRelayerHandler {
             SystemTime::try_from(refresh_token.expires_at_utc.as_ref().unwrap().clone()).unwrap();
 
         info!(
-            "access_token: {:?}, refresh_token:{:?}",
-            access_token, refresh_token
-        );
-        info!(
             "access_token_expiration: {:?}, refresh_token_expiration: {:?}",
             access_token_expiration
                 .duration_since(SystemTime::now())
@@ -360,6 +356,9 @@ impl BlockEngineRelayerHandler {
                 let (access_token, new_refresh_token) = Self::auth(auth_client, keypair).await?;
                 *refresh_token = new_refresh_token;
                 *shared_access_token.lock().unwrap() = access_token;
+
+                info!("access and refresh token were refreshed");
+
                 Ok(())
             }
             (false, true) => {
@@ -378,6 +377,9 @@ impl BlockEngineRelayerHandler {
                 }
                 let access_token = maybe_access_token.unwrap();
                 *shared_access_token.lock().unwrap() = access_token;
+
+                info!("access token was refreshed");
+
                 Ok(())
             }
             (false, false) => Ok(()),
