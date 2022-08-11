@@ -354,9 +354,9 @@ impl BlockEngineRelayerHandler {
             (true, _) => {
                 // re-run the authentication process from the beginning
                 let (access_token, new_refresh_token) = Self::auth(auth_client, keypair).await?;
+
                 *refresh_token = new_refresh_token;
                 *shared_access_token.lock().unwrap() = access_token;
-
                 info!("access and refresh token were refreshed");
 
                 Ok(())
@@ -369,15 +369,15 @@ impl BlockEngineRelayerHandler {
                     })
                     .await
                     .map_err(|e| BlockEngineError::AuthServiceFailure(e.to_string()))?;
+
                 let maybe_access_token = response.into_inner().access_token;
                 if maybe_access_token.is_none() {
                     return Err(BlockEngineError::AuthServiceFailure(
                         "missing access token".to_string(),
                     ));
                 }
-                let access_token = maybe_access_token.unwrap();
-                *shared_access_token.lock().unwrap() = access_token;
 
+                *shared_access_token.lock().unwrap() = maybe_access_token.unwrap();
                 info!("access token was refreshed");
 
                 Ok(())
