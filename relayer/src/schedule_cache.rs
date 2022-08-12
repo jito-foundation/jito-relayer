@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -38,7 +38,7 @@ impl LeaderScheduleUpdatingHandle {
         self.schedule.read().unwrap().get(slot).cloned()
     }
 
-    pub fn leaders_for_slots(&self, slots: &[Slot]) -> Vec<Pubkey> {
+    pub fn leaders_for_slots(&self, slots: &[Slot]) -> HashSet<Pubkey> {
         let schedule = self.schedule.read().unwrap();
         slots
             .iter()
