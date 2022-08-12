@@ -16,7 +16,7 @@ use jito_rpc::load_balancer::LoadBalancer;
 use jito_transaction_relayer::forwarder::start_forward_and_delay_thread;
 use log::info;
 use solana_net_utils::multi_bind_in_range;
-use solana_sdk::signature::{Keypair, Signer};
+use solana_sdk::signature::{read_keypair_file, Signer};
 use tokio::sync::mpsc::channel;
 
 #[derive(Parser, Debug)]
@@ -82,6 +82,14 @@ struct Args {
     /// Block engine address
     #[clap(long, env, value_parser, default_value = "http://127.0.0.1:13334")]
     block_engine_url: String,
+
+    /// Authentication service address. Keypairs are authenticated against the block engine
+    #[clap(long, env, value_parser, default_value = "http://127.0.0.1:14444")]
+    auth_service_url: String,
+
+    /// Keypair path
+    #[clap(long, env, value_parser)]
+    keypair_path: String,
 }
 
 struct Sockets {
@@ -143,7 +151,7 @@ fn main() {
 
     let sockets = get_sockets(&args);
 
-    let keypair = Arc::new(Keypair::new());
+    let keypair = Arc::new(read_keypair_file(args.keypair_path).expect("keypair file exists"));
     solana_metrics::set_host_id(keypair.pubkey().to_string());
     info!("Relayer started with pubkey: {}", keypair.pubkey());
 
@@ -190,8 +198,12 @@ fn main() {
         block_engine_sender,
         1,
     );
-    let block_engine_forwarder =
-        BlockEngineRelayerHandler::new(args.block_engine_url, block_engine_receiver, keypair);
+    let block_engine_forwarder = BlockEngineRelayerHandler::new(
+        args.block_engine_url,
+        args.auth_service_url,
+        block_engine_receiver,
+        keypair,
+    );
 
     let server_addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
     let relayer_server = RelayerImpl::new(
