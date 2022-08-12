@@ -447,9 +447,8 @@ impl BlockEngineRelayerHandler {
         block_engine_packet_sender: &Sender<PacketBatchUpdate>,
         block_engine_batches: Option<BlockEnginePackets>,
     ) -> BlockEngineResult<()> {
-        let block_engine_batches = block_engine_batches.ok_or(
-            BlockEngineError::BlockEngineFailure("disconnected".to_string()),
-        )?;
+        let block_engine_batches = block_engine_batches
+            .ok_or_else(|| BlockEngineError::BlockEngineFailure("disconnected".to_string()))?;
         if block_engine_packet_sender
             .send(PacketBatchUpdate {
                 msg: Some(Msg::Batches(ExpiringPacketBatch {
