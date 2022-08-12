@@ -35,11 +35,11 @@ struct Args {
     tpu_fwd_port: u16,
 
     /// Port to bind to for tpu packets
-    #[clap(long, env, value_parser, default_value_t = 11_224)]
+    #[clap(long, env, value_parser, default_value_t = 11_228)]
     tpu_quic_port: u16,
 
     /// Port to bind to for tpu fwd packets
-    #[clap(long, env, value_parser, default_value_t = 11_225)]
+    #[clap(long, env, value_parser, default_value_t = 11_229)]
     tpu_quic_fwd_port: u16,
 
     /// Bind IP address for GRPC server
@@ -131,6 +131,8 @@ fn get_sockets(args: &Args) -> Sockets {
     assert_eq!(tpu_bind_fwd_port, args.tpu_fwd_port);
     assert_eq!(tpu_quic_bind_port, args.tpu_quic_port);
     assert_eq!(tpu_fwd_quic_bind_port, args.tpu_quic_fwd_port);
+    assert_eq!(tpu_bind_port + 6, tpu_quic_bind_port); // QUIC is expected to be at TPU + 6
+    assert_eq!(tpu_bind_fwd_port + 6, tpu_fwd_quic_bind_port); // QUIC is expected to be at TPU + 6
 
     Sockets {
         tpu_sockets: TpuSockets {

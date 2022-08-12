@@ -11,8 +11,8 @@ publish = false
 jito-protos = { path = "../jito-protos" }
 log = "0.4.17"
 prost-types = "0.10.1"
-solana-perf = "=1.11.2"
-solana-sdk = "=1.11.2"
+solana-perf = "=1.11.5"
+solana-sdk = "=1.11.5"
 thiserror = "1.0.31"
 tokio = { version = "1.14.1", features = ["full"] }
 tokio-stream = "0.1.9"

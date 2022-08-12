@@ -41,6 +41,7 @@ use tonic::{
     Response, Status, Streaming,
 };
 
+#[derive(Clone)]
 struct AuthInterceptor {
     access_token: Arc<Mutex<Token>>,
 }
