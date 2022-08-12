@@ -139,6 +139,9 @@ impl BlockEngineRelayerHandler {
             .unwrap()
     }
 
+    /// Relayers are whitelisted in the block engine. In order to auth, a challenge-response handshake
+    /// is performed. After that, the relayer can fetch an access and refresh JWT token that's provided
+    /// in request headers to the block engine.
     async fn auth(
         auth_client: &mut AuthServiceClient<Channel>,
         keypair: &Arc<Keypair>,
@@ -178,6 +181,13 @@ impl BlockEngineRelayerHandler {
         }
         let access_token = maybe_access_token.unwrap();
         let refresh_token = maybe_refresh_token.unwrap();
+
+        if access_token.expires_at_utc.is_none() || refresh_token.expires_at_utc.is_none() {
+            return Err(BlockEngineError::AuthServiceFailure(
+                "auth tokens don't have valid expiration time".to_string(),
+            ));
+        }
+
         Ok((access_token, refresh_token))
     }
 
@@ -197,11 +207,6 @@ impl BlockEngineRelayerHandler {
 
         let (access_token, mut refresh_token) = Self::auth(&mut auth_client, keypair).await?;
 
-        if access_token.expires_at_utc.is_none() || refresh_token.expires_at_utc.is_none() {
-            return Err(BlockEngineError::AuthServiceFailure(
-                "auth tokens don't have valid expiration time".to_string(),
-            ));
-        }
         let access_token_expiration =
             SystemTime::try_from(access_token.expires_at_utc.as_ref().unwrap().clone()).unwrap();
         let refresh_token_expiration =
