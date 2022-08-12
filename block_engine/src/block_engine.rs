@@ -31,7 +31,7 @@ use tokio::{
     runtime::Runtime,
     select,
     sync::mpsc::{channel, Receiver, Sender},
-    time::interval,
+    time::{interval, sleep},
 };
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{
@@ -130,6 +130,7 @@ impl BlockEngineRelayerHandler {
                             Ok(_) => {}
                             Err(e) => {
                                 error!("error authenticating and connecting: {:?}", e);
+                                sleep(Duration::from_secs(2)).await;
                             }
                         }
                     }
