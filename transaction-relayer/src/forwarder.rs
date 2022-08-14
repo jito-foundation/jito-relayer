@@ -32,7 +32,7 @@ impl ForwarderMetrics {
             "forward_and_delay",
             ("id", id, i64),
             ("delay", delay, i64),
-            ("num_batches_receiver", self.num_batches_received, i64),
+            ("num_batches_received", self.num_batches_received, i64),
             ("num_packets_received", self.num_packets_received, i64),
             ("num_filtered_packets", self.num_filtered_packets, i64),
             // Relayer -> Block Engine Metrics

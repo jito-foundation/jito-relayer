@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.4.0
-FROM rust:1.59.0-slim-buster as builder
+FROM rust:1.62.1-slim-buster as builder
 
 RUN apt-get update && apt-get install -y libudev-dev clang pkg-config libssl-dev build-essential cmake
 RUN rustup component add rustfmt

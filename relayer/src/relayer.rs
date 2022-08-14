@@ -368,7 +368,6 @@ impl RelayerImpl {
             .filter_map(|pubkey| {
                 let sender = subscriptions.get(pubkey)?;
 
-                info!("sending packets: {:?}", proto_packet_batch.packets.len());
                 if proto_packet_batch.packets.is_empty() {
                     return None;
                 }
