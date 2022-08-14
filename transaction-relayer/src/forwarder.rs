@@ -168,6 +168,8 @@ pub fn start_forward_and_delay_thread(
                                     error!("exiting forwarding delayed packets: {:?}", e);
                                     return;
                                 }
+                            } else {
+                                break;
                             }
                         }
                     }
