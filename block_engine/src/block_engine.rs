@@ -24,6 +24,7 @@ use jito_protos::{
 };
 use log::{error, *};
 use prost_types::Timestamp;
+use solana_metrics::{datapoint_error, datapoint_info};
 use solana_perf::packet::PacketBatch;
 use solana_sdk::{pubkey::Pubkey, signature::Signer, signer::keypair::Keypair};
 use thiserror::Error;
@@ -131,6 +132,11 @@ impl BlockEngineRelayerHandler {
                             Ok(_) => {}
                             Err(e) => {
                                 error!("error authenticating and connecting: {:?}", e);
+                                datapoint_error!("block_engine_relayer-error",
+                                    "block_engine_url" => block_engine_url,
+                                    "auth_service_url" => auth_service_url,
+                                    ("error", e.to_string(), String)
+                                );
                                 sleep(Duration::from_secs(2)).await;
                             }
                         }
@@ -295,11 +301,16 @@ impl BlockEngineRelayerHandler {
         while block_engine_receiver.try_recv().is_ok() {}
 
         let mut accounts_of_interest: HashSet<Pubkey, RandomState> = HashSet::new();
+
         let mut heartbeat_count = 0;
-        let heartbeat = interval(Duration::from_millis(500));
-        let refresh_interval = interval(Duration::from_secs(60));
-        tokio::pin!(heartbeat);
-        tokio::pin!(refresh_interval);
+        let mut aoi_update_count = 0;
+        let mut auth_refresh_count = 0;
+        let mut packet_forward_count = 0;
+
+        let mut heartbeat = interval(Duration::from_millis(500));
+        let mut refresh_interval = interval(Duration::from_secs(60));
+        let mut metrics_interval = interval(Duration::from_secs(1));
+
         loop {
             select! {
                 _ = heartbeat.tick() => {
@@ -308,12 +319,22 @@ impl BlockEngineRelayerHandler {
                 }
                 maybe_aoi = aoi_stream.message() => {
                     Self::handle_aoi(maybe_aoi, &mut accounts_of_interest).await?;
+                    aoi_update_count += 1;
                 }
                 block_engine_batches = block_engine_receiver.recv() => {
-                    Self::forward_packets(&block_engine_packet_sender, block_engine_batches).await?;
+                    packet_forward_count += Self::forward_packets(&block_engine_packet_sender, block_engine_batches).await?;
                 }
                 _ = refresh_interval.tick() => {
-                    Self::maybe_refresh_auth(&mut auth_client, keypair, refresh_token, &shared_access_token).await?;
+                    Self::maybe_refresh_auth(&mut auth_client, keypair, refresh_token, &shared_access_token, &mut auth_refresh_count).await?;
+                }
+                _ = metrics_interval.tick() => {
+                    datapoint_info!("block_engine_relayer-loop_stats",
+                        ("heartbeat_count", heartbeat_count, i64),
+                        ("accounts_of_interest_len", accounts_of_interest.len(), i64),
+                        ("aoi_update_count", aoi_update_count, i64),
+                        ("auth_refresh_count", auth_refresh_count, i64),
+                        ("packet_forward_count", packet_forward_count, i64),
+                    );
                 }
             }
         }
@@ -325,6 +346,7 @@ impl BlockEngineRelayerHandler {
         keypair: &Arc<Keypair>,
         refresh_token: &mut Token,
         shared_access_token: &Arc<Mutex<Token>>,
+        auth_refresh_count: &mut u64,
     ) -> BlockEngineResult<()> {
         // expires_at_utc is checked for None when establishing connection
         let access_token_expiration_time = shared_access_token
@@ -366,6 +388,8 @@ impl BlockEngineRelayerHandler {
                 *shared_access_token.lock().unwrap() = access_token;
                 info!("access and refresh token were refreshed");
 
+                *auth_refresh_count += 1;
+
                 Ok(())
             }
             (false, true) => {
@@ -386,6 +410,8 @@ impl BlockEngineRelayerHandler {
 
                 *shared_access_token.lock().unwrap() = maybe_access_token.unwrap();
                 info!("access token was refreshed");
+
+                *auth_refresh_count += 1;
 
                 Ok(())
             }
@@ -447,26 +473,28 @@ impl BlockEngineRelayerHandler {
     async fn forward_packets(
         block_engine_packet_sender: &Sender<PacketBatchUpdate>,
         block_engine_batches: Option<BlockEnginePackets>,
-    ) -> BlockEngineResult<()> {
+    ) -> BlockEngineResult<usize> {
         let block_engine_batches = block_engine_batches
             .ok_or_else(|| BlockEngineError::BlockEngineFailure("disconnected".to_string()))?;
+
+        let packets: Vec<ProtoPacket> = block_engine_batches
+            .packet_batches
+            .into_iter()
+            .flat_map(|b| {
+                b.iter()
+                    .filter_map(packet_to_proto_packet)
+                    .collect::<Vec<ProtoPacket>>()
+            })
+            .collect();
+        let num_packets = packets.len();
+
         if block_engine_packet_sender
             .send(PacketBatchUpdate {
                 msg: Some(Msg::Batches(ExpiringPacketBatch {
                     header: Some(Header {
                         ts: Some(Timestamp::from(block_engine_batches.stamp)),
                     }),
-                    batch: Some(ProtoPacketBatch {
-                        packets: block_engine_batches
-                            .packet_batches
-                            .into_iter()
-                            .flat_map(|b| {
-                                b.iter()
-                                    .filter_map(packet_to_proto_packet)
-                                    .collect::<Vec<ProtoPacket>>()
-                            })
-                            .collect(),
-                    }),
+                    batch: Some(ProtoPacketBatch { packets }),
                     expiry_ms: block_engine_batches.expiration,
                 })),
             })
@@ -477,7 +505,7 @@ impl BlockEngineRelayerHandler {
                 "disconnected".to_string(),
             ))
         } else {
-            Ok(())
+            Ok(num_packets)
         }
     }
 

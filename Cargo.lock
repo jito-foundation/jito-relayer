@@ -1901,6 +1901,7 @@ dependencies = [
  "jito-protos",
  "log",
  "prost-types 0.10.1",
+ "solana-metrics",
  "solana-perf",
  "solana-sdk",
  "thiserror",
@@ -1988,6 +1989,7 @@ dependencies = [
  "crossbeam-channel",
  "log",
  "solana-client",
+ "solana-metrics",
  "solana-sdk",
 ]
 
