@@ -11,5 +11,5 @@ publish = false
 crossbeam-channel = "0.5.4"
 log = "0.4.17"
 solana-client = "=1.11.5"
-solana-sdk = "=1.11.5"
 solana-metrics = "=1.11.5"
+solana-sdk = "=1.11.5"

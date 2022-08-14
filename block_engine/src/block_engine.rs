@@ -238,6 +238,13 @@ impl BlockEngineRelayerHandler {
             .connect()
             .await
             .map_err(|e| BlockEngineError::BlockEngineFailure(e.to_string()))?;
+
+        datapoint_info!("block_engine-connection_stats",
+            "block_engine_url" => block_engine_url,
+            "auth_service_url" => auth_service_url,
+            ("connected", 1, i64)
+        );
+
         let block_engine_client =
             BlockEngineRelayerClient::with_interceptor(block_engine_channel, auth_interceptor);
         Self::start_event_loop(
