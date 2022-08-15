@@ -381,7 +381,12 @@ impl RelayerImpl {
                         proto_packet_batch.clone(),
                     )),
                 })) {
-                    Ok(_) => None,
+                    Ok(_) => {
+                        router_metrics.num_batches_forwarded += 1;
+                        router_metrics.num_packets_forwarded +=
+                            proto_packet_batch.packets.len() as u64;
+                        None
+                    }
                     Err(TrySendError::Full(_)) => {
                         error!("packet channel is full for pubkey: {:?}", pubkey);
                         router_metrics.num_try_send_channel_full += 1;
@@ -394,9 +399,6 @@ impl RelayerImpl {
                 }
             })
             .collect();
-
-        router_metrics.num_batches_forwarded += 1;
-        router_metrics.num_packets_forwarded += proto_packet_batch.packets.len() as u64;
         Ok(failed_forwards)
     }
 
