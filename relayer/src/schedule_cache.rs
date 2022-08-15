@@ -11,7 +11,7 @@ use std::{
 };
 
 use jito_rpc::load_balancer::LoadBalancer;
-use log::{debug, error, Log};
+use log::{debug, error};
 use solana_metrics::datapoint_info;
 use solana_sdk::{
     clock::{Slot, DEFAULT_SLOTS_PER_EPOCH},
