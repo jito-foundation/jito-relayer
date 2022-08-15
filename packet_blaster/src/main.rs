@@ -5,7 +5,7 @@ use std::{
     str::FromStr,
     sync::Arc,
     thread::Builder,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use bincode::serialize;
@@ -163,6 +163,8 @@ impl TpuSender {
     }
 
     fn send(&self, serialized_txs: Vec<Vec<u8>>) {
+        let now = SystemTime::now();
+        println!("sending pkts {:?}", now);
         match self {
             TpuSender::UdpSender { address, sock } => {
                 let _: Vec<io::Result<usize>> = serialized_txs
