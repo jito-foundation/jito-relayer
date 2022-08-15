@@ -12,6 +12,7 @@ use std::{
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use log::{error, info};
 use solana_client::{pubsub_client::PubsubClient, rpc_client::RpcClient};
+use solana_metrics::datapoint_info;
 use solana_sdk::{
     clock::Slot,
     commitment_config::{CommitmentConfig, CommitmentLevel},
@@ -105,8 +106,15 @@ impl LoadBalancer {
                                                     .unwrap()
                                                     .insert(websocket_url.clone(), slot.slot);
                                                 {
+                                                    datapoint_info!(
+                                                        "rpc_load_balancer-slot_count",
+                                                        "url" => websocket_url,
+                                                        ("slot", slot.slot, i64)
+                                                    );
+
                                                     let mut highest_slot_l =
                                                         highest_slot.lock().unwrap();
+
                                                     if slot.slot > *highest_slot_l {
                                                         *highest_slot_l = slot.slot;
                                                         if let Err(e) = slot_sender.send(slot.slot)

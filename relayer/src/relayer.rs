@@ -368,6 +368,10 @@ impl RelayerImpl {
             .filter_map(|pubkey| {
                 let sender = subscriptions.get(pubkey)?;
 
+                if proto_packet_batch.packets.is_empty() {
+                    return None;
+                }
+
                 // try send because it's a bounded channel and we don't want to block if the channel is full
                 match sender.try_send(Ok(SubscribePacketsResponse {
                     header: Some(Header {

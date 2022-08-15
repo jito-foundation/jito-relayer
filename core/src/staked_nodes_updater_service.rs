@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     net::IpAddr,
+    str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex, RwLock,
@@ -11,6 +12,7 @@ use std::{
 
 use jito_rpc::load_balancer::LoadBalancer;
 use solana_client::{client_error, rpc_response::RpcContactInfo};
+use solana_sdk::pubkey::Pubkey;
 use solana_streamer::streamer::StakedNodes;
 
 const IP_TO_STAKE_REFRESH_DURATION: Duration = Duration::from_secs(5);
@@ -32,15 +34,18 @@ impl StakedNodesUpdaterService {
                 while !exit.load(Ordering::Relaxed) {
                     let mut new_ip_to_stake = HashMap::new();
                     let mut total_stake = 0;
+                    let mut new_pubkey_stake_map: HashMap<Pubkey, u64> = HashMap::new();
                     if let Ok(true) = Self::try_refresh_ip_to_stake(
                         &mut last_stakes,
                         &mut new_ip_to_stake,
+                        &mut new_pubkey_stake_map,
                         &mut total_stake,
                         &rpc_load_balancer,
                     ) {
                         let mut shared = shared_staked_nodes.write().unwrap();
                         shared.total_stake = total_stake;
-                        shared.stake_map = new_ip_to_stake;
+                        shared.ip_stake_map = new_ip_to_stake;
+                        shared.pubkey_stake_map = new_pubkey_stake_map;
                     }
                 }
             })
@@ -52,6 +57,7 @@ impl StakedNodesUpdaterService {
     fn try_refresh_ip_to_stake(
         last_stakes: &mut Instant,
         ip_to_stake: &mut HashMap<IpAddr, u64>,
+        pubkey_stake_map: &mut HashMap<Pubkey, u64>,
         total_stake: &mut u64,
         rpc_load_balancer: &Arc<Mutex<LoadBalancer>>,
     ) -> client_error::Result<bool> {
@@ -82,6 +88,18 @@ impl StakedNodesUpdaterService {
                     },
                 )
                 .collect();
+            *pubkey_stake_map = vote_accounts
+                .current
+                .iter()
+                .chain(vote_accounts.delinquent.iter())
+                .filter_map(|vote_account| {
+                    Some((
+                        Pubkey::from_str(&vote_account.node_pubkey).ok()?,
+                        vote_account.activated_stake,
+                    ))
+                })
+                .collect();
+
             *last_stakes = Instant::now();
             Ok(true)
         } else {
