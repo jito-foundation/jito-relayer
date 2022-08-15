@@ -11,9 +11,12 @@ use std::{
 };
 
 use jito_rpc::load_balancer::LoadBalancer;
-use log::{debug, error};
+use log::{debug, error, Log};
 use solana_metrics::datapoint_info;
-use solana_sdk::{clock::Slot, pubkey::Pubkey};
+use solana_sdk::{
+    clock::{Slot, DEFAULT_SLOTS_PER_EPOCH},
+    pubkey::Pubkey,
+};
 
 pub struct LeaderScheduleCacheUpdater {
     /// Maps slots to scheduled pubkey
@@ -123,21 +126,18 @@ impl LeaderScheduleCacheUpdater {
             if let Ok(Some(leader_schedule)) = rpc_client.get_leader_schedule(None) {
                 let epoch_offset = epoch_info.absolute_slot - epoch_info.slot_index;
 
-                debug!("Got Leader Schedule. Length = {}", leader_schedule.len());
+                debug!("read leader schedule of length: {}", leader_schedule.len());
 
-                let mut schedule = schedule.write().unwrap();
-
-                // Remove Old Slots
-                schedule.retain(|s, _| *s >= epoch_info.absolute_slot);
-
-                // Add New Slots
+                let mut new_schedule = HashMap::with_capacity(DEFAULT_SLOTS_PER_EPOCH as usize);
                 for (pk_str, slots) in leader_schedule.iter() {
                     for slot in slots.iter() {
                         if let Ok(pubkey) = Pubkey::from_str(pk_str) {
-                            schedule.insert(*slot as u64 + epoch_offset, pubkey);
+                            new_schedule.insert(*slot as u64 + epoch_offset, pubkey);
                         }
                     }
                 }
+                *schedule.write().unwrap() = new_schedule;
+
                 return true;
             } else {
                 error!("Couldn't Get Leader Schedule Update from RPC!!!")
