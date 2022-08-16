@@ -1965,13 +1965,20 @@ dependencies = [
 name = "jito-relayer"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "crossbeam-channel",
  "ed25519-dalek",
  "histogram",
  "jito-protos",
  "jito-rpc",
+ "jwt",
+ "keyed_priority_queue",
  "log",
+ "openssl",
  "prost-types 0.10.1",
+ "rand 0.8.5",
+ "serde",
+ "sha2 0.10.2",
  "solana-client",
  "solana-metrics",
  "solana-perf",
@@ -2007,7 +2014,9 @@ dependencies = [
  "jito-protos",
  "jito-relayer",
  "jito-rpc",
+ "jwt",
  "log",
+ "openssl",
  "prost-types 0.10.1",
  "solana-core",
  "solana-metrics",
@@ -2151,6 +2160,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "jwt"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6204285f77fe7d9784db3fdc449ecce1a0114927a51d5a41c4c7a292011c015f"
+dependencies = [
+ "base64 0.13.0",
+ "crypto-common",
+ "digest 0.10.3",
+ "hmac 0.12.1",
+ "openssl",
+ "serde",
+ "serde_json",
+ "sha2 0.10.2",
+]
+
+[[package]]
 name = "keccak"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2164,6 +2189,15 @@ checksum = "7507624b29483431c0ba2d82aece8ca6cdba9382bff4ddd0f7490560c056098d"
 dependencies = [
  "winapi 0.2.8",
  "winapi-build",
+]
+
+[[package]]
+name = "keyed_priority_queue"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d63b6407b66fc81fc539dccf3ddecb669f393c5101b6a2be3976c95099a06e8"
+dependencies = [
+ "indexmap",
 ]
 
 [[package]]

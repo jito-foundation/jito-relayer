@@ -21,7 +21,12 @@ services:
       - NUM_TPU_FWD_BINDS=16
       - RPC_SERVERS=$RPC_SERVERS
       - WEBSOCKET_SERVERS=$WEBSOCKET_SERVERS
+      - SIGNING_KEY_PEM_PATH=$SIGNING_KEY_PEM_PATH
+      - VERIFYING_KEY_PEM_PATH=$VERIFYING_KEY_PEM_PATH
     restart: on-failure
+    volumes:
+      - ./config/keys:/etc/keys
+      - ./config/solana:/etc/solana
     ports:
       - "$TPU_PORT:$TPU_PORT/udp"
       - "$TPU_FWD_PORT:$TPU_FWD_PORT/udp"
