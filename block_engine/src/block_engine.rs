@@ -18,7 +18,7 @@ use jito_protos::{
         packet_batch_update::Msg, AccountsOfInterestRequest, AccountsOfInterestUpdate,
         ExpiringPacketBatch, PacketBatchUpdate,
     },
-    convert::packet_to_proto_packet,
+    convert::{packet_to_proto_packet, versioned_tx_from_packet},
     packet::{Packet as ProtoPacket, PacketBatch as ProtoPacketBatch},
     shared::{Header, Heartbeat},
 };
@@ -26,6 +26,7 @@ use log::{error, *};
 use prost_types::Timestamp;
 use solana_metrics::{datapoint_error, datapoint_info};
 use solana_perf::packet::PacketBatch;
+use solana_sdk::transaction::VersionedTransaction;
 use solana_sdk::{pubkey::Pubkey, signature::Signer, signer::keypair::Keypair};
 use thiserror::Error;
 use tokio::{
@@ -329,7 +330,8 @@ impl BlockEngineRelayerHandler {
                     aoi_update_count += 1;
                 }
                 block_engine_batches = block_engine_receiver.recv() => {
-                    packet_forward_count += Self::forward_packets(&block_engine_packet_sender, block_engine_batches).await?;
+                    let filtered_packets = Self::filter_aoi_packets(block_engine_batches, &accounts_of_interest).await;
+                    packet_forward_count += Self::forward_packets(&block_engine_packet_sender, filtered_packets).await?;
                 }
                 _ = refresh_interval.tick() => {
                     Self::maybe_refresh_auth(&mut auth_client, keypair, refresh_token, &shared_access_token, &mut auth_refresh_count).await?;
@@ -479,31 +481,16 @@ impl BlockEngineRelayerHandler {
     /// Forwards packets to the Block Engine
     async fn forward_packets(
         block_engine_packet_sender: &Sender<PacketBatchUpdate>,
-        block_engine_batches: Option<BlockEnginePackets>,
+        maybe_batch: BlockEngineResult<ExpiringPacketBatch>,
     ) -> BlockEngineResult<usize> {
-        let block_engine_batches = block_engine_batches
-            .ok_or_else(|| BlockEngineError::BlockEngineFailure("disconnected".to_string()))?;
+        let batch = maybe_batch
+            .map_err(|_e| BlockEngineError::BlockEngineFailure("disconnected".to_string()))?;
 
-        let packets: Vec<ProtoPacket> = block_engine_batches
-            .packet_batches
-            .into_iter()
-            .flat_map(|b| {
-                b.iter()
-                    .filter_map(packet_to_proto_packet)
-                    .collect::<Vec<ProtoPacket>>()
-            })
-            .collect();
-        let num_packets = packets.len();
+        let num_packets = batch.clone().batch.unwrap().packets.len();
 
         if block_engine_packet_sender
             .send(PacketBatchUpdate {
-                msg: Some(Msg::Batches(ExpiringPacketBatch {
-                    header: Some(Header {
-                        ts: Some(Timestamp::from(block_engine_batches.stamp)),
-                    }),
-                    batch: Some(ProtoPacketBatch { packets }),
-                    expiry_ms: block_engine_batches.expiration,
-                })),
+                msg: Some(Msg::Batches(batch)),
             })
             .await
             .is_err()
@@ -514,6 +501,49 @@ impl BlockEngineRelayerHandler {
         } else {
             Ok(num_packets)
         }
+    }
+
+    ///
+    async fn filter_aoi_packets(
+        block_engine_batches: Option<BlockEnginePackets>,
+        accounts_of_interest: &HashSet<Pubkey, RandomState>,
+    ) -> BlockEngineResult<ExpiringPacketBatch> {
+        let block_engine_batches = block_engine_batches
+            .ok_or_else(|| BlockEngineError::BlockEngineFailure("disconnected".to_string()))?;
+
+        let packets_txs: Vec<(ProtoPacket, VersionedTransaction)> = block_engine_batches
+            .packet_batches
+            .into_iter()
+            .flat_map(|b| {
+                b.iter()
+                    .filter_map(|p| {
+                        let pb = packet_to_proto_packet(p)?;
+                        Some((pb.clone(), versioned_tx_from_packet(&pb)?))
+                    })
+                    .collect::<Vec<(ProtoPacket, VersionedTransaction)>>()
+            })
+            .collect();
+
+        let mut filtered_packets = Vec::new();
+        packets_txs.into_iter().for_each(|(packet, tx)| {
+            let tx_accounts: HashSet<Pubkey> =
+                HashSet::from_iter(tx.message.static_account_keys().to_vec());
+            if tx_accounts.iter().any(|a| accounts_of_interest.contains(a)) {
+                filtered_packets.push(packet);
+            }
+        });
+
+        let filtered_batch = ExpiringPacketBatch {
+            header: Some(Header {
+                ts: Some(Timestamp::from(block_engine_batches.stamp)),
+            }),
+            batch: Some(ProtoPacketBatch {
+                packets: filtered_packets,
+            }),
+            expiry_ms: block_engine_batches.expiration,
+        };
+
+        Ok(filtered_batch)
     }
 
     /// Checks the heartbeat timeout and errors out if the heartbeat didn't come in time.
