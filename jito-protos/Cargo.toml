@@ -9,6 +9,7 @@ bytes = "1.1.0"
 prost = "0.10.3"
 prost-types = "0.10.1"
 solana-perf = "=1.11.5"
+solana-sdk = "=1.11.5"
 tonic = "0.7.2"
 
 [build-dependencies]

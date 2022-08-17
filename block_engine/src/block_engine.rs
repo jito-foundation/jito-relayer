@@ -18,7 +18,7 @@ use jito_protos::{
         packet_batch_update::Msg, AccountsOfInterestRequest, AccountsOfInterestUpdate,
         ExpiringPacketBatch, PacketBatchUpdate,
     },
-    convert::packet_to_proto_packet,
+    convert::{packet_to_proto_packet, versioned_tx_from_packet},
     packet::{Packet as ProtoPacket, PacketBatch as ProtoPacketBatch},
     shared::{Header, Heartbeat},
 };
@@ -329,7 +329,10 @@ impl BlockEngineRelayerHandler {
                     aoi_update_count += 1;
                 }
                 block_engine_batches = block_engine_receiver.recv() => {
-                    packet_forward_count += Self::forward_packets(&block_engine_packet_sender, block_engine_batches).await?;
+                    let block_engine_batches = block_engine_batches
+                        .ok_or_else(|| BlockEngineError::BlockEngineFailure("disconnected".to_string()))?;
+                    let filtered_packets = Self::filter_aoi_packets(block_engine_batches, &accounts_of_interest).await;
+                    packet_forward_count += Self::forward_packets(&block_engine_packet_sender, filtered_packets).await?;
                 }
                 _ = refresh_interval.tick() => {
                     Self::maybe_refresh_auth(&mut auth_client, keypair, refresh_token, &shared_access_token, &mut auth_refresh_count).await?;
@@ -479,31 +482,13 @@ impl BlockEngineRelayerHandler {
     /// Forwards packets to the Block Engine
     async fn forward_packets(
         block_engine_packet_sender: &Sender<PacketBatchUpdate>,
-        block_engine_batches: Option<BlockEnginePackets>,
+        batch: ExpiringPacketBatch,
     ) -> BlockEngineResult<usize> {
-        let block_engine_batches = block_engine_batches
-            .ok_or_else(|| BlockEngineError::BlockEngineFailure("disconnected".to_string()))?;
-
-        let packets: Vec<ProtoPacket> = block_engine_batches
-            .packet_batches
-            .into_iter()
-            .flat_map(|b| {
-                b.iter()
-                    .filter_map(packet_to_proto_packet)
-                    .collect::<Vec<ProtoPacket>>()
-            })
-            .collect();
-        let num_packets = packets.len();
+        let num_packets = batch.clone().batch.unwrap().packets.len();
 
         if block_engine_packet_sender
             .send(PacketBatchUpdate {
-                msg: Some(Msg::Batches(ExpiringPacketBatch {
-                    header: Some(Header {
-                        ts: Some(Timestamp::from(block_engine_batches.stamp)),
-                    }),
-                    batch: Some(ProtoPacketBatch { packets }),
-                    expiry_ms: block_engine_batches.expiration,
-                })),
+                msg: Some(Msg::Batches(batch)),
             })
             .await
             .is_err()
@@ -513,6 +498,42 @@ impl BlockEngineRelayerHandler {
             ))
         } else {
             Ok(num_packets)
+        }
+    }
+
+    /// Filters out packets that aren't on list of interest
+    async fn filter_aoi_packets(
+        block_engine_batches: BlockEnginePackets,
+        accounts_of_interest: &HashSet<Pubkey, RandomState>,
+    ) -> ExpiringPacketBatch {
+        let filtered_packets: Vec<ProtoPacket> = block_engine_batches
+            .packet_batches
+            .into_iter()
+            .flat_map(|b| {
+                b.iter()
+                    .filter_map(|p| {
+                        let pb = packet_to_proto_packet(p)?;
+                        let tx = versioned_tx_from_packet(&pb)?;
+                        let tx_accounts: HashSet<Pubkey> =
+                            HashSet::from_iter(tx.message.static_account_keys().to_vec());
+                        if tx_accounts.iter().any(|a| accounts_of_interest.contains(a)) {
+                            Some(pb)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<ProtoPacket>>()
+            })
+            .collect::<Vec<ProtoPacket>>();
+
+        ExpiringPacketBatch {
+            header: Some(Header {
+                ts: Some(Timestamp::from(block_engine_batches.stamp)),
+            }),
+            batch: Some(ProtoPacketBatch {
+                packets: filtered_packets,
+            }),
+            expiry_ms: block_engine_batches.expiration,
         }
     }
 
