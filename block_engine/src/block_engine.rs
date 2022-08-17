@@ -527,7 +527,7 @@ impl BlockEngineRelayerHandler {
             })
             .collect::<Vec<ProtoPacket>>();
 
-        let filtered_batch = ExpiringPacketBatch {
+        ExpiringPacketBatch {
             header: Some(Header {
                 ts: Some(Timestamp::from(block_engine_batches.stamp)),
             }),
@@ -535,9 +535,7 @@ impl BlockEngineRelayerHandler {
                 packets: filtered_packets,
             }),
             expiry_ms: block_engine_batches.expiration,
-        };
-
-        filtered_batch
+        }
     }
 
     /// Checks the heartbeat timeout and errors out if the heartbeat didn't come in time.
