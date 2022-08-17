@@ -521,7 +521,6 @@ impl BlockEngineRelayerHandler {
                         } else {
                             None
                         }
-                        // Some((pb.clone(), versioned_tx_from_packet(&pb)?))
                     })
                     .collect::<Vec<ProtoPacket>>()
             })
