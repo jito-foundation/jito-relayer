@@ -1,22 +1,36 @@
 use std::{
+    collections::HashSet,
+    fs::File,
+    io::Read,
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
+    time::Duration,
 };
 
 use clap::Parser;
 use crossbeam_channel::unbounded;
 use jito_block_engine::block_engine::BlockEngineRelayerHandler;
 use jito_core::tpu::{Tpu, TpuSockets};
-use jito_relayer::{relayer::RelayerImpl, schedule_cache::LeaderScheduleCacheUpdater};
+use jito_relayer::{
+    auth_service::{AuthServiceImpl, ValidatorAuther},
+    relayer::RelayerImpl,
+    schedule_cache::{LeaderScheduleCacheUpdater, LeaderScheduleUpdatingHandle},
+    start_server,
+};
 use jito_rpc::load_balancer::LoadBalancer;
 use jito_transaction_relayer::forwarder::start_forward_and_delay_thread;
+use jwt::PKeyWithDigest;
 use log::info;
+use openssl::{hash::MessageDigest, pkey::PKey};
 use solana_net_utils::multi_bind_in_range;
-use solana_sdk::signature::{read_keypair_file, Signer};
+use solana_sdk::{
+    pubkey::Pubkey,
+    signature::{read_keypair_file, Signer},
+};
 use tokio::sync::mpsc::channel;
 
 #[derive(Parser, Debug)]
@@ -71,10 +85,6 @@ struct Args {
     #[clap(long, env, value_parser, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
     public_ip: IpAddr,
 
-    /// Skip authentication
-    #[clap(long, env, value_parser)]
-    no_auth: bool,
-
     /// Packet delay in milliseconds
     #[clap(long, env, value_parser, default_value_t = 200)]
     packet_delay_ms: u32,
@@ -83,13 +93,42 @@ struct Args {
     #[clap(long, env, value_parser, default_value = "http://127.0.0.1:13334")]
     block_engine_url: String,
 
-    /// Authentication service address. Keypairs are authenticated against the block engine
+    /// Authentication service address of the block-engine. Keypairs are authenticated against the block engine
     #[clap(long, env, value_parser, default_value = "http://127.0.0.1:14444")]
-    auth_service_url: String,
+    block_engine_auth_service_url: String,
 
     /// Keypair path
-    #[clap(long, env, value_parser)]
+    #[clap(long, env, value_parser, default_value = "/etc/solana/id.json")]
     keypair_path: String,
+
+    /// Validators allowed to authenticate and connect to the relayer.
+    /// If null then all validators on the leader schedule shall be permitted.
+    #[clap(long, env)]
+    allowed_validators: Option<Vec<String>>,
+
+    /// The private key used to sign tokens by this server.
+    #[clap(long, env)]
+    signing_key_pem_path: String,
+
+    /// The public key used to verify tokens by this and other services.
+    #[clap(long, env)]
+    verifying_key_pem_path: String,
+
+    /// Specifies how long access_tokens are valid for, expressed in seconds.
+    #[clap(long, env, default_value_t = 1800)]
+    access_token_ttl_secs: i64,
+
+    /// Specifies how long access_tokens are valid for, expressed in seconds.
+    #[clap(long, env, default_value_t = 180000)]
+    refresh_token_ttl_secs: i64,
+
+    /// Specifies how long challenges are valid for, expressed in seconds.
+    #[clap(long, env, default_value_t = 1800)]
+    challenge_ttl_secs: i64,
+
+    /// The interval at which challenges are checked for expiration.
+    #[clap(long, env, default_value_t = 180)]
+    challenge_expiration_sleep_interval: i64,
 }
 
 struct Sockets {
@@ -153,7 +192,8 @@ fn main() {
 
     let sockets = get_sockets(&args);
 
-    let keypair = Arc::new(read_keypair_file(args.keypair_path).expect("keypair file exists"));
+    let keypair =
+        Arc::new(read_keypair_file(args.keypair_path).expect("keypair file does not exist"));
     solana_metrics::set_host_id(keypair.pubkey().to_string());
     info!("Relayer started with pubkey: {}", keypair.pubkey());
 
@@ -202,14 +242,13 @@ fn main() {
     );
     let block_engine_forwarder = BlockEngineRelayerHandler::new(
         args.block_engine_url,
-        args.auth_service_url,
+        args.block_engine_auth_service_url,
         block_engine_receiver,
         keypair,
     );
 
     let server_addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
-    let relayer_server = RelayerImpl::new(
-        server_addr,
+    let relayer_svc = RelayerImpl::new(
         slot_receiver,
         delay_receiver,
         leader_cache.handle(),
@@ -219,7 +258,54 @@ fn main() {
         args.tpu_fwd_port,
     );
 
-    relayer_server.start_server();
+    let auth_svc = {
+        let mut buf = Vec::new();
+        File::open(args.signing_key_pem_path)
+            .expect("signing key file to be found")
+            .read_to_end(&mut buf)
+            .expect("to read signing key file");
+        let signing_key = PKeyWithDigest {
+            digest: MessageDigest::sha256(),
+            key: PKey::private_key_from_pem(&buf[..]).unwrap(),
+        };
+
+        let mut buf = Vec::new();
+        File::open(args.verifying_key_pem_path)
+            .expect("verifying key file to be found")
+            .read_to_end(&mut buf)
+            .expect("to read verifying key file");
+        let verifying_key = PKeyWithDigest {
+            digest: MessageDigest::sha256(),
+            key: PKey::public_key_from_pem(&buf[..]).unwrap(),
+        };
+
+        let validator_store = if let Some(pubkeys) = args.allowed_validators {
+            let pubkeys = pubkeys
+                .into_iter()
+                .map(|pk| {
+                    Pubkey::from_str(&pk)
+                        .unwrap_or_else(|_| panic!("failed to parse pubkey from string: {}", pk))
+                })
+                .collect::<HashSet<Pubkey>>();
+            ValidatorStore::UserDefined(pubkeys)
+        } else {
+            ValidatorStore::LeaderSchedule(leader_cache.handle())
+        };
+
+        AuthServiceImpl::new(
+            ValidatorAutherImpl {
+                store: validator_store,
+            },
+            signing_key,
+            Arc::new(verifying_key),
+            Duration::from_secs(args.access_token_ttl_secs as u64),
+            Duration::from_secs(args.refresh_token_ttl_secs as u64),
+            Duration::from_secs(args.challenge_ttl_secs as u64),
+            Duration::from_secs(args.challenge_expiration_sleep_interval as u64),
+        )
+    };
+
+    start_server(auth_svc, relayer_svc, server_addr);
 
     exit.store(true, Ordering::Relaxed);
 
@@ -229,4 +315,22 @@ fn main() {
         t.join().unwrap();
     }
     block_engine_forwarder.join().unwrap();
+}
+
+enum ValidatorStore {
+    LeaderSchedule(LeaderScheduleUpdatingHandle),
+    UserDefined(HashSet<Pubkey>),
+}
+
+struct ValidatorAutherImpl {
+    store: ValidatorStore,
+}
+
+impl ValidatorAuther for ValidatorAutherImpl {
+    fn is_authorized(&self, pubkey: &Pubkey) -> bool {
+        match &self.store {
+            ValidatorStore::LeaderSchedule(cache) => cache.is_scheduled_validator(pubkey),
+            ValidatorStore::UserDefined(pubkeys) => pubkeys.contains(pubkey),
+        }
+    }
 }

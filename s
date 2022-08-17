@@ -12,4 +12,4 @@ fi
 echo "Syncing to host: $HOST"
 
 # sync + build
-rsync -avh --delete --exclude .git --exclude target "$SCRIPT_DIR" "$HOST":~/
+rsync -avh --delete --exclude target "$SCRIPT_DIR" "$HOST":~/

@@ -1,7 +1,7 @@
 use std::{
     cmp::max,
     collections::{hash_map::Entry, HashMap},
-    net::{IpAddr, SocketAddr},
+    net::IpAddr,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -17,13 +17,12 @@ use jito_protos::{
     convert::packet_to_proto_packet,
     packet::{Packet as ProtoPacket, PacketBatch as ProtoPacketBatch},
     relayer::{
-        relayer_server::{Relayer, RelayerServer},
-        subscribe_packets_response, GetTpuConfigsRequest, GetTpuConfigsResponse,
-        SubscribePacketsRequest, SubscribePacketsResponse,
+        relayer_server::Relayer, subscribe_packets_response, GetTpuConfigsRequest,
+        GetTpuConfigsResponse, SubscribePacketsRequest, SubscribePacketsResponse,
     },
     shared::{Header, Heartbeat, Socket},
 };
-use log::{error, info, warn};
+use log::*;
 use prost_types::Timestamp;
 use solana_metrics::datapoint_info;
 use solana_perf::packet::PacketBatch;
@@ -32,14 +31,11 @@ use solana_sdk::{
     pubkey::Pubkey,
 };
 use thiserror::Error;
-use tokio::{
-    runtime::Builder,
-    sync::mpsc::{channel, error::TrySendError, Sender as TokioSender},
-};
+use tokio::sync::mpsc::{channel, error::TrySendError, Sender as TokioSender};
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::{transport::Server, Request, Response, Status};
+use tonic::{Request, Response, Status};
 
-use crate::{auth::AuthenticationInterceptor, schedule_cache::LeaderScheduleUpdatingHandle};
+use crate::schedule_cache::LeaderScheduleUpdatingHandle;
 
 #[derive(Default)]
 struct RelayerMetrics {
@@ -136,10 +132,8 @@ pub type RelayerResult<T> = Result<T, RouterError>;
 pub struct RelayerImpl {
     tpu_port: u16,
     tpu_fwd_port: u16,
-    server_addr: SocketAddr,
     public_ip: IpAddr,
 
-    leader_schedule_cache: LeaderScheduleUpdatingHandle,
     subscription_sender: Sender<Subscription>,
     threads: Vec<JoinHandle<()>>,
 }
@@ -147,7 +141,6 @@ pub struct RelayerImpl {
 impl RelayerImpl {
     #![allow(clippy::too_many_arguments)]
     pub fn new(
-        server_addr: SocketAddr,
         slot_receiver: Receiver<Slot>,
         packet_receiver: Receiver<RouterPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
@@ -163,7 +156,7 @@ impl RelayerImpl {
             slot_receiver,
             subscription_receiver,
             packet_receiver,
-            leader_schedule_cache.clone(),
+            leader_schedule_cache,
             exit,
             LEADER_LOOKAHEAD,
         )];
@@ -171,8 +164,6 @@ impl RelayerImpl {
         Self {
             tpu_port,
             tpu_fwd_port,
-            server_addr,
-            leader_schedule_cache,
             subscription_sender,
             public_ip,
             threads,
@@ -184,23 +175,6 @@ impl RelayerImpl {
             t.join()?;
         }
         Ok(())
-    }
-
-    pub fn start_server(self) {
-        let rt = Builder::new_multi_thread().enable_all().build().unwrap();
-        rt.block_on(async {
-            let addr = self.server_addr;
-            let auth_interceptor =
-                AuthenticationInterceptor::new(self.leader_schedule_cache.clone());
-            let svc = RelayerServer::with_interceptor(self, auth_interceptor);
-
-            info!("starting relayer at: {:?}", addr);
-            Server::builder()
-                .add_service(svc)
-                .serve(addr)
-                .await
-                .expect("serve server");
-        });
     }
 
     fn start_router_thread(
