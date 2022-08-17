@@ -1,6 +1,7 @@
+use std::cmp::min;
+
 use solana_perf::packet::{Packet, PACKET_DATA_SIZE};
 use solana_sdk::transaction::VersionedTransaction;
-use std::cmp::min;
 
 use crate::packet::{Meta as ProtoMeta, Packet as ProtoPacket, PacketFlags as ProtoPacketFlags};
 
