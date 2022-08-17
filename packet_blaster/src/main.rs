@@ -102,8 +102,6 @@ fn main() {
                             .collect();
 
                         tpu_sender.send(serialized_txs);
-
-                        std::thread::sleep(Duration::from_secs(1));
                     }
                 })
                 .unwrap()

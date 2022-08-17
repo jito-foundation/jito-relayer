@@ -501,7 +501,7 @@ impl BlockEngineRelayerHandler {
         }
     }
 
-    ///
+    /// Filters out packets that aren't on list of interest
     async fn filter_aoi_packets(
         block_engine_batches: BlockEnginePackets,
         accounts_of_interest: &HashSet<Pubkey, RandomState>,
