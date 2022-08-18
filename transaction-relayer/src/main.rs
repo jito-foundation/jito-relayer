@@ -82,7 +82,7 @@ struct Args {
 
     /// This is the IP address that will be shared with the validator. The validator will
     /// tell the rest of the network to send packets here.
-    #[clap(long, env, value_parser, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
+    #[clap(long, env, value_parser)]
     public_ip: IpAddr,
 
     /// Packet delay in milliseconds
