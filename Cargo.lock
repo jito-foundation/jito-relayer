@@ -5714,7 +5714,10 @@ dependencies = [
  "pin-project",
  "prost 0.10.4",
  "prost-derive 0.10.1",
+ "rustls-native-certs",
+ "rustls-pemfile 1.0.1",
  "tokio",
+ "tokio-rustls 0.23.4",
  "tokio-stream",
  "tokio-util 0.7.2",
  "tower",
@@ -5722,6 +5725,7 @@ dependencies = [
  "tower-service",
  "tracing",
  "tracing-futures",
+ "webpki-roots",
 ]
 
 [[package]]
