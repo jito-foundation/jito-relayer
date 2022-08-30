@@ -205,7 +205,12 @@ impl BlockEngineRelayerHandler {
         block_engine_receiver: &mut Receiver<BlockEnginePackets>,
         keypair: &Arc<Keypair>,
     ) -> BlockEngineResult<()> {
-        let auth_endpoint = Endpoint::from_str(auth_service_url).expect("valid auth url");
+        let mut auth_endpoint = Endpoint::from_str(auth_service_url).expect("valid auth url");
+        if auth_service_url.contains("https") {
+            auth_endpoint = auth_endpoint
+                .tls_config(tonic::transport::ClientTlsConfig::new())
+                .expect("invalid tls config");
+        }
         let channel = auth_endpoint
             .connect()
             .await
@@ -232,8 +237,13 @@ impl BlockEngineRelayerHandler {
         let shared_access_token = Arc::new(Mutex::new(access_token));
         let auth_interceptor = AuthInterceptor::new(shared_access_token.clone());
 
-        let block_engine_endpoint =
+        let mut block_engine_endpoint =
             Endpoint::from_str(block_engine_url).expect("valid block engine url");
+        if block_engine_url.contains("https") {
+            block_engine_endpoint = block_engine_endpoint
+                .tls_config(tonic::transport::ClientTlsConfig::new())
+                .expect("invalid tls config");
+        }
         let block_engine_channel = block_engine_endpoint
             .connect()
             .await
@@ -321,23 +331,28 @@ impl BlockEngineRelayerHandler {
         loop {
             select! {
                 _ = heartbeat.tick() => {
+                    trace!("sending heartbeat");
                     Self::check_and_send_heartbeat(&block_engine_packet_sender, &heartbeat_count).await?;
                     heartbeat_count += 1;
                 }
                 maybe_aoi = aoi_stream.message() => {
+                    trace!("received aoi message");
                     Self::handle_aoi(maybe_aoi, &mut accounts_of_interest).await?;
                     aoi_update_count += 1;
                 }
                 block_engine_batches = block_engine_receiver.recv() => {
+                    trace!("received block engine batches");
                     let block_engine_batches = block_engine_batches
                         .ok_or_else(|| BlockEngineError::BlockEngineFailure("disconnected".to_string()))?;
                     let filtered_packets = Self::filter_aoi_packets(block_engine_batches, &accounts_of_interest).await;
                     packet_forward_count += Self::forward_packets(&block_engine_packet_sender, filtered_packets).await?;
                 }
                 _ = refresh_interval.tick() => {
+                    trace!("refreshing auth interval");
                     Self::maybe_refresh_auth(&mut auth_client, keypair, refresh_token, &shared_access_token, &mut auth_refresh_count).await?;
                 }
                 _ = metrics_interval.tick() => {
+                    trace!("flushing metrics");
                     datapoint_info!("block_engine_relayer-loop_stats",
                         ("heartbeat_count", heartbeat_count, i64),
                         ("accounts_of_interest_len", accounts_of_interest.len(), i64),
@@ -486,13 +501,13 @@ impl BlockEngineRelayerHandler {
     ) -> BlockEngineResult<usize> {
         let num_packets = batch.clone().batch.unwrap().packets.len();
 
-        if block_engine_packet_sender
+        if let Err(e) = block_engine_packet_sender
             .send(PacketBatchUpdate {
                 msg: Some(Msg::Batches(batch)),
             })
             .await
-            .is_err()
         {
+            error!("error forwarding packets {}", e);
             Err(BlockEngineError::BlockEngineFailure(
                 "disconnected".to_string(),
             ))
@@ -543,15 +558,15 @@ impl BlockEngineRelayerHandler {
         block_engine_packet_sender: &Sender<PacketBatchUpdate>,
         heartbeat_count: &u64,
     ) -> BlockEngineResult<()> {
-        if block_engine_packet_sender
+        if let Err(e) = block_engine_packet_sender
             .send(PacketBatchUpdate {
                 msg: Some(Msg::Heartbeat(Heartbeat {
                     count: *heartbeat_count,
                 })),
             })
             .await
-            .is_err()
         {
+            error!("error sending heartbeat {}", e);
             return Err(BlockEngineError::BlockEngineFailure(
                 "disconnected".to_string(),
             ));
