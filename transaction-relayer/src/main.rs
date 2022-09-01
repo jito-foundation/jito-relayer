@@ -24,7 +24,7 @@ use jito_relayer::{
 use jito_rpc::load_balancer::LoadBalancer;
 use jito_transaction_relayer::forwarder::start_forward_and_delay_thread;
 use jwt::PKeyWithDigest;
-use log::info;
+use log::{error, info};
 use openssl::{hash::MessageDigest, pkey::PKey};
 use solana_net_utils::multi_bind_in_range;
 use solana_sdk::{
@@ -199,6 +199,13 @@ fn main() {
     info!("Relayer started with pubkey: {}", keypair.pubkey());
 
     let exit = Arc::new(AtomicBool::new(false));
+
+    let exit_l = exit.clone();
+    ctrlc::set_handler(move || {
+        error!("received Ctrl+C!");
+        exit_l.store(true, Ordering::SeqCst);
+    })
+    .expect("Error setting Ctrl-C handler");
 
     let rpc_servers: Vec<String> = args.rpc_servers.split(' ').map(String::from).collect();
     let websocket_servers: Vec<String> = args
