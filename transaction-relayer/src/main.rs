@@ -200,12 +200,14 @@ fn main() {
 
     let exit = Arc::new(AtomicBool::new(false));
 
-    let rpc_servers: Vec<String> = args.rpc_servers.split(" ").map(String::from).collect();
+    let rpc_servers: Vec<String> = args.rpc_servers.split(' ').map(String::from).collect();
     let websocket_servers: Vec<String> = args
         .websocket_servers
-        .split(" ")
+        .split(' ')
         .map(String::from)
         .collect();
+    info!("rpc servers: {:?}", rpc_servers);
+    info!("ws servers: {:?}", websocket_servers);
 
     assert!(!rpc_servers.is_empty(), "num rpc servers >= 1");
     assert_eq!(
