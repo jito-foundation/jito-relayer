@@ -37,7 +37,7 @@ use tokio::sync::mpsc::channel;
 #[clap(author, version, about, long_about = None)]
 struct Args {
     /// IP address to bind to for transaction packets
-    #[clap(long, env, value_parser, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
+    #[clap(long, env, value_parser)]
     tpu_bind_ip: IpAddr,
 
     /// Port to bind to for tpu packets
@@ -48,16 +48,16 @@ struct Args {
     #[clap(long, env, value_parser, default_value_t = 11_223)]
     tpu_fwd_port: u16,
 
-    /// Port to bind to for tpu packets
+    /// Port to bind to for tpu packets. Needs to be tpu_port + 6
     #[clap(long, env, value_parser, default_value_t = 11_228)]
     tpu_quic_port: u16,
 
-    /// Port to bind to for tpu fwd packets
+    /// Port to bind to for tpu fwd packets. Needs to be tpu_fwd_port + 6
     #[clap(long, env, value_parser, default_value_t = 11_229)]
     tpu_quic_fwd_port: u16,
 
     /// Bind IP address for GRPC server
-    #[clap(long, env, value_parser, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
+    #[clap(long, env, value_parser)]
     grpc_bind_ip: IpAddr,
 
     /// Bind port address for GRPC server
@@ -82,7 +82,7 @@ struct Args {
 
     /// This is the IP address that will be shared with the validator. The validator will
     /// tell the rest of the network to send packets here.
-    #[clap(long, env, value_parser, default_value_t = IpAddr::from_str("127.0.0.1").unwrap())]
+    #[clap(long, env, value_parser)]
     public_ip: IpAddr,
 
     /// Packet delay in milliseconds
@@ -90,15 +90,15 @@ struct Args {
     packet_delay_ms: u32,
 
     /// Block engine address
-    #[clap(long, env, value_parser, default_value = "http://127.0.0.1:13334")]
+    #[clap(long, env, value_parser)]
     block_engine_url: String,
 
     /// Authentication service address of the block-engine. Keypairs are authenticated against the block engine
-    #[clap(long, env, value_parser, default_value = "http://127.0.0.1:14444")]
+    #[clap(long, env, value_parser)]
     block_engine_auth_service_url: String,
 
     /// Keypair path
-    #[clap(long, env, value_parser, default_value = "/etc/solana/id.json")]
+    #[clap(long, env, value_parser)]
     keypair_path: String,
 
     /// Validators allowed to authenticate and connect to the relayer.
