@@ -100,7 +100,6 @@ impl LoadBalancer {
                                             .recv_timeout(Duration::from_millis(100))
                                         {
                                             Ok(slot) => {
-                                                info!("url: {} slot: {:?}", websocket_url, slot);
                                                 server_to_slot
                                                     .lock()
                                                     .unwrap()

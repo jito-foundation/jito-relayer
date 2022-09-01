@@ -186,7 +186,7 @@ fn get_sockets(args: &Args) -> Sockets {
 }
 
 fn main() {
-    env_logger::init();
+    env_logger::builder().format_timestamp_millis().init();
 
     let args: Args = Args::parse();
     info!("args: {:?}", args);
