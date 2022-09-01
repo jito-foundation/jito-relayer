@@ -157,30 +157,13 @@ impl<V: ValidatorAuther> AuthServiceImpl<V> {
             .unwrap()
     }
 
-    // Fetch downstream client's IP from the x-forwarded-for header.
-    // If not present then use the IP address of the client forwarding/sending requests.
-    fn client_ip_from_header<T>(req: &Request<T>) -> Result<IpAddr, Status> {
-        let maybe_xff = req.metadata().get("x-forwarded-for").cloned();
-        let remote_addr = req.remote_addr();
-
-        if let Some(ip) = maybe_xff {
-            let maybe_ip = ip.to_str().map_err(|e| {
-                error!("error parsing x-forwarded-for header {}", e);
-                Status::invalid_argument("Failed to parse x-forwarded-for header.")
-            });
-
-            match maybe_ip {
-                Ok(ip) => ip.parse().map_err(|e| {
-                    error!("Failed to parse {}, error={}", ip, e);
-                    Status::invalid_argument("Invalid x-forwarded-for IP address.")
-                }),
-                Err(e) => Err(e),
-            }
-        } else if let Some(socket_addr) = remote_addr {
-            Ok(socket_addr.ip())
-        } else {
-            Err(Status::permission_denied("Missing x-forwarded-for header."))
-        }
+    // NOTE: if this is behind a proxy, the remote_addr will be the proxy, which may mess with the
+    // authentication scheme
+    fn client_ip<T>(req: &Request<T>) -> Result<IpAddr, Status> {
+        Ok(req
+            .remote_addr()
+            .ok_or_else(|| Status::internal("request is missing IP address"))?
+            .ip())
     }
 
     fn generate_challenge_token() -> String {
@@ -203,7 +186,7 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
             return Err(Status::resource_exhausted("System overloaded."));
         }
 
-        let client_ip = Self::client_ip_from_header(&req)?;
+        let client_ip = Self::client_ip(&req)?;
         if let Some(auth_challenge) = l_auth_challenges.get_priority(&client_ip) {
             if !auth_challenge.0.is_expired() {
                 return Ok(Response::new(GenerateAuthChallengeResponse {
@@ -257,7 +240,7 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
         &self,
         req: Request<GenerateAuthTokensRequest>,
     ) -> Result<Response<GenerateAuthTokensResponse>, Status> {
-        let client_ip = Self::client_ip_from_header(&req)?;
+        let client_ip = Self::client_ip(&req)?;
         let inner_req = req.into_inner();
 
         let client_pubkey = PublicKey::from_bytes(&inner_req.client_pubkey[..]).map_err(|e| {
