@@ -189,6 +189,7 @@ fn main() {
     env_logger::init();
 
     let args: Args = Args::parse();
+    info!("args: {:?}", args);
 
     let sockets = get_sockets(&args);
 
