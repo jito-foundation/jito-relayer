@@ -344,8 +344,9 @@ impl BlockEngineRelayerHandler {
                     trace!("received block engine batches");
                     let block_engine_batches = block_engine_batches
                         .ok_or_else(|| BlockEngineError::BlockEngineFailure("disconnected".to_string()))?;
-                    let filtered_packets = Self::filter_aoi_packets(block_engine_batches, &accounts_of_interest).await;
-                    packet_forward_count += Self::forward_packets(&block_engine_packet_sender, filtered_packets).await?;
+                    if let Some(filtered_packets) = Self::filter_aoi_packets(block_engine_batches, &accounts_of_interest).await {
+                        packet_forward_count += Self::forward_packets(&block_engine_packet_sender, filtered_packets).await?;
+                    }
                 }
                 _ = refresh_interval.tick() => {
                     trace!("refreshing auth interval");
@@ -520,7 +521,7 @@ impl BlockEngineRelayerHandler {
     async fn filter_aoi_packets(
         block_engine_batches: BlockEnginePackets,
         accounts_of_interest: &HashSet<Pubkey, RandomState>,
-    ) -> ExpiringPacketBatch {
+    ) -> Option<ExpiringPacketBatch> {
         let filtered_packets: Vec<ProtoPacket> = block_engine_batches
             .packet_batches
             .into_iter()
@@ -541,14 +542,18 @@ impl BlockEngineRelayerHandler {
             })
             .collect::<Vec<ProtoPacket>>();
 
-        ExpiringPacketBatch {
-            header: Some(Header {
-                ts: Some(Timestamp::from(block_engine_batches.stamp)),
-            }),
-            batch: Some(ProtoPacketBatch {
-                packets: filtered_packets,
-            }),
-            expiry_ms: block_engine_batches.expiration,
+        if !filtered_packets.is_empty() {
+            Some(ExpiringPacketBatch {
+                header: Some(Header {
+                    ts: Some(Timestamp::from(block_engine_batches.stamp)),
+                }),
+                batch: Some(ProtoPacketBatch {
+                    packets: filtered_packets,
+                }),
+                expiry_ms: block_engine_batches.expiration,
+            })
+        } else {
+            None
         }
     }
 
