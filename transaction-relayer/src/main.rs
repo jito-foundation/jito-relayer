@@ -72,13 +72,13 @@ struct Args {
     #[clap(long, env, value_parser, default_value_t = 16)]
     num_tpu_fwd_binds: usize,
 
-    /// RPC server list
+    /// RPC servers as a space-separated list. Shall be same position as websocket equivalent below
     #[clap(long, env, value_parser, default_value = "http://127.0.0.1:8899")]
-    rpc_servers: Vec<String>,
+    rpc_servers: String,
 
-    /// Websocket server list
+    /// Websocket servers as a space-separated list. Shall be same position as RPC equivalent above
     #[clap(long, env, value_parser, default_value = "ws://127.0.0.1:8900")]
-    websocket_servers: Vec<String>,
+    websocket_servers: String,
 
     /// This is the IP address that will be shared with the validator. The validator will
     /// tell the rest of the network to send packets here.
@@ -189,6 +189,7 @@ fn main() {
     env_logger::init();
 
     let args: Args = Args::parse();
+    info!("args: {:?}", args);
 
     let sockets = get_sockets(&args);
 
@@ -199,17 +200,25 @@ fn main() {
 
     let exit = Arc::new(AtomicBool::new(false));
 
+    let rpc_servers: Vec<String> = args.rpc_servers.split(' ').map(String::from).collect();
+    let websocket_servers: Vec<String> = args
+        .websocket_servers
+        .split(' ')
+        .map(String::from)
+        .collect();
+    info!("rpc servers: {:?}", rpc_servers);
+    info!("ws servers: {:?}", websocket_servers);
+
+    assert!(!rpc_servers.is_empty(), "num rpc servers >= 1");
     assert_eq!(
-        args.rpc_servers.len(),
-        args.websocket_servers.len(),
+        rpc_servers.len(),
+        websocket_servers.len(),
         "num rpc servers = num websocket servers"
     );
-    assert!(!args.rpc_servers.is_empty(), "num rpc servers >= 1");
 
-    let servers: Vec<(String, String)> = args
-        .rpc_servers
+    let servers: Vec<(String, String)> = rpc_servers
         .into_iter()
-        .zip(args.websocket_servers.into_iter())
+        .zip(websocket_servers.into_iter())
         .collect();
 
     let (rpc_load_balancer, slot_receiver) = LoadBalancer::new(&servers, &exit);
