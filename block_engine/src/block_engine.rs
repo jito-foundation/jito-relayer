@@ -342,13 +342,12 @@ impl BlockEngineRelayerHandler {
         let mut refresh_interval = interval(Duration::from_secs(60));
         let mut metrics_interval = interval(Duration::from_secs(1));
 
-        loop {
+        while !exit.load(Ordering::Relaxed) {
             select! {
                 _ = heartbeat.tick() => {
                     trace!("sending heartbeat");
                     Self::check_and_send_heartbeat(&block_engine_packet_sender, &heartbeat_count).await?;
                     heartbeat_count += 1;
-                    if exit.load(Ordering::Relaxed) { return Err(BlockEngineError::BlockEngineFailure(String::from("exit")));}
                 }
                 maybe_aoi = aoi_stream.message() => {
                     trace!("received aoi message");
@@ -379,6 +378,7 @@ impl BlockEngineRelayerHandler {
                 }
             }
         }
+        Ok(())
     }
 
     /// Refresh authentication tokens if they're about to expire
