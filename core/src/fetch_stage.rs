@@ -140,34 +140,38 @@ impl FetchStage {
 
         let sender = sender.clone();
 
-        let fwd_thread_hdl = Builder::new()
-            .name("solana-fetch-stage-fwd-rcvr".to_string())
-            .spawn(move || loop {
-                if let Err(e) = Self::handle_forwarded_packets(&forward_receiver, &sender) {
-                    match e {
-                        Error::RecvTimeout(RecvTimeoutError::Disconnected) => break,
-                        Error::RecvTimeout(RecvTimeoutError::Timeout) => (),
-                        Error::Recv(_) => break,
-                        Error::Send => break,
+        let fwd_thread_hdl = {
+            let exit = exit.clone();
+            Builder::new()
+                .name("solana-fetch-stage-fwd-rcvr".to_string())
+                .spawn(move || {
+                    while !exit.load(Ordering::Relaxed) {
+                        if let Err(e) = Self::handle_forwarded_packets(&forward_receiver, &sender) {
+                            match e {
+                                Error::RecvTimeout(RecvTimeoutError::Disconnected) => break,
+                                Error::RecvTimeout(RecvTimeoutError::Timeout) => (),
+                                Error::Recv(_) => break,
+                                Error::Send => break,
+                            }
+                        }
                     }
-                }
-            })
-            .unwrap();
+                })
+                .unwrap()
+        };
 
-        let exit = exit.clone();
-        let metrics_thread_hdl = Builder::new()
-            .name("solana-fetch-stage-metrics".to_string())
-            .spawn(move || loop {
-                sleep(Duration::from_secs(1));
-
-                tpu_stats.report();
-                tpu_forward_stats.report();
-
-                if exit.load(Ordering::Relaxed) {
-                    return;
-                }
-            })
-            .unwrap();
+        let metrics_thread_hdl = {
+            let exit = exit.clone();
+            Builder::new()
+                .name("solana-fetch-stage-metrics".to_string())
+                .spawn(move || {
+                    while !exit.load(Ordering::Relaxed) {
+                        sleep(Duration::from_secs(1));
+                        tpu_stats.report();
+                        tpu_forward_stats.report();
+                    }
+                })
+                .unwrap()
+        };
 
         Self {
             thread_hdls: [

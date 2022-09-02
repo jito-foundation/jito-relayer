@@ -24,6 +24,7 @@ pub fn start_server<V: ValidatorAuther>(
     relayer_svc: RelayerImpl,
     addr: SocketAddr,
 ) {
+    // Todo (JL): Async Exit here?
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();
     rt.block_on(async {
         info!("starting relayer at: {:?}", addr);

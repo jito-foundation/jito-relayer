@@ -1,7 +1,10 @@
 use std::{
     collections::{hash_map::RandomState, HashSet},
     str::FromStr,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     thread,
     thread::{Builder, JoinHandle},
     time::{Duration, SystemTime},
@@ -93,12 +96,14 @@ impl BlockEngineRelayerHandler {
         auth_service_url: String,
         block_engine_receiver: Receiver<BlockEnginePackets>,
         keypair: Arc<Keypair>,
+        exit: &Arc<AtomicBool>,
     ) -> BlockEngineRelayerHandler {
         let block_engine_forwarder = Self::start_block_engine_relayer_stream(
             block_engine_url,
             auth_service_url,
             block_engine_receiver,
             keypair,
+            exit,
         );
         BlockEngineRelayerHandler {
             block_engine_forwarder,
@@ -114,18 +119,21 @@ impl BlockEngineRelayerHandler {
         auth_service_url: String,
         mut block_engine_receiver: Receiver<BlockEnginePackets>,
         keypair: Arc<Keypair>,
+        exit: &Arc<AtomicBool>,
     ) -> JoinHandle<()> {
+        let exit = exit.clone();
         Builder::new()
             .name("jito_block_engine_relayer_stream".into())
             .spawn(move || {
                 let rt = Runtime::new().unwrap();
                 rt.block_on(async move {
-                    loop {
+                    while !exit.load(Ordering::Relaxed) {
                         match Self::auth_and_connect(
                             &block_engine_url,
                             &auth_service_url,
                             &mut block_engine_receiver,
                             &keypair,
+                            &exit,
                         )
                         .await
                         {
@@ -204,6 +212,7 @@ impl BlockEngineRelayerHandler {
         auth_service_url: &str,
         block_engine_receiver: &mut Receiver<BlockEnginePackets>,
         keypair: &Arc<Keypair>,
+        exit: &Arc<AtomicBool>,
     ) -> BlockEngineResult<()> {
         let mut auth_endpoint = Endpoint::from_str(auth_service_url).expect("valid auth url");
         if auth_service_url.contains("https") {
@@ -264,6 +273,7 @@ impl BlockEngineRelayerHandler {
             keypair,
             &mut refresh_token,
             shared_access_token,
+            exit,
         )
         .await
     }
@@ -280,6 +290,7 @@ impl BlockEngineRelayerHandler {
         keypair: &Arc<Keypair>,
         refresh_token: &mut Token,
         shared_access_token: Arc<Mutex<Token>>,
+        exit: &Arc<AtomicBool>,
     ) -> BlockEngineResult<()> {
         let subscribe_aoi_stream = client
             .subscribe_accounts_of_interest(AccountsOfInterestRequest {})
@@ -299,10 +310,12 @@ impl BlockEngineRelayerHandler {
             keypair,
             refresh_token,
             shared_access_token,
+            exit,
         )
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn handle_packet_stream(
         block_engine_packet_sender: Sender<PacketBatchUpdate>,
         block_engine_receiver: &mut Receiver<BlockEnginePackets>,
@@ -311,6 +324,7 @@ impl BlockEngineRelayerHandler {
         keypair: &Arc<Keypair>,
         refresh_token: &mut Token,
         shared_access_token: Arc<Mutex<Token>>,
+        exit: &Arc<AtomicBool>,
     ) -> BlockEngineResult<()> {
         let mut aoi_stream = subscribe_aoi_stream.into_inner();
 
@@ -328,7 +342,7 @@ impl BlockEngineRelayerHandler {
         let mut refresh_interval = interval(Duration::from_secs(60));
         let mut metrics_interval = interval(Duration::from_secs(1));
 
-        loop {
+        while !exit.load(Ordering::Relaxed) {
             select! {
                 _ = heartbeat.tick() => {
                     trace!("sending heartbeat");
@@ -364,6 +378,7 @@ impl BlockEngineRelayerHandler {
                 }
             }
         }
+        Ok(())
     }
 
     /// Refresh authentication tokens if they're about to expire

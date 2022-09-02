@@ -144,7 +144,7 @@ impl RelayerImpl {
         slot_receiver: Receiver<Slot>,
         packet_receiver: Receiver<RouterPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
-        exit: Arc<AtomicBool>,
+        exit: &Arc<AtomicBool>,
         public_ip: IpAddr,
         tpu_port: u16,
         tpu_fwd_port: u16,
@@ -182,9 +182,10 @@ impl RelayerImpl {
         subscription_receiver: Receiver<Subscription>,
         packet_receiver: Receiver<RouterPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
-        exit: Arc<AtomicBool>,
+        exit: &Arc<AtomicBool>,
         leader_lookahead: u64,
     ) -> JoinHandle<()> {
+        let exit = exit.clone();
         thread::Builder::new()
             .name("jito-packet-router".into())
             .spawn(move || {
