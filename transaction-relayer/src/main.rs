@@ -199,13 +199,7 @@ fn main() {
     info!("Relayer started with pubkey: {}", keypair.pubkey());
 
     let exit = Arc::new(AtomicBool::new(false));
-
-    let exit_l = exit.clone();
-    ctrlc::set_handler(move || {
-        error!("received Ctrl+C!");
-        exit_l.store(true, Ordering::SeqCst);
-    })
-    .expect("Error setting Ctrl-C handler");
+    create_ctrlc_handler(&exit);
 
     let rpc_servers: Vec<String> = args.rpc_servers.split(' ').map(String::from).collect();
     let websocket_servers: Vec<String> = args
@@ -241,7 +235,7 @@ fn main() {
         &rpc_load_balancer,
     );
 
-    let leader_cache = LeaderScheduleCacheUpdater::new(&rpc_load_balancer, exit.clone());
+    let leader_cache = LeaderScheduleCacheUpdater::new(&rpc_load_balancer, &exit);
 
     let (delay_sender, delay_receiver) = unbounded();
 
@@ -255,12 +249,14 @@ fn main() {
         args.packet_delay_ms,
         block_engine_sender,
         1,
+        &exit,
     );
     let block_engine_forwarder = BlockEngineRelayerHandler::new(
         args.block_engine_url,
         args.block_engine_auth_service_url,
         block_engine_receiver,
         keypair,
+        &exit,
     );
 
     let server_addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
@@ -268,7 +264,7 @@ fn main() {
         slot_receiver,
         delay_receiver,
         leader_cache.handle(),
-        exit.clone(),
+        &exit,
         args.public_ip,
         args.tpu_port,
         args.tpu_fwd_port,
@@ -318,6 +314,7 @@ fn main() {
             Duration::from_secs(args.refresh_token_ttl_secs as u64),
             Duration::from_secs(args.challenge_ttl_secs as u64),
             Duration::from_secs(args.challenge_expiration_sleep_interval as u64),
+            &exit,
         )
     };
 
@@ -349,4 +346,13 @@ impl ValidatorAuther for ValidatorAutherImpl {
             ValidatorStore::UserDefined(pubkeys) => pubkeys.contains(pubkey),
         }
     }
+}
+
+fn create_ctrlc_handler(exit: &Arc<AtomicBool>) {
+    let exit_l = exit.clone();
+    ctrlc::set_handler(move || {
+        error!("received Ctrl+C!");
+        exit_l.store(true, Ordering::SeqCst);
+    })
+    .expect("Error setting Ctrl-C handler");
 }

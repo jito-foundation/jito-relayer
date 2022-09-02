@@ -2,7 +2,10 @@ use std::{
     cmp::Reverse,
     net::IpAddr,
     ops::Add,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     thread::{sleep, Builder, JoinHandle},
     time::Duration as StdDuration,
 };
@@ -102,6 +105,7 @@ impl Ord for AuthChallenge {
 const AUTH_CHALLENGES_CAPACITY: usize = 100_000;
 
 impl<V: ValidatorAuther> AuthServiceImpl<V> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         validator_auther: V,
         signing_key: PKeyWithDigest<Private>,
@@ -110,11 +114,13 @@ impl<V: ValidatorAuther> AuthServiceImpl<V> {
         refresh_token_ttl: StdDuration,
         challenge_ttl: StdDuration,
         challenge_expiration_sleep_interval: StdDuration,
+        exit: &Arc<AtomicBool>,
     ) -> Self {
         let auth_challenges = Arc::new(Mutex::new(KeyedPriorityQueue::new()));
         let t_hdl = Self::start_challenge_expiration_thread(
             auth_challenges.clone(),
             challenge_expiration_sleep_interval,
+            exit,
         );
 
         Self {
@@ -136,12 +142,14 @@ impl<V: ValidatorAuther> AuthServiceImpl<V> {
     fn start_challenge_expiration_thread(
         auth_challenges: Arc<Mutex<KeyedPriorityQueue<IpAddr, Reverse<AuthChallenge>>>>,
         sleep_interval: StdDuration,
+        exit: &Arc<AtomicBool>,
     ) -> JoinHandle<()> {
+        let exit = exit.clone();
         Builder::new()
             .name("challenge-expiration-thread".to_string())
             .spawn(move || {
                 let rt = Runtime::new().unwrap();
-                loop {
+                while !exit.load(Ordering::Relaxed) {
                     let mut l_auth_challenges = rt.block_on(auth_challenges.lock());
                     while let Some((_ip_addr, auth_challenge)) = l_auth_challenges.peek() {
                         if auth_challenge.0.is_expired() {

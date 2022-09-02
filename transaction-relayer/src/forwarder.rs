@@ -1,5 +1,9 @@
 use std::{
     collections::VecDeque,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     thread::{Builder, JoinHandle},
     time::{Duration, Instant, SystemTime},
 };
@@ -61,6 +65,7 @@ pub fn start_forward_and_delay_thread(
     packet_delay_ms: u32,
     block_engine_sender: tokio::sync::mpsc::Sender<BlockEnginePackets>,
     num_threads: u64,
+    exit: &Arc<AtomicBool>,
 ) -> Vec<JoinHandle<()>> {
     const SLEEP_DURATION: Duration = Duration::from_millis(5);
     let packet_delay = Duration::from_millis(packet_delay_ms as u64);
@@ -71,6 +76,7 @@ pub fn start_forward_and_delay_thread(
             let delay_sender = delay_sender.clone();
             let block_engine_sender = block_engine_sender.clone();
 
+            let exit = exit.clone();
             Builder::new()
                 .name("jito-forward_packets_to_block_engine".into())
                 .spawn(move || {
@@ -79,7 +85,7 @@ pub fn start_forward_and_delay_thread(
                     let mut forwarder_metrics = ForwarderMetrics::default();
                     let mut last_metrics_upload = Instant::now();
 
-                    loop {
+                    while !exit.load(Ordering::Relaxed) {
                         if last_metrics_upload.elapsed() >= Duration::from_secs(1) {
                             forwarder_metrics.report(i, packet_delay_ms);
 

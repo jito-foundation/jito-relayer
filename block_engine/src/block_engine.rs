@@ -1,7 +1,7 @@
 use std::{
     collections::{hash_map::RandomState, HashSet},
     str::FromStr,
-    sync::{Arc, Mutex},
+    sync::{atomic::AtomicBool, Arc, Mutex},
     thread,
     thread::{Builder, JoinHandle},
     time::{Duration, SystemTime},
@@ -93,12 +93,14 @@ impl BlockEngineRelayerHandler {
         auth_service_url: String,
         block_engine_receiver: Receiver<BlockEnginePackets>,
         keypair: Arc<Keypair>,
+        exit: &Arc<AtomicBool>,
     ) -> BlockEngineRelayerHandler {
         let block_engine_forwarder = Self::start_block_engine_relayer_stream(
             block_engine_url,
             auth_service_url,
             block_engine_receiver,
             keypair,
+            exit,
         );
         BlockEngineRelayerHandler {
             block_engine_forwarder,
@@ -114,7 +116,10 @@ impl BlockEngineRelayerHandler {
         auth_service_url: String,
         mut block_engine_receiver: Receiver<BlockEnginePackets>,
         keypair: Arc<Keypair>,
+        _exit: &Arc<AtomicBool>,
     ) -> JoinHandle<()> {
+        //let exit = exit.clone();
+        // Todo (JL): Figure out how to exit async
         Builder::new()
             .name("jito_block_engine_relayer_stream".into())
             .spawn(move || {

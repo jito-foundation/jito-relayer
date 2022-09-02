@@ -61,7 +61,7 @@ impl LeaderScheduleUpdatingHandle {
 impl LeaderScheduleCacheUpdater {
     pub fn new(
         load_balancer: &Arc<Mutex<LoadBalancer>>,
-        exit: Arc<AtomicBool>,
+        exit: &Arc<AtomicBool>,
     ) -> LeaderScheduleCacheUpdater {
         let schedules = Arc::new(RwLock::new(HashMap::new()));
         let refresh_thread = Self::refresh_thread(schedules.clone(), load_balancer.clone(), exit);
@@ -83,8 +83,9 @@ impl LeaderScheduleCacheUpdater {
     fn refresh_thread(
         schedule: Arc<RwLock<HashMap<Slot, Pubkey>>>,
         load_balancer: Arc<Mutex<LoadBalancer>>,
-        exit: Arc<AtomicBool>,
+        exit: &Arc<AtomicBool>,
     ) -> JoinHandle<()> {
+        let exit = exit.clone();
         Builder::new()
             .name("leader-schedule-refresh".into())
             .spawn(move || {
