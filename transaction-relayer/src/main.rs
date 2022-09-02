@@ -349,10 +349,10 @@ impl ValidatorAuther for ValidatorAutherImpl {
 }
 
 fn create_ctrlc_handler(exit: &Arc<AtomicBool>) {
-    let exit_l = exit.clone();
+    let exit = exit.clone();
     ctrlc::set_handler(move || {
         error!("received Ctrl+C!");
-        exit_l.store(true, Ordering::SeqCst);
+        exit.store(true, Ordering::SeqCst);
     })
     .expect("Error setting Ctrl-C handler");
 }
