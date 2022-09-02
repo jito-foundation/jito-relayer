@@ -140,6 +140,7 @@ impl FetchStage {
 
         let sender = sender.clone();
 
+        let exit = exit.clone();
         let fwd_thread_hdl = Builder::new()
             .name("solana-fetch-stage-fwd-rcvr".to_string())
             .spawn(move || loop {
@@ -150,6 +151,10 @@ impl FetchStage {
                         Error::Recv(_) => break,
                         Error::Send => break,
                     }
+                }
+
+                if exit.load(Ordering::Relaxed) {
+                    return;
                 }
             })
             .unwrap();

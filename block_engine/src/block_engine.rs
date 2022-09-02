@@ -333,6 +333,7 @@ impl BlockEngineRelayerHandler {
         let mut refresh_interval = interval(Duration::from_secs(60));
         let mut metrics_interval = interval(Duration::from_secs(1));
 
+        // Todo (JL): Async Exit Here?
         loop {
             select! {
                 _ = heartbeat.tick() => {
