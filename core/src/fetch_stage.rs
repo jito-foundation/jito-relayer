@@ -140,7 +140,7 @@ impl FetchStage {
 
         let sender = sender.clone();
 
-        let exit = exit.clone();
+        let exit_l = exit.clone();
         let fwd_thread_hdl = Builder::new()
             .name("solana-fetch-stage-fwd-rcvr".to_string())
             .spawn(move || loop {
@@ -153,13 +153,13 @@ impl FetchStage {
                     }
                 }
 
-                if exit.load(Ordering::Relaxed) {
+                if exit_l.load(Ordering::Relaxed) {
                     return;
                 }
             })
             .unwrap();
 
-        let exit = exit.clone();
+        let exit_l = exit.clone();
         let metrics_thread_hdl = Builder::new()
             .name("solana-fetch-stage-metrics".to_string())
             .spawn(move || loop {
@@ -168,7 +168,7 @@ impl FetchStage {
                 tpu_stats.report();
                 tpu_forward_stats.report();
 
-                if exit.load(Ordering::Relaxed) {
+                if exit_l.load(Ordering::Relaxed) {
                     return;
                 }
             })
