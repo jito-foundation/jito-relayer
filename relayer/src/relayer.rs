@@ -248,10 +248,10 @@ impl RelayerImpl {
 
                     // heartbeat if state is healthy, drop all connections on unhealthy
                     let pubkeys_to_drop = if *health_state.read().unwrap() != HealthState::Healthy {
+                        packet_subscriptions.keys().cloned().collect()
+                    } else {
                         heartbeat_count += 1;
                         Self::handle_heartbeat(&packet_subscriptions, &heartbeat_count, &mut router_metrics)
-                    } else {
-                        packet_subscriptions.keys().cloned().collect()
                     };
                     Self::drop_connections(pubkeys_to_drop, &mut packet_subscriptions, &mut router_metrics);
                 }
