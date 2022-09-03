@@ -4,7 +4,7 @@ use std::{
     ops::Add,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, RwLock,
     },
     thread::{sleep, Builder, JoinHandle},
     time::Duration as StdDuration,
@@ -27,7 +27,10 @@ use solana_sdk::pubkey::Pubkey;
 use tokio::{runtime::Runtime, sync::Mutex};
 use tonic::{Request, Response, Status};
 
-use crate::auth_interceptor::{Claims, DeSerClaims};
+use crate::{
+    auth_interceptor::{Claims, DeSerClaims},
+    health_manager::HealthState,
+};
 
 pub trait ValidatorAuther: Send + Sync + 'static {
     fn is_authorized(&self, pubkey: &Pubkey) -> bool;
@@ -59,6 +62,8 @@ pub struct AuthServiceImpl<V: ValidatorAuther> {
     challenge_ttl: Duration,
 
     t_hdl: JoinHandle<()>,
+
+    health_state: Arc<RwLock<HealthState>>,
 }
 
 struct AuthChallenge {
@@ -115,6 +120,7 @@ impl<V: ValidatorAuther> AuthServiceImpl<V> {
         challenge_ttl: StdDuration,
         challenge_expiration_sleep_interval: StdDuration,
         exit: &Arc<AtomicBool>,
+        health_state: Arc<RwLock<HealthState>>,
     ) -> Self {
         let auth_challenges = Arc::new(Mutex::new(KeyedPriorityQueue::new()));
         let t_hdl = Self::start_challenge_expiration_thread(
@@ -132,6 +138,7 @@ impl<V: ValidatorAuther> AuthServiceImpl<V> {
             access_token_ttl: Duration::from_std(access_token_ttl).unwrap(),
             refresh_token_ttl: Duration::from_std(refresh_token_ttl).unwrap(),
             challenge_ttl: Duration::from_std(challenge_ttl).unwrap(),
+            health_state,
         }
     }
 
@@ -181,6 +188,15 @@ impl<V: ValidatorAuther> AuthServiceImpl<V> {
             .map(char::from)
             .collect()
     }
+
+    /// Prevent validators from authenticating if the relayer is unhealthy
+    fn check_health(health_state: &Arc<RwLock<HealthState>>) -> Result<(), Status> {
+        if *health_state.read().unwrap() != HealthState::Healthy {
+            Err(Status::internal("relayer is unhealthy"))
+        } else {
+            Ok(())
+        }
+    }
 }
 
 #[tonic::async_trait]
@@ -189,6 +205,8 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
         &self,
         req: Request<GenerateAuthChallengeRequest>,
     ) -> Result<Response<GenerateAuthChallengeResponse>, Status> {
+        Self::check_health(&self.health_state)?;
+
         let mut l_auth_challenges = self.auth_challenges.lock().await;
         if l_auth_challenges.len() >= AUTH_CHALLENGES_CAPACITY {
             return Err(Status::resource_exhausted("System overloaded."));
@@ -248,6 +266,8 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
         &self,
         req: Request<GenerateAuthTokensRequest>,
     ) -> Result<Response<GenerateAuthTokensResponse>, Status> {
+        Self::check_health(&self.health_state)?;
+
         let client_ip = Self::client_ip(&req)?;
         let inner_req = req.into_inner();
 
@@ -357,6 +377,8 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
         &self,
         req: Request<RefreshAccessTokenRequest>,
     ) -> Result<Response<RefreshAccessTokenResponse>, Status> {
+        Self::check_health(&self.health_state)?;
+
         let inner_req = req.into_inner();
 
         let refresh_token: &str = inner_req.refresh_token.as_str();

@@ -4,7 +4,7 @@ use std::{
     net::IpAddr,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, RwLock,
     },
     thread,
     thread::JoinHandle,
@@ -35,7 +35,7 @@ use tokio::sync::mpsc::{channel, error::TrySendError, Sender as TokioSender};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
-use crate::schedule_cache::LeaderScheduleUpdatingHandle;
+use crate::{health_manager::HealthState, schedule_cache::LeaderScheduleUpdatingHandle};
 
 #[derive(Default)]
 struct RelayerMetrics {
@@ -136,6 +136,7 @@ pub struct RelayerImpl {
 
     subscription_sender: Sender<Subscription>,
     threads: Vec<JoinHandle<()>>,
+    health_state: Arc<RwLock<HealthState>>,
 }
 
 impl RelayerImpl {
@@ -148,6 +149,7 @@ impl RelayerImpl {
         public_ip: IpAddr,
         tpu_port: u16,
         tpu_fwd_port: u16,
+        health_state: Arc<RwLock<HealthState>>,
     ) -> Self {
         const LEADER_LOOKAHEAD: u64 = 2;
 
@@ -159,6 +161,7 @@ impl RelayerImpl {
             leader_schedule_cache,
             exit,
             LEADER_LOOKAHEAD,
+            health_state.clone(),
         )];
 
         Self {
@@ -167,6 +170,7 @@ impl RelayerImpl {
             subscription_sender,
             public_ip,
             threads,
+            health_state,
         }
     }
 
@@ -184,6 +188,7 @@ impl RelayerImpl {
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
         exit: &Arc<AtomicBool>,
         leader_lookahead: u64,
+        health_state: Arc<RwLock<HealthState>>,
     ) -> JoinHandle<()> {
         let exit = exit.clone();
         thread::Builder::new()
@@ -196,6 +201,7 @@ impl RelayerImpl {
                     leader_schedule_cache,
                     exit,
                     leader_lookahead,
+                    health_state,
                 );
             })
             .unwrap()
@@ -208,6 +214,7 @@ impl RelayerImpl {
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
         exit: Arc<AtomicBool>,
         leader_lookahead: u64,
+        health_state: Arc<RwLock<HealthState>>,
     ) -> RelayerResult<()> {
         let mut highest_slot = Slot::default();
         let mut packet_subscriptions: HashMap<
@@ -239,10 +246,14 @@ impl RelayerImpl {
                         router_metrics.max_heartbeat_tick_latency_us = max(router_metrics.max_heartbeat_tick_latency_us, Instant::now().duration_since(time_generated).as_micros() as u64);
                     }
 
-                    let failed_heartbeats = Self::handle_heartbeat(&packet_subscriptions, &heartbeat_count, &mut router_metrics);
-                    Self::drop_connections(failed_heartbeats, &mut packet_subscriptions, &mut router_metrics);
-
-                    heartbeat_count += 1;
+                    // heartbeat if state is healthy, drop all connections on unhealthy
+                    let pubkeys_to_drop = if *health_state.read().unwrap() != HealthState::Healthy {
+                        packet_subscriptions.keys().cloned().collect()
+                    } else {
+                        heartbeat_count += 1;
+                        Self::handle_heartbeat(&packet_subscriptions, &heartbeat_count, &mut router_metrics)
+                    };
+                    Self::drop_connections(pubkeys_to_drop, &mut packet_subscriptions, &mut router_metrics);
                 }
                 recv(metrics_tick) -> time_generated => {
                     router_metrics.num_current_connections = packet_subscriptions.len() as u64;
@@ -417,6 +428,15 @@ impl RelayerImpl {
         router_metrics.highest_slot = *highest_slot;
         Ok(())
     }
+
+    /// Prevent validators from authenticating if the relayer is unhealthy
+    fn check_health(health_state: &Arc<RwLock<HealthState>>) -> Result<(), Status> {
+        if *health_state.read().unwrap() != HealthState::Healthy {
+            Err(Status::internal("relayer is unhealthy"))
+        } else {
+            Ok(())
+        }
+    }
 }
 
 #[tonic::async_trait]
@@ -445,6 +465,8 @@ impl Relayer for RelayerImpl {
         &self,
         request: Request<SubscribePacketsRequest>,
     ) -> Result<Response<Self::SubscribePacketsStream>, Status> {
+        Self::check_health(&self.health_state)?;
+
         let pubkey: &Pubkey = request
             .extensions()
             .get()
