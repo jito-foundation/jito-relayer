@@ -13,6 +13,7 @@ use log::error;
 use solana_metrics::datapoint_info;
 use solana_sdk::clock::Slot;
 
+#[derive(PartialEq, Eq)]
 pub enum HealthState {
     Unhealthy,
     Healthy,
@@ -88,7 +89,7 @@ impl HealthManager {
     }
 
     /// Return a handle to the health manager state
-    pub fn state_handle(&self) -> Arc<RwLock<HealthState>> {
+    pub fn handle(&self) -> Arc<RwLock<HealthState>> {
         self.state.clone()
     }
 

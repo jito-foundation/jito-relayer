@@ -285,6 +285,7 @@ fn main() {
         args.public_ip,
         args.tpu_port,
         args.tpu_fwd_port,
+        health_manager.handle(),
     );
 
     let auth_svc = {
@@ -332,6 +333,7 @@ fn main() {
             Duration::from_secs(args.challenge_ttl_secs as u64),
             Duration::from_secs(args.challenge_expiration_sleep_interval as u64),
             &exit,
+            health_manager.handle(),
         )
     };
 
