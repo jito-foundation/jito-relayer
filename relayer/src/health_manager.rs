@@ -13,7 +13,7 @@ use log::error;
 use solana_metrics::datapoint_info;
 use solana_sdk::clock::Slot;
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Copy, Clone)]
 pub enum HealthState {
     Unhealthy,
     Healthy,
@@ -64,10 +64,11 @@ impl HealthManager {
                     select! {
                         recv(check_and_metrics_tick) -> _ => {
                             let is_err = last_update.elapsed() > missing_slot_unhealthy_duration;
-                            *health_state.write().unwrap() = if is_err { HealthState::Unhealthy } else { HealthState::Healthy };
+                            let new_health_state = if is_err { HealthState::Unhealthy } else { HealthState::Healthy };
+                            *health_state.write().unwrap() = new_health_state;
                             datapoint_info!(
                                 "relayer-health-state",
-                                ("health", is_err, i64)
+                                ("health_state", new_health_state as i64, i64)
                             );
                         }
                         recv(slot_receiver) -> maybe_slot => {
