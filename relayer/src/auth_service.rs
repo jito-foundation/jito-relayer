@@ -190,7 +190,7 @@ impl<V: ValidatorAuther> AuthServiceImpl<V> {
     }
 
     /// Prevent validators from authenticating if the relayer is unhealthy
-    async fn check_health(health_state: &Arc<RwLock<HealthState>>) -> Result<(), Status> {
+    fn check_health(health_state: &Arc<RwLock<HealthState>>) -> Result<(), Status> {
         if *health_state.read().unwrap() != HealthState::Healthy {
             Err(Status::internal("relayer is unhealthy"))
         } else {
@@ -205,7 +205,7 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
         &self,
         req: Request<GenerateAuthChallengeRequest>,
     ) -> Result<Response<GenerateAuthChallengeResponse>, Status> {
-        Self::check_health(&self.health_state).await?;
+        Self::check_health(&self.health_state)?;
 
         let mut l_auth_challenges = self.auth_challenges.lock().await;
         if l_auth_challenges.len() >= AUTH_CHALLENGES_CAPACITY {
@@ -266,7 +266,7 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
         &self,
         req: Request<GenerateAuthTokensRequest>,
     ) -> Result<Response<GenerateAuthTokensResponse>, Status> {
-        Self::check_health(&self.health_state).await?;
+        Self::check_health(&self.health_state)?;
 
         let client_ip = Self::client_ip(&req)?;
         let inner_req = req.into_inner();
@@ -377,7 +377,7 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
         &self,
         req: Request<RefreshAccessTokenRequest>,
     ) -> Result<Response<RefreshAccessTokenResponse>, Status> {
-        Self::check_health(&self.health_state).await?;
+        Self::check_health(&self.health_state)?;
 
         let inner_req = req.into_inner();
 

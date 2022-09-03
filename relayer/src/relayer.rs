@@ -428,6 +428,15 @@ impl RelayerImpl {
         router_metrics.highest_slot = *highest_slot;
         Ok(())
     }
+
+    /// Prevent validators from authenticating if the relayer is unhealthy
+    fn check_health(health_state: &Arc<RwLock<HealthState>>) -> Result<(), Status> {
+        if *health_state.read().unwrap() != HealthState::Healthy {
+            Err(Status::internal("relayer is unhealthy"))
+        } else {
+            Ok(())
+        }
+    }
 }
 
 #[tonic::async_trait]
@@ -456,14 +465,12 @@ impl Relayer for RelayerImpl {
         &self,
         request: Request<SubscribePacketsRequest>,
     ) -> Result<Response<Self::SubscribePacketsStream>, Status> {
+        Self::check_health(&self.health_state)?;
+
         let pubkey: &Pubkey = request
             .extensions()
             .get()
             .ok_or_else(|| Status::internal("internal error fetching public key"))?;
-
-        if *self.health_state.read().unwrap() != HealthState::Healthy {
-            return Err(Status::internal("relayer is unhealthy"));
-        }
 
         let (sender, receiver) = channel(1_000);
         self.subscription_sender
