@@ -17,6 +17,7 @@ use jito_block_engine::block_engine::BlockEngineRelayerHandler;
 use jito_core::tpu::{Tpu, TpuSockets};
 use jito_relayer::{
     auth_service::{AuthServiceImpl, ValidatorAuther},
+    health_manager::HealthManager,
     relayer::RelayerImpl,
     schedule_cache::{LeaderScheduleCacheUpdater, LeaderScheduleUpdatingHandle},
     start_server,
@@ -129,6 +130,10 @@ struct Args {
     /// The interval at which challenges are checked for expiration.
     #[clap(long, env, default_value_t = 180)]
     challenge_expiration_sleep_interval: i64,
+
+    /// How long it takes to miss a slot for the system to be considered unhealthy
+    #[clap(long, env, default_value_t = 10)]
+    missing_slot_unhealthy_secs: u64,
 }
 
 struct Sockets {
@@ -216,13 +221,17 @@ fn main() {
         websocket_servers.len(),
         "num rpc servers = num websocket servers"
     );
+    assert!(
+        args.missing_slot_unhealthy_secs > 0,
+        "need to provide non-zero check time"
+    );
 
     let servers: Vec<(String, String)> = rpc_servers
         .into_iter()
         .zip(websocket_servers.into_iter())
         .collect();
 
-    let (rpc_load_balancer, slot_receiver) = LoadBalancer::new(&servers, &exit);
+    let (rpc_load_balancer, health_manager_slot_receiver) = LoadBalancer::new(&servers, &exit);
     let rpc_load_balancer = Arc::new(Mutex::new(rpc_load_balancer));
 
     let (tpu, packet_receiver) = Tpu::new(
@@ -256,6 +265,14 @@ fn main() {
         args.block_engine_auth_service_url,
         block_engine_receiver,
         keypair,
+        &exit,
+    );
+
+    let (slot_sender, slot_receiver) = unbounded();
+    let health_manager = HealthManager::new(
+        health_manager_slot_receiver,
+        slot_sender,
+        Duration::from_secs(args.missing_slot_unhealthy_secs),
         &exit,
     );
 
@@ -323,6 +340,7 @@ fn main() {
     exit.store(true, Ordering::Relaxed);
 
     tpu.join().unwrap();
+    health_manager.join().unwrap();
     leader_cache.join().unwrap();
     for t in forward_and_delay_threads {
         t.join().unwrap();
