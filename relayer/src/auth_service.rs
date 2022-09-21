@@ -172,13 +172,47 @@ impl<V: ValidatorAuther> AuthServiceImpl<V> {
             .unwrap()
     }
 
-    // NOTE: if this is behind a proxy, the remote_addr will be the proxy, which may mess with the
-    // authentication scheme
+    // Fetch downstream client's IP from the x-forwarded-for header.
+    // If not present then use the IP address of the client forwarding/sending requests.
     fn client_ip<T>(req: &Request<T>) -> Result<IpAddr, Status> {
-        Ok(req
-            .remote_addr()
-            .ok_or_else(|| Status::internal("request is missing IP address"))?
-            .ip())
+        let maybe_xff = req.metadata().get("x-forwarded-for").cloned();
+        let remote_addr = req.remote_addr();
+
+        let check_ipv6 = |ip: IpAddr| {
+            // Supporting IPV6 addresses is a DOS vector since they are cheap and there's a much larger amount of them.
+            // The DOS is specifically with regards to the challenges queue filling up and starving other legitimate
+            // challenge requests
+            if ip.is_ipv6() {
+                return Err(Status::invalid_argument(
+                    "IPV6 addresses are not supported.",
+                ));
+            }
+
+            Ok(ip)
+        };
+
+        if let Some(ip) = maybe_xff {
+            let maybe_ip = ip.to_str().map_err(|e| {
+                error!("error parsing x-forwarded-for header {}", e);
+                Status::invalid_argument("Failed to parse x-forwarded-for header.")
+            });
+
+            match maybe_ip {
+                Ok(ip) => {
+                    let ip: IpAddr = ip.parse().map_err(|e| {
+                        error!("Failed to parse {}, error={}", ip, e);
+                        Status::invalid_argument("Invalid x-forwarded-for IP address.")
+                    })?;
+
+                    check_ipv6(ip)
+                }
+                Err(e) => Err(e),
+            }
+        } else if let Some(socket_addr) = remote_addr {
+            check_ipv6(socket_addr.ip())
+        } else {
+            Err(Status::permission_denied("Missing x-forwarded-for header."))
+        }
     }
 
     fn generate_challenge_token() -> String {
