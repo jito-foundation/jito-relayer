@@ -10,6 +10,8 @@ services:
       target: jito-transaction-relayer
     environment:
       - RUST_LOG=info
+      - KEYPAIR_PATH=/etc/solana/id.json
+      - PUBLIC_IP=$PUBLIC_IP
       - TPU_BIND_IP=0.0.0.0
       - TPU_PORT=$TPU_PORT
       - TPU_FWD_PORT=$TPU_FWD_PORT
