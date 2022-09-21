@@ -196,6 +196,11 @@ fn main() {
     let args: Args = Args::parse();
     info!("args: {:?}", args);
 
+    // Supporting IPV6 addresses is a DOS vector since they are cheap and there's a much larger amount of them.
+    // The DOS is specifically with regards to the challenges queue filling up and starving other legitimate
+    // challenge requests.
+    assert!(args.grpc_bind_ip.is_ipv4(), "must bind to IPV4 address");
+
     let sockets = get_sockets(&args);
 
     let keypair =
