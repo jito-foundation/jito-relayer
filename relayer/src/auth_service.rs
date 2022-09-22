@@ -6,7 +6,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, RwLock,
     },
-    thread::{sleep, Builder, JoinHandle},
     time::Duration as StdDuration,
 };
 
@@ -23,7 +22,7 @@ use openssl::pkey::{Private, Public};
 use prost_types::Timestamp;
 use rand::{distributions::Alphanumeric, Rng};
 use solana_sdk::pubkey::Pubkey;
-use tokio::runtime::Runtime;
+use tokio::{task::JoinHandle, time::interval};
 use tonic::{Request, Response, Status};
 
 use crate::{
@@ -38,6 +37,8 @@ pub trait ValidatorAuther: Send + Sync + 'static {
 
 pub struct AuthServiceImpl<V: ValidatorAuther> {
     validator_auther: V,
+
+    _t_hdl: JoinHandle<()>,
 
     /// Keeps track of generated challenges. Generating a challenge requires no authentication which
     /// opens up a DOS vector. In order to mitigate we'll allow one challenge per IP, so that an
@@ -61,8 +62,6 @@ pub struct AuthServiceImpl<V: ValidatorAuther> {
     /// How long challenges are valid for DOS mitigation purposes.
     challenge_ttl: Duration,
 
-    t_hdl: JoinHandle<()>,
-
     health_state: Arc<RwLock<HealthState>>,
 }
 
@@ -83,7 +82,7 @@ impl<V: ValidatorAuther> AuthServiceImpl<V> {
         health_state: Arc<RwLock<HealthState>>,
     ) -> Self {
         let auth_challenges = AuthChallenges::default();
-        let t_hdl = Self::start_challenge_expiration_thread(
+        let _t_hdl = Self::start_challenge_expiration_task(
             auth_challenges.clone(),
             challenge_expiration_sleep_interval,
             exit,
@@ -94,7 +93,7 @@ impl<V: ValidatorAuther> AuthServiceImpl<V> {
             validator_auther,
             signing_key,
             verifying_key,
-            t_hdl,
+            _t_hdl,
             access_token_ttl: Duration::from_std(access_token_ttl).unwrap(),
             refresh_token_ttl: Duration::from_std(refresh_token_ttl).unwrap(),
             challenge_ttl: Duration::from_std(challenge_ttl).unwrap(),
@@ -102,26 +101,19 @@ impl<V: ValidatorAuther> AuthServiceImpl<V> {
         }
     }
 
-    pub fn join(self) {
-        self.t_hdl.join().unwrap();
-    }
-
-    fn start_challenge_expiration_thread(
+    fn start_challenge_expiration_task(
         auth_challenges: AuthChallenges,
         sleep_interval: StdDuration,
         exit: &Arc<AtomicBool>,
     ) -> JoinHandle<()> {
         let exit = exit.clone();
-        Builder::new()
-            .name("challenge-expiration-thread".to_string())
-            .spawn(move || {
-                let rt = Runtime::new().unwrap();
-                while !exit.load(Ordering::Relaxed) {
-                    rt.block_on(auth_challenges.remove_all_expired());
-                    sleep(sleep_interval);
-                }
-            })
-            .unwrap()
+        tokio::task::spawn(async move {
+            let mut interval = interval(sleep_interval);
+            while !exit.load(Ordering::Relaxed) {
+                let _ = interval.tick();
+                auth_challenges.remove_all_expired().await;
+            }
+        })
     }
 
     // NOTE: if this is behind a proxy, the remote_addr will be the proxy, which may mess with the
