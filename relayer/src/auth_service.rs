@@ -6,11 +6,10 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, RwLock,
     },
-    thread::{sleep, Builder, JoinHandle},
     time::Duration as StdDuration,
 };
 
-use chrono::{Duration, NaiveDateTime, Utc};
+use chrono::{Duration, Utc};
 use ed25519_dalek::{PublicKey, Signature, Verifier};
 use jito_protos::auth::{
     auth_service_server::AuthService, GenerateAuthChallengeRequest, GenerateAuthChallengeResponse,
@@ -18,16 +17,16 @@ use jito_protos::auth::{
     RefreshAccessTokenResponse, Role, Token as PbToken,
 };
 use jwt::{AlgorithmType, Header, PKeyWithDigest, SignWithKey, Token, VerifyWithKey};
-use keyed_priority_queue::KeyedPriorityQueue;
 use log::*;
 use openssl::pkey::{Private, Public};
 use prost_types::Timestamp;
 use rand::{distributions::Alphanumeric, Rng};
 use solana_sdk::pubkey::Pubkey;
-use tokio::{runtime::Runtime, sync::Mutex};
+use tokio::{task::JoinHandle, time::interval};
 use tonic::{Request, Response, Status};
 
 use crate::{
+    auth_challenges::{AuthChallenge, AuthChallenges},
     auth_interceptor::{Claims, DeSerClaims},
     health_manager::HealthState,
 };
@@ -39,6 +38,8 @@ pub trait ValidatorAuther: Send + Sync + 'static {
 pub struct AuthServiceImpl<V: ValidatorAuther> {
     validator_auther: V,
 
+    _t_hdl: JoinHandle<()>,
+
     /// Keeps track of generated challenges. Generating a challenge requires no authentication which
     /// opens up a DOS vector. In order to mitigate we'll allow one challenge per IP, so that an
     /// attacker would be required to rent many IPs to overload the system. Using a PQ where items
@@ -46,7 +47,7 @@ pub struct AuthServiceImpl<V: ValidatorAuther> {
     /// iterate over the entire collection.
     ///
     /// NOTE: The order is reversed so that older (lesser) timestamps are prioritized.
-    auth_challenges: Arc<Mutex<KeyedPriorityQueue<IpAddr, Reverse<AuthChallenge>>>>,
+    auth_challenges: AuthChallenges,
 
     /// The key used to sign JWT access & refresh tokens.
     signing_key: PKeyWithDigest<Private>,
@@ -61,49 +62,7 @@ pub struct AuthServiceImpl<V: ValidatorAuther> {
     /// How long challenges are valid for DOS mitigation purposes.
     challenge_ttl: Duration,
 
-    t_hdl: JoinHandle<()>,
-
     health_state: Arc<RwLock<HealthState>>,
-}
-
-struct AuthChallenge {
-    /// The randomly generated clients are expected to sign.
-    challenge: String,
-
-    /// What the access token will be encoded with upon issuance.
-    access_claims: Claims,
-
-    /// What the refresh token will be encoded with upon issuance.
-    refresh_claims: Claims,
-
-    /// Challenges must have expirations.
-    expires_at_utc: NaiveDateTime,
-}
-
-impl AuthChallenge {
-    fn is_expired(&self) -> bool {
-        self.expires_at_utc.le(&Utc::now().naive_utc())
-    }
-}
-
-impl Eq for AuthChallenge {}
-
-impl PartialEq<Self> for AuthChallenge {
-    fn eq(&self, other: &Self) -> bool {
-        self.expires_at_utc.eq(&other.expires_at_utc)
-    }
-}
-
-impl PartialOrd<Self> for AuthChallenge {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.expires_at_utc.cmp(&other.expires_at_utc))
-    }
-}
-
-impl Ord for AuthChallenge {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.expires_at_utc.cmp(&other.expires_at_utc)
-    }
 }
 
 // The capacity of the auth_challenges map.
@@ -122,8 +81,8 @@ impl<V: ValidatorAuther> AuthServiceImpl<V> {
         exit: &Arc<AtomicBool>,
         health_state: Arc<RwLock<HealthState>>,
     ) -> Self {
-        let auth_challenges = Arc::new(Mutex::new(KeyedPriorityQueue::new()));
-        let t_hdl = Self::start_challenge_expiration_thread(
+        let auth_challenges = AuthChallenges::default();
+        let _t_hdl = Self::start_challenge_expiration_task(
             auth_challenges.clone(),
             challenge_expiration_sleep_interval,
             exit,
@@ -134,7 +93,7 @@ impl<V: ValidatorAuther> AuthServiceImpl<V> {
             validator_auther,
             signing_key,
             verifying_key,
-            t_hdl,
+            _t_hdl,
             access_token_ttl: Duration::from_std(access_token_ttl).unwrap(),
             refresh_token_ttl: Duration::from_std(refresh_token_ttl).unwrap(),
             challenge_ttl: Duration::from_std(challenge_ttl).unwrap(),
@@ -142,34 +101,19 @@ impl<V: ValidatorAuther> AuthServiceImpl<V> {
         }
     }
 
-    pub fn join(self) {
-        self.t_hdl.join().unwrap();
-    }
-
-    fn start_challenge_expiration_thread(
-        auth_challenges: Arc<Mutex<KeyedPriorityQueue<IpAddr, Reverse<AuthChallenge>>>>,
+    fn start_challenge_expiration_task(
+        auth_challenges: AuthChallenges,
         sleep_interval: StdDuration,
         exit: &Arc<AtomicBool>,
     ) -> JoinHandle<()> {
         let exit = exit.clone();
-        Builder::new()
-            .name("challenge-expiration-thread".to_string())
-            .spawn(move || {
-                let rt = Runtime::new().unwrap();
-                while !exit.load(Ordering::Relaxed) {
-                    let mut l_auth_challenges = rt.block_on(auth_challenges.lock());
-                    while let Some((_ip_addr, auth_challenge)) = l_auth_challenges.peek() {
-                        if auth_challenge.0.is_expired() {
-                            l_auth_challenges.pop();
-                        } else {
-                            break;
-                        }
-                    }
-                    drop(l_auth_challenges);
-                    sleep(sleep_interval);
-                }
-            })
-            .unwrap()
+        tokio::task::spawn(async move {
+            let mut interval = interval(sleep_interval);
+            while !exit.load(Ordering::Relaxed) {
+                let _ = interval.tick();
+                auth_challenges.remove_all_expired().await;
+            }
+        })
     }
 
     // NOTE: if this is behind a proxy, the remote_addr will be the proxy, which may mess with the
@@ -206,17 +150,17 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
         req: Request<GenerateAuthChallengeRequest>,
     ) -> Result<Response<GenerateAuthChallengeResponse>, Status> {
         Self::check_health(&self.health_state)?;
+        let auth_challenges = &self.auth_challenges;
 
-        let mut l_auth_challenges = self.auth_challenges.lock().await;
-        if l_auth_challenges.len() >= AUTH_CHALLENGES_CAPACITY {
+        if auth_challenges.len().await >= AUTH_CHALLENGES_CAPACITY {
             return Err(Status::resource_exhausted("System overloaded."));
         }
 
         let client_ip = Self::client_ip(&req)?;
-        if let Some(auth_challenge) = l_auth_challenges.get_priority(&client_ip) {
+        if let Some(auth_challenge) = auth_challenges.get_priority(&client_ip).await {
             if !auth_challenge.0.is_expired() {
                 return Ok(Response::new(GenerateAuthChallengeResponse {
-                    challenge: auth_challenge.0.challenge.clone(),
+                    challenge: auth_challenge.0.challenge,
                 }));
             }
         }
@@ -241,23 +185,25 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
         }
 
         let challenge = Self::generate_challenge_token();
-        l_auth_challenges.push(
-            client_ip,
-            Reverse(AuthChallenge {
-                challenge: challenge.clone(),
-                access_claims: Claims {
-                    client_ip,
-                    client_pubkey: pubkey,
-                    expires_at_utc: Utc::now().add(self.access_token_ttl).naive_utc(),
-                },
-                refresh_claims: Claims {
-                    client_ip,
-                    client_pubkey: pubkey,
-                    expires_at_utc: Utc::now().add(self.refresh_token_ttl).naive_utc(),
-                },
-                expires_at_utc: Utc::now().add(self.challenge_ttl).naive_utc(),
-            }),
-        );
+        auth_challenges
+            .push(
+                client_ip,
+                Reverse(AuthChallenge {
+                    challenge: challenge.clone(),
+                    access_claims: Claims {
+                        client_ip,
+                        client_pubkey: pubkey,
+                        expires_at_utc: Utc::now().add(self.access_token_ttl).naive_utc(),
+                    },
+                    refresh_claims: Claims {
+                        client_ip,
+                        client_pubkey: pubkey,
+                        expires_at_utc: Utc::now().add(self.refresh_token_ttl).naive_utc(),
+                    },
+                    expires_at_utc: Utc::now().add(self.challenge_ttl).naive_utc(),
+                }),
+            )
+            .await;
 
         Ok(Response::new(GenerateAuthChallengeResponse { challenge }))
     }
@@ -267,6 +213,7 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
         req: Request<GenerateAuthTokensRequest>,
     ) -> Result<Response<GenerateAuthTokensResponse>, Status> {
         Self::check_health(&self.health_state)?;
+        let auth_challenges = &self.auth_challenges;
 
         let client_ip = Self::client_ip(&req)?;
         let inner_req = req.into_inner();
@@ -277,8 +224,8 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
         })?;
         let sqlana_pubkey = Pubkey::new(&client_pubkey.to_bytes());
 
-        let mut l_auth_challenges = self.auth_challenges.lock().await;
-        let auth_challenge = if let Some(challenge) = l_auth_challenges.get_priority(&client_ip) {
+        let auth_challenge = if let Some(challenge) = auth_challenges.get_priority(&client_ip).await
+        {
             Ok(challenge)
         } else {
             Err(Status::permission_denied(
@@ -353,7 +300,7 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
         let access_expiry = auth_challenge.0.access_claims.expires_at_utc;
         let refresh_expiry = auth_challenge.0.refresh_claims.expires_at_utc;
 
-        l_auth_challenges.remove(&client_ip);
+        auth_challenges.remove(&client_ip).await;
 
         Ok(Response::new(GenerateAuthTokensResponse {
             access_token: Some(PbToken {
