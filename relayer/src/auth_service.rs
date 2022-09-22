@@ -160,7 +160,7 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
         if let Some(auth_challenge) = auth_challenges.get_priority(&client_ip).await {
             if !auth_challenge.0.is_expired() {
                 return Ok(Response::new(GenerateAuthChallengeResponse {
-                    challenge: auth_challenge.0.challenge.clone(),
+                    challenge: auth_challenge.0.challenge,
                 }));
             }
         }
