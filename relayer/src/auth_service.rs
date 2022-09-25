@@ -22,7 +22,7 @@ use openssl::pkey::{Private, Public};
 use prost_types::Timestamp;
 use rand::{distributions::Alphanumeric, Rng};
 use solana_sdk::pubkey::Pubkey;
-use tokio::{task::JoinHandle, time::interval};
+use tokio::{runtime::Runtime, task::JoinHandle, time::interval};
 use tonic::{Request, Response, Status};
 
 use crate::{
@@ -82,9 +82,11 @@ impl<V: ValidatorAuther> AuthServiceImpl<V> {
         health_state: Arc<RwLock<HealthState>>,
     ) -> Self {
         let auth_challenges = AuthChallenges::default();
+        let rt = Runtime::new().unwrap();
         let _t_hdl = Self::start_challenge_expiration_task(
             auth_challenges.clone(),
             challenge_expiration_sleep_interval,
+            rt,
             exit,
         );
 
@@ -104,10 +106,11 @@ impl<V: ValidatorAuther> AuthServiceImpl<V> {
     fn start_challenge_expiration_task(
         auth_challenges: AuthChallenges,
         sleep_interval: StdDuration,
+        rt: Runtime,
         exit: &Arc<AtomicBool>,
     ) -> JoinHandle<()> {
         let exit = exit.clone();
-        tokio::task::spawn(async move {
+        rt.spawn(async move {
             let mut interval = interval(sleep_interval);
             while !exit.load(Ordering::Relaxed) {
                 let _ = interval.tick();
