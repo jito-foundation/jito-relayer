@@ -15,16 +15,19 @@ use clap::Parser;
 use crossbeam_channel::unbounded;
 use jito_block_engine::block_engine::BlockEngineRelayerHandler;
 use jito_core::tpu::{Tpu, TpuSockets};
+use jito_protos::{
+    auth::auth_service_server::AuthServiceServer, relayer::relayer_server::RelayerServer,
+};
 use jito_relayer::{
+    auth_interceptor::AuthInterceptor,
     auth_service::{AuthServiceImpl, ValidatorAuther},
     health_manager::HealthManager,
     relayer::RelayerImpl,
     schedule_cache::{LeaderScheduleCacheUpdater, LeaderScheduleUpdatingHandle},
-    start_server,
 };
 use jito_rpc::load_balancer::LoadBalancer;
 use jito_transaction_relayer::forwarder::start_forward_and_delay_thread;
-use jwt::PKeyWithDigest;
+use jwt::{AlgorithmType, PKeyWithDigest};
 use log::{error, info};
 use openssl::{hash::MessageDigest, pkey::PKey};
 use solana_net_utils::multi_bind_in_range;
@@ -32,7 +35,8 @@ use solana_sdk::{
     pubkey::Pubkey,
     signature::{read_keypair_file, Signer},
 };
-use tokio::sync::mpsc::channel;
+use tokio::{runtime::Builder, sync::mpsc::channel};
+use tonic::transport::Server;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -293,56 +297,66 @@ fn main() {
         health_manager.handle(),
     );
 
-    let auth_svc = {
-        let mut buf = Vec::new();
-        File::open(args.signing_key_pem_path)
-            .expect("signing key file to be found")
-            .read_to_end(&mut buf)
-            .expect("to read signing key file");
-        let signing_key = PKeyWithDigest {
-            digest: MessageDigest::sha256(),
-            key: PKey::private_key_from_pem(&buf[..]).unwrap(),
-        };
+    let mut buf = Vec::new();
+    File::open(args.signing_key_pem_path)
+        .expect("signing key file to be found")
+        .read_to_end(&mut buf)
+        .expect("to read signing key file");
+    let signing_key = PKeyWithDigest {
+        digest: MessageDigest::sha256(),
+        key: PKey::private_key_from_pem(&buf[..]).unwrap(),
+    };
 
-        let mut buf = Vec::new();
-        File::open(args.verifying_key_pem_path)
-            .expect("verifying key file to be found")
-            .read_to_end(&mut buf)
-            .expect("to read verifying key file");
-        let verifying_key = PKeyWithDigest {
-            digest: MessageDigest::sha256(),
-            key: PKey::public_key_from_pem(&buf[..]).unwrap(),
-        };
+    let mut buf = Vec::new();
+    File::open(args.verifying_key_pem_path)
+        .expect("verifying key file to be found")
+        .read_to_end(&mut buf)
+        .expect("to read verifying key file");
+    let verifying_key = Arc::new(PKeyWithDigest {
+        digest: MessageDigest::sha256(),
+        key: PKey::public_key_from_pem(&buf[..]).unwrap(),
+    });
 
-        let validator_store = if let Some(pubkeys) = args.allowed_validators {
-            let pubkeys = pubkeys
-                .into_iter()
-                .map(|pk| {
-                    Pubkey::from_str(&pk)
-                        .unwrap_or_else(|_| panic!("failed to parse pubkey from string: {}", pk))
-                })
-                .collect::<HashSet<Pubkey>>();
-            ValidatorStore::UserDefined(pubkeys)
-        } else {
-            ValidatorStore::LeaderSchedule(leader_cache.handle())
-        };
+    let validator_store = if let Some(pubkeys) = args.allowed_validators {
+        let pubkeys = pubkeys
+            .into_iter()
+            .map(|pk| {
+                Pubkey::from_str(&pk)
+                    .unwrap_or_else(|_| panic!("failed to parse pubkey from string: {}", pk))
+            })
+            .collect::<HashSet<Pubkey>>();
+        ValidatorStore::UserDefined(pubkeys)
+    } else {
+        ValidatorStore::LeaderSchedule(leader_cache.handle())
+    };
 
-        AuthServiceImpl::new(
+    let rt = Builder::new_multi_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let auth_svc = AuthServiceImpl::new(
             ValidatorAutherImpl {
                 store: validator_store,
             },
             signing_key,
-            Arc::new(verifying_key),
+            verifying_key.clone(),
             Duration::from_secs(args.access_token_ttl_secs as u64),
             Duration::from_secs(args.refresh_token_ttl_secs as u64),
             Duration::from_secs(args.challenge_ttl_secs as u64),
             Duration::from_secs(args.challenge_expiration_sleep_interval as u64),
             &exit,
             health_manager.handle(),
-        )
-    };
+        );
 
-    start_server(auth_svc, relayer_svc, server_addr);
+        info!("starting relayer at: {:?}", server_addr);
+        Server::builder()
+            .add_service(RelayerServer::with_interceptor(
+                relayer_svc,
+                AuthInterceptor::new(verifying_key.clone(), AlgorithmType::Rs256),
+            ))
+            .add_service(AuthServiceServer::new(auth_svc))
+            .serve(server_addr)
+            .await
+            .expect("serve relayer");
+    });
 
     exit.store(true, Ordering::Relaxed);
 
