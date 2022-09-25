@@ -545,9 +545,23 @@ impl BlockEngineRelayerHandler {
                     .filter_map(|p| {
                         let pb = packet_to_proto_packet(p)?;
                         let tx = versioned_tx_from_packet(&pb)?;
-                        let tx_accounts: HashSet<Pubkey> =
-                            HashSet::from_iter(tx.message.static_account_keys().to_vec());
-                        if tx_accounts.iter().any(|a| accounts_of_interest.contains(a)) {
+                        let writable_iter = tx
+                            .message
+                            .static_account_keys()
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(idx, acc)| {
+                                if tx.message.is_maybe_writable(idx) {
+                                    Some(acc)
+                                } else {
+                                    None
+                                }
+                            });
+                        let writable_accounts: HashSet<&Pubkey> = HashSet::from_iter(writable_iter);
+                        if writable_accounts
+                            .iter()
+                            .any(|a| accounts_of_interest.contains(a))
+                        {
                             Some(pb)
                         } else {
                             None
