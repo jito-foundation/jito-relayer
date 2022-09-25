@@ -53,7 +53,7 @@ pub struct AuthServiceImpl<V: ValidatorAuther> {
     signing_key: PKeyWithDigest<Private>,
     /// The key used to verify tokens. This same key must be shared with all services that
     /// perform token based auth.
-    pub(crate) verifying_key: Arc<PKeyWithDigest<Public>>,
+    verifying_key: Arc<PKeyWithDigest<Public>>,
 
     /// Each token's respective TTLs.
     access_token_ttl: Duration,
