@@ -6,9 +6,11 @@ on:
         required: true
 jobs:
   clippy_and_udeps_check:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
@@ -16,7 +18,7 @@ jobs:
           components: clippy
       - uses: actions-rs/clippy-check@v1
         with:
-          token: ${{ secrets.GHUB_TOKEN }}
+          args: --all-features
       - uses: actions-rs/cargo@v1
         with:
           command: install
