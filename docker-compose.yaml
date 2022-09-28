@@ -11,20 +11,20 @@ services:
     environment:
       - RUST_LOG=info
       - KEYPAIR_PATH=/etc/solana/id.json
-      - PUBLIC_IP=$PUBLIC_IP
+      - PUBLIC_IP=127.0.0.1
       - TPU_BIND_IP=0.0.0.0
-      - TPU_PORT=$TPU_PORT
-      - TPU_FWD_PORT=$TPU_FWD_PORT
-      - TPU_QUIC_PORT=$TPU_QUIC_PORT
-      - TPU_QUIC_FWD_PORT=$TPU_QUIC_FWD_PORT
+      - TPU_PORT=10000
+      - TPU_FWD_PORT=10001
+      - TPU_QUIC_PORT=10006
+      - TPU_QUIC_FWD_PORT=10007
       - GRPC_BIND_IP=0.0.0.0
-      - GRPC_BIND_PORT=$GRPC_BIND_PORT
+      - GRPC_BIND_PORT=11226
       - NUM_TPU_BINDS=32
       - NUM_TPU_FWD_BINDS=16
       - RPC_SERVERS=$RPC_SERVERS
       - WEBSOCKET_SERVERS=$WEBSOCKET_SERVERS
-      - SIGNING_KEY_PEM_PATH=$SIGNING_KEY_PEM_PATH
-      - VERIFYING_KEY_PEM_PATH=$VERIFYING_KEY_PEM_PATH
+      - SIGNING_KEY_PEM_PATH=/etc/keys/private.pem
+      - VERIFYING_KEY_PEM_PATH=/etc/keys/public.pem
       - BLOCK_ENGINE_AUTH_SERVICE_URL=$BLOCK_ENGINE_AUTH_SERVICE_URL
       - BLOCK_ENGINE_URL=$BLOCK_ENGINE_URL
     restart: on-failure
@@ -32,8 +32,8 @@ services:
       - ./config/keys:/etc/keys
       - ./config/solana:/etc/solana
     ports:
-      - "$TPU_PORT:$TPU_PORT/udp"
-      - "$TPU_FWD_PORT:$TPU_FWD_PORT/udp"
-      - "$TPU_QUIC_PORT:$TPU_QUIC_PORT/udp"
-      - "$TPU_QUIC_FWD_PORT:$TPU_QUIC_FWD_PORT/udp"
-      - "$GRPC_BIND_PORT:$GRPC_BIND_PORT/tcp"
+      - "10000:10000/udp"
+      - "10001:10001/udp"
+      - "10006:10006/udp"
+      - "10007:10007/udp"
+      - "11226:11226/tcp"
