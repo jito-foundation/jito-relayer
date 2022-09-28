@@ -4,8 +4,6 @@ on:
     secrets:
       DOCKERHUB_ORG:
         required: true
-      DEPLOYER_SSH_KEY:
-        required: true
     inputs:
       TAG:
         required: true
@@ -16,9 +14,6 @@ jobs:
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v3
-        with:
-          submodules: 'recursive'
-          ssh-key: ${{ secrets.DEPLOYER_SSH_KEY }}
       # https://github.com/moby/buildkit/issues/1368#issuecomment-731466205
       # Seeing conflicting build caching between this and other repos in CI
       - name: Docker prune

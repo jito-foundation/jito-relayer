@@ -7,7 +7,6 @@ jobs:
     uses: ./.github/workflows/clean_code.yaml
     secrets:
       GHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      DEPLOYER_SSH_KEY: ${{ secrets.DEPLOYER_SSH_KEY }}
 
   build_images:
     needs: clean_code_check
@@ -16,7 +15,6 @@ jobs:
       TAG: ${{ github.sha }}
     secrets:
       DOCKERHUB_ORG: ${{ secrets.DOCKERHUB_ORG }}
-      DEPLOYER_SSH_KEY: ${{ secrets.DEPLOYER_SSH_KEY }}
 
   run_tests:
     needs: build_images
