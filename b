@@ -7,13 +7,13 @@ ORG="jitolabs"
 if [ "$(uname)" = "Darwin" ]; then
     RPC_SERVERS=http://docker.for.mac.localhost:8899
     WEBSOCKET_SERVERS=ws://docker.for.mac.localhost:8900
-    BLOCK_ENGINE_AUTH_SERVICE_URL=http://docker.for.mac.localhost:${BLOCK_ENGINE_AUTH_SERVICE_PORT}
-    BLOCK_ENGINE_URL=http://docker.for.mac.localhost:${BLOCK_ENGINE_PORT}
+    BLOCK_ENGINE_AUTH_SERVICE_URL=http://docker.for.mac.localhost:1005
+    BLOCK_ENGINE_URL=http://docker.for.mac.localhost:1000
   elif [ "$(expr substr $(uname -s) 1 5)" = "Linux" ]; then
     RPC_SERVERS=http://172.17.0.1:8899
     WEBSOCKET_SERVERS=ws://172.17.0.1:8900
-    BLOCK_ENGINE_AUTH_SERVICE_URL=http://172.17.0.1:${BLOCK_ENGINE_AUTH_SERVICE_PORT}
-    BLOCK_ENGINE_URL=http://172.17.0.1:${BLOCK_ENGINE_PORT}
+    BLOCK_ENGINE_AUTH_SERVICE_URL=http://172.17.0.1:1005
+    BLOCK_ENGINE_URL=http://172.17.0.1:1000
   else
     echo "unsupported testing platform, exiting"
     exit 1
