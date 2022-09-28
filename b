@@ -1,23 +1,10 @@
 #!/usr/bin/env sh
 set -e
 
-# dev or testnet
-ENV=$1
-ENV_FILE=./env/.env.${ENV}
-
 TAG=$(git describe --match=NeVeRmAtCh --always --abbrev=8 --dirty)
 ORG="jitolabs"
 
-if [ -f "$ENV_FILE" ]; then
-  export $(cat "$ENV_FILE" | grep -v '#' | awk '/=/ {print $1}')
-else
-  echo "Missing .env file"
-  exit 0
-fi
-
-# A little hacky, but .env files can't execute so this is the best we have for now
-if [ "$ENV" = "dev" ]; then
-  if [ "$(uname)" = "Darwin" ]; then
+if [ "$(uname)" = "Darwin" ]; then
     RPC_SERVERS=http://docker.for.mac.localhost:8899
     WEBSOCKET_SERVERS=ws://docker.for.mac.localhost:8900
     BLOCK_ENGINE_AUTH_SERVICE_URL=http://docker.for.mac.localhost:${BLOCK_ENGINE_AUTH_SERVICE_PORT}
@@ -31,10 +18,6 @@ if [ "$ENV" = "dev" ]; then
     echo "unsupported testing platform, exiting"
     exit 1
   fi
-elif [ "$ENV" != "mainnet"  ] && [ "$ENV" != "testnet" ]; then
-  echo "ERROR: must run ./b [dev | testnet | mainnet]"
-  exit 2
-fi
 
 COMPOSE_DOCKER_CLI_BUILD=1 \
   DOCKER_BUILDKIT=1 \
