@@ -4,8 +4,6 @@ on:
     secrets:
       GHUB_TOKEN:
         required: true
-      ACCESS_TOKEN:
-        required: true
       DEPLOYER_SSH_KEY:
         required: true
 jobs:
