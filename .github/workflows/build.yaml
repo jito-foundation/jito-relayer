@@ -30,7 +30,7 @@ jobs:
         if: always()
         run: docker image prune -f
       - name: Build containers
-        run: docker compose --env-file ./env/.env.dev build --progress=plain
+        run: docker compose build --progress=plain
         env:
           COMPOSE_DOCKER_CLI_BUILD: 1
           DOCKER_BUILDKIT: 1
