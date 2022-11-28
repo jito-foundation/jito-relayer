@@ -151,6 +151,8 @@ impl BlockEngineRelayerHandler {
                                 datapoint_error!("block_engine_relayer-error",
                                     "block_engine_url" => block_engine_url,
                                     "auth_service_url" => auth_service_url,
+                                    "cluster" => &cluster,
+                                    "region" => &region,
                                     ("error", e.to_string(), String)
                                 );
                                 sleep(Duration::from_secs(2)).await;
