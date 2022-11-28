@@ -62,9 +62,17 @@ impl LeaderScheduleCacheUpdater {
     pub fn new(
         load_balancer: &Arc<Mutex<LoadBalancer>>,
         exit: &Arc<AtomicBool>,
+        cluster: String,
+        region: String,
     ) -> LeaderScheduleCacheUpdater {
         let schedules = Arc::new(RwLock::new(HashMap::new()));
-        let refresh_thread = Self::refresh_thread(schedules.clone(), load_balancer.clone(), exit);
+        let refresh_thread = Self::refresh_thread(
+            schedules.clone(),
+            load_balancer.clone(),
+            exit,
+            cluster,
+            region,
+        );
         LeaderScheduleCacheUpdater {
             schedules,
             refresh_thread,
@@ -84,6 +92,8 @@ impl LeaderScheduleCacheUpdater {
         schedule: Arc<RwLock<HashMap<Slot, Pubkey>>>,
         load_balancer: Arc<Mutex<LoadBalancer>>,
         exit: &Arc<AtomicBool>,
+        cluster: String,
+        region: String,
     ) -> JoinHandle<()> {
         let exit = exit.clone();
         Builder::new()
@@ -106,6 +116,8 @@ impl LeaderScheduleCacheUpdater {
 
                     datapoint_info!(
                         "schedule-cache-update",
+                        "cluster" => cluster,
+                        "region" => region,
                         ("update_ok_count", update_ok_count, i64),
                         ("update_fail_count", update_fail_count, i64),
                         ("slots_in_schedule", slots_in_schedule, i64),
