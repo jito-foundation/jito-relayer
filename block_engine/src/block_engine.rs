@@ -299,6 +299,7 @@ impl BlockEngineRelayerHandler {
     /// The block engine will send heartbeats back to the relayer.
     /// If there's a missed heartbeat or any issues responding to each other, they'll disconnect and
     /// try to re-establish connection
+    #[allow(clippy::too_many_arguments)]
     async fn start_event_loop(
         mut client: BlockEngineRelayerClient<InterceptedService<Channel, AuthInterceptor>>,
         block_engine_receiver: &mut Receiver<BlockEnginePackets>,

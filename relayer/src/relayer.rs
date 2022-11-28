@@ -199,8 +199,6 @@ impl RelayerImpl {
         region: String,
     ) -> JoinHandle<()> {
         let exit = exit.clone();
-        let cluster = cluster.clone();
-        let region = region.clone();
         thread::Builder::new()
             .name("jito-packet-router".into())
             .spawn(move || {
