@@ -134,7 +134,7 @@ impl LoadBalancer {
                                                 // RPC servers occasionally stop sending slot updates and never recover.
                                                 // If enough time has passed, attempt to recover by forcing a new connection
                                                 if last_slot_update.elapsed().as_secs()
-                                                    > DISCONNECT_WEBSOCKET_TIMEOUT_S
+                                                    >= DISCONNECT_WEBSOCKET_TIMEOUT_S
                                                 {
                                                     datapoint_error!(
                                                         "rpc_load_balancer-force_disconnect",
