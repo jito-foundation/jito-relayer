@@ -7,6 +7,8 @@ on:
 jobs:
   clean_code_check:
     uses: ./.github/workflows/clean_code.yaml
+    secrets:
+      GHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build_images:
     needs: clean_code_check
@@ -17,8 +19,6 @@ jobs:
   run_tests:
     needs: build_images
     uses: ./.github/workflows/test.yaml
-    with:
-      TAG: "latest"
 
   push_images:
     needs: run_tests
