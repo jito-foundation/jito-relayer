@@ -1,6 +1,9 @@
 name: Clean Code Check
 on:
   workflow_call:
+    secrets:
+      GITHUB_TOKEN:
+        required: true
 
 jobs:
   clippy_and_udeps_check:
@@ -14,6 +17,10 @@ jobs:
           toolchain: nightly
           override: true
           components: clippy
+      - uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-features
       - uses: actions-rs/cargo@v1
         with:
           command: install
