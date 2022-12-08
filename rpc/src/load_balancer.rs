@@ -87,7 +87,7 @@ impl LoadBalancer {
                 let highest_slot = highest_slot.clone();
 
                 Builder::new()
-                    .name(format_args!("rpc-thread({})", websocket_url).to_string())
+                    .name(format_args!("rpc-thread({websocket_url})").to_string())
                     .spawn(move || {
                         while !exit.load(Ordering::Relaxed) {
                             info!("slot subscribing to url: {}", websocket_url);
