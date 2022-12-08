@@ -1,6 +1,11 @@
 name: Push Images
 on:
   workflow_call:
+    secrets:
+      DOCKERHUB_USER:
+        required: true
+      DOCKERHUB_PWD:
+        required: true
     inputs:
       TAG:
         required: true
@@ -18,4 +23,4 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_PWD }}
       - name: Push relayer image
-        run: docker push ${{ secrets.DOCKERHUB_ORG }}/jito-transaction-relayer:${{ inputs.TAG }}
+        run: docker push jitolabs/jito-transaction-relayer:${{ inputs.TAG }}
