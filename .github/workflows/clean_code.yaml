@@ -1,21 +1,14 @@
 name: Clean Code Check
 on:
   workflow_call:
-    secrets:
-      GHUB_TOKEN:
-        required: true
-      ACCESS_TOKEN:
-        required: true
-      DEPLOYER_SSH_KEY:
-        required: true
+
 jobs:
   clippy_and_udeps_check:
-    runs-on: self-hosted
+    runs-on: ubuntu-18.04
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: 'recursive'
-          ssh-key: ${{ secrets.DEPLOYER_SSH_KEY }}
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
@@ -23,7 +16,6 @@ jobs:
           components: clippy
       - uses: actions-rs/clippy-check@v1
         with:
-          token: ${{ secrets.GHUB_TOKEN }}
           args: --all-features
       - uses: actions-rs/cargo@v1
         with:

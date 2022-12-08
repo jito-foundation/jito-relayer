@@ -1,13 +1,6 @@
 name: Push Images
 on:
   workflow_call:
-    secrets:
-      DOCKERHUB_USER:
-        required: true
-      DOCKERHUB_PWD:
-        required: true
-      DOCKERHUB_ORG:
-        required: true
     inputs:
       TAG:
         required: true
