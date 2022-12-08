@@ -15,7 +15,3 @@ jobs:
   run_tests:
     needs: build_images
     uses: ./.github/workflows/test.yaml
-    secrets:
-      DOCKERHUB_ORG: jitolabs
-    with:
-      TAG: ${{ github.sha }}
