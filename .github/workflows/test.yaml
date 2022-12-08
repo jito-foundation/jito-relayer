@@ -6,5 +6,8 @@ jobs:
   test:
     runs-on: big-runner-1
     steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: 'recursive'
     - name: Run tests
       run: RUST_LOG=info cargo test
