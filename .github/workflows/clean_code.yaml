@@ -14,9 +14,6 @@ jobs:
           toolchain: nightly
           override: true
           components: clippy
-      - uses: actions-rs/clippy-check@v1
-        with:
-          args: --all-features
       - uses: actions-rs/cargo@v1
         with:
           command: install
