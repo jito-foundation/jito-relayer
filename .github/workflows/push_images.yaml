@@ -9,7 +9,7 @@ on:
 jobs:
   push:
     name: Docker Push
-    runs-on: self-hosted
+    runs-on: big-runner-1
     steps:
       # login to registry
       - name: Login to DockerHub

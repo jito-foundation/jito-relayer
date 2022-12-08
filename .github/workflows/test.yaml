@@ -4,7 +4,7 @@ on:
 
 jobs:
   test:
-    runs-on: self-hosted
+    runs-on: big-runner-1
     steps:
     - name: Run tests
       run: RUST_LOG=info cargo test
