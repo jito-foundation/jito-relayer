@@ -322,7 +322,7 @@ fn main() {
             .into_iter()
             .map(|pk| {
                 Pubkey::from_str(&pk)
-                    .unwrap_or_else(|_| panic!("failed to parse pubkey from string: {}", pk))
+                    .unwrap_or_else(|_| panic!("failed to parse pubkey from string: {pk}"))
             })
             .collect::<HashSet<Pubkey>>();
         ValidatorStore::UserDefined(pubkeys)

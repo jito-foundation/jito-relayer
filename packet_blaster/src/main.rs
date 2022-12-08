@@ -51,7 +51,7 @@ fn main() {
 
     let pubkeys: Vec<_> = keypairs.iter().map(|kp| kp.pubkey()).collect();
     let mut pubkeys_str = pubkeys.iter().fold(String::new(), |mut s, pubkey| {
-        let _ = write!(s, "{},", pubkey);
+        let _ = write!(s, "{pubkey},");
         s
     });
     // remove last comma
@@ -94,7 +94,7 @@ fn main() {
                                 serialize(&transfer(
                                     &keypair,
                                     &keypair.pubkey(),
-                                    count as u64,
+                                    count,
                                     latest_blockhash,
                                 ))
                                 .unwrap()

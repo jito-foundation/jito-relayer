@@ -3,6 +3,11 @@ Transaction Relayer
 
 # Setup
 
+```bash
+git submodule update --init --recursive
+cargo b --release
+```
+
 ## Generate RSA keys:
 One needs to generate RSA keys for JWT key generation and verification. To do that, use the following scripts:
 ```asm

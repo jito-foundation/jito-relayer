@@ -110,7 +110,7 @@ impl<V: ValidatorAuther> AuthServiceImpl<V> {
         tokio::task::spawn(async move {
             let mut interval = interval(sleep_interval);
             while !exit.load(Ordering::Relaxed) {
-                let _ = interval.tick();
+                let _ = interval.tick().await;
                 auth_challenges.remove_all_expired().await;
             }
         })
@@ -237,8 +237,7 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
         let expected_challenge = format!("{}-{}", sqlana_pubkey, auth_challenge.0.challenge);
         if expected_challenge != inner_req.challenge {
             return Err(Status::invalid_argument(format!(
-                "The provided challenge does not match the expected challenge: {}",
-                expected_challenge
+                "The provided challenge does not match the expected challenge: {expected_challenge}"
             )));
         }
 

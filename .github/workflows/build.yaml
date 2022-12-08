@@ -1,13 +1,6 @@
 name: Build
 on:
   workflow_call:
-    secrets:
-      ACCESS_TOKEN:
-        required: true
-      DOCKERHUB_ORG:
-        required: true
-      DEPLOYER_SSH_KEY:
-        required: true
     inputs:
       TAG:
         required: true
@@ -15,24 +8,15 @@ on:
 
 jobs:
   build:
-    runs-on: self-hosted
+    runs-on: big-runner-1
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: 'recursive'
-          ssh-key: ${{ secrets.DEPLOYER_SSH_KEY }}
-      # https://github.com/moby/buildkit/issues/1368#issuecomment-731466205
-      # Seeing conflicting build caching between this and other repos in CI
-      - name: Docker prune
-        if: always()
-        run: docker builder prune -f
-      - name: Docker image prune
-        if: always()
-        run: docker image prune -f
       - name: Build containers
         run: docker compose build --progress=plain
         env:
           COMPOSE_DOCKER_CLI_BUILD: 1
           DOCKER_BUILDKIT: 1
-          ORG: ${{ secrets.DOCKERHUB_ORG }}
+          ORG: jitolabs
           TAG: ${{ inputs.TAG }}
