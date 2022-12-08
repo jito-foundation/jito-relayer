@@ -13,14 +13,6 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: 'recursive'
-      # https://github.com/moby/buildkit/issues/1368#issuecomment-731466205
-      # Seeing conflicting build caching between this and other repos in CI
-      - name: Docker prune
-        if: always()
-        run: docker builder prune -f
-      - name: Docker image prune
-        if: always()
-        run: docker image prune -f
       - name: Build containers
         run: docker compose build --progress=plain
         env:
