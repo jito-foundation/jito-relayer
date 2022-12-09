@@ -31,9 +31,11 @@ struct ForwarderMetrics {
 }
 
 impl ForwarderMetrics {
-    pub fn report(&self, id: u64, delay: u32) {
+    pub fn report(&self, id: u64, delay: u32, cluster: &str, region: &str) {
         datapoint_info!(
             "forward_and_delay",
+            "cluster" => cluster,
+            "region" => region,
             ("id", id, i64),
             ("delay", delay, i64),
             ("num_batches_received", self.num_batches_received, i64),
@@ -59,6 +61,7 @@ impl ForwarderMetrics {
 
 /// Forwards packets to the Block Engine handler thread then delays transactions for packet_delay_ms
 /// before forwarding them to the validator.
+#[allow(clippy::too_many_arguments)]
 pub fn start_forward_and_delay_thread(
     packet_receiver: Receiver<BankingPacketBatch>,
     delay_sender: Sender<RouterPacketBatches>,
@@ -66,6 +69,8 @@ pub fn start_forward_and_delay_thread(
     block_engine_sender: tokio::sync::mpsc::Sender<BlockEnginePackets>,
     num_threads: u64,
     exit: &Arc<AtomicBool>,
+    cluster: String,
+    region: String,
 ) -> Vec<JoinHandle<()>> {
     const SLEEP_DURATION: Duration = Duration::from_millis(5);
     let packet_delay = Duration::from_millis(packet_delay_ms as u64);
@@ -76,6 +81,8 @@ pub fn start_forward_and_delay_thread(
             let delay_sender = delay_sender.clone();
             let block_engine_sender = block_engine_sender.clone();
 
+            let cluster = cluster.clone();
+            let region = region.clone();
             let exit = exit.clone();
             Builder::new()
                 .name("jito-forward_packets_to_block_engine".into())
@@ -87,7 +94,7 @@ pub fn start_forward_and_delay_thread(
 
                     while !exit.load(Ordering::Relaxed) {
                         if last_metrics_upload.elapsed() >= Duration::from_secs(1) {
-                            forwarder_metrics.report(i, packet_delay_ms);
+                            forwarder_metrics.report(i, packet_delay_ms, &cluster, &region);
 
                             forwarder_metrics = ForwarderMetrics::default();
                             last_metrics_upload = Instant::now();

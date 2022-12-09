@@ -138,6 +138,14 @@ struct Args {
     /// How long it takes to miss a slot for the system to be considered unhealthy
     #[clap(long, env, default_value_t = 10)]
     missing_slot_unhealthy_secs: u64,
+
+    /// Solana cluster name (mainnet-beta, testnet, devnet, ...)
+    #[clap(long, env)]
+    cluster: String,
+
+    /// Region (amsterdam, dallas, frankfurt, ...)
+    #[clap(long, env)]
+    region: String,
 }
 
 struct Sockets {
@@ -240,7 +248,8 @@ fn main() {
         .zip(websocket_servers.into_iter())
         .collect();
 
-    let (rpc_load_balancer, health_manager_slot_receiver) = LoadBalancer::new(&servers, &exit);
+    let (rpc_load_balancer, health_manager_slot_receiver) =
+        LoadBalancer::new(&servers, &exit, args.cluster.clone(), args.region.clone());
     let rpc_load_balancer = Arc::new(Mutex::new(rpc_load_balancer));
 
     let (tpu, packet_receiver) = Tpu::new(
@@ -253,7 +262,12 @@ fn main() {
         &rpc_load_balancer,
     );
 
-    let leader_cache = LeaderScheduleCacheUpdater::new(&rpc_load_balancer, &exit);
+    let leader_cache = LeaderScheduleCacheUpdater::new(
+        &rpc_load_balancer,
+        &exit,
+        args.cluster.clone(),
+        args.region.clone(),
+    );
 
     let (delay_sender, delay_receiver) = unbounded();
 
@@ -268,6 +282,8 @@ fn main() {
         block_engine_sender,
         1,
         &exit,
+        args.cluster.clone(),
+        args.region.clone(),
     );
     let block_engine_forwarder = BlockEngineRelayerHandler::new(
         args.block_engine_url,
@@ -275,6 +291,8 @@ fn main() {
         block_engine_receiver,
         keypair,
         &exit,
+        args.cluster.clone(),
+        args.region.clone(),
     );
 
     let (slot_sender, slot_receiver) = unbounded();
@@ -283,6 +301,8 @@ fn main() {
         slot_sender,
         Duration::from_secs(args.missing_slot_unhealthy_secs),
         &exit,
+        args.cluster.clone(),
+        args.region.clone(),
     );
 
     let server_addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
@@ -295,6 +315,8 @@ fn main() {
         args.tpu_port,
         args.tpu_fwd_port,
         health_manager.handle(),
+        args.cluster.clone(),
+        args.region.clone(),
     );
 
     let mut buf = Vec::new();

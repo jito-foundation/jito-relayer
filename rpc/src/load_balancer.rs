@@ -29,6 +29,8 @@ impl LoadBalancer {
     pub fn new(
         servers: &[(String, String)],
         exit: &Arc<AtomicBool>,
+        cluster: String,
+        region: String,
     ) -> (LoadBalancer, Receiver<Slot>) {
         let server_to_slot = HashMap::from_iter(servers.iter().map(|(_, ws)| (ws.clone(), 0)));
         let server_to_slot = Arc::new(Mutex::new(server_to_slot));
@@ -57,6 +59,8 @@ impl LoadBalancer {
             &server_to_rpc_client,
             exit,
             slot_sender,
+            cluster,
+            region,
         );
         (
             LoadBalancer {
@@ -74,6 +78,8 @@ impl LoadBalancer {
         _server_to_rpc_client: &Arc<Mutex<HashMap<String, Arc<RpcClient>>>>,
         exit: &Arc<AtomicBool>,
         slot_sender: Sender<Slot>,
+        cluster: String,
+        region: String,
     ) -> Vec<JoinHandle<()>> {
         let highest_slot = Arc::new(Mutex::new(Slot::default()));
 
@@ -85,6 +91,8 @@ impl LoadBalancer {
                 let server_to_slot = server_to_slot.clone();
                 let slot_sender = slot_sender.clone();
                 let highest_slot = highest_slot.clone();
+                let cluster = cluster.clone();
+                let region = region.clone();
 
                 Builder::new()
                     .name(format_args!("rpc-thread({websocket_url})").to_string())
@@ -107,6 +115,8 @@ impl LoadBalancer {
                                                 {
                                                     datapoint_info!(
                                                         "rpc_load_balancer-slot_count",
+                                                        "cluster" => &cluster,
+                                                        "region" => &region,
                                                         "url" => websocket_url,
                                                         ("slot", slot.slot, i64)
                                                     );

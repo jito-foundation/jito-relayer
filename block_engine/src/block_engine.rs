@@ -97,6 +97,8 @@ impl BlockEngineRelayerHandler {
         block_engine_receiver: Receiver<BlockEnginePackets>,
         keypair: Arc<Keypair>,
         exit: &Arc<AtomicBool>,
+        cluster: String,
+        region: String,
     ) -> BlockEngineRelayerHandler {
         let block_engine_forwarder = Self::start_block_engine_relayer_stream(
             block_engine_url,
@@ -104,6 +106,8 @@ impl BlockEngineRelayerHandler {
             block_engine_receiver,
             keypair,
             exit,
+            cluster,
+            region,
         );
         BlockEngineRelayerHandler {
             block_engine_forwarder,
@@ -120,6 +124,8 @@ impl BlockEngineRelayerHandler {
         mut block_engine_receiver: Receiver<BlockEnginePackets>,
         keypair: Arc<Keypair>,
         exit: &Arc<AtomicBool>,
+        cluster: String,
+        region: String,
     ) -> JoinHandle<()> {
         let exit = exit.clone();
         Builder::new()
@@ -134,6 +140,8 @@ impl BlockEngineRelayerHandler {
                             &mut block_engine_receiver,
                             &keypair,
                             &exit,
+                            &cluster,
+                            &region,
                         )
                         .await
                         {
@@ -143,6 +151,8 @@ impl BlockEngineRelayerHandler {
                                 datapoint_error!("block_engine_relayer-error",
                                     "block_engine_url" => block_engine_url,
                                     "auth_service_url" => auth_service_url,
+                                    "cluster" => &cluster,
+                                    "region" => &region,
                                     ("error", e.to_string(), String)
                                 );
                                 sleep(Duration::from_secs(2)).await;
@@ -213,6 +223,8 @@ impl BlockEngineRelayerHandler {
         block_engine_receiver: &mut Receiver<BlockEnginePackets>,
         keypair: &Arc<Keypair>,
         exit: &Arc<AtomicBool>,
+        cluster: &str,
+        region: &str,
     ) -> BlockEngineResult<()> {
         let mut auth_endpoint = Endpoint::from_str(auth_service_url).expect("valid auth url");
         if auth_service_url.contains("https") {
@@ -261,6 +273,8 @@ impl BlockEngineRelayerHandler {
         datapoint_info!("block_engine-connection_stats",
             "block_engine_url" => block_engine_url,
             "auth_service_url" => auth_service_url,
+            "cluster" => cluster,
+            "region" => region,
             ("connected", 1, i64)
         );
 
@@ -274,6 +288,8 @@ impl BlockEngineRelayerHandler {
             &mut refresh_token,
             shared_access_token,
             exit,
+            String::from(cluster),
+            String::from(region),
         )
         .await
     }
@@ -283,6 +299,7 @@ impl BlockEngineRelayerHandler {
     /// The block engine will send heartbeats back to the relayer.
     /// If there's a missed heartbeat or any issues responding to each other, they'll disconnect and
     /// try to re-establish connection
+    #[allow(clippy::too_many_arguments)]
     async fn start_event_loop(
         mut client: BlockEngineRelayerClient<InterceptedService<Channel, AuthInterceptor>>,
         block_engine_receiver: &mut Receiver<BlockEnginePackets>,
@@ -291,6 +308,8 @@ impl BlockEngineRelayerHandler {
         refresh_token: &mut Token,
         shared_access_token: Arc<Mutex<Token>>,
         exit: &Arc<AtomicBool>,
+        cluster: String,
+        region: String,
     ) -> BlockEngineResult<()> {
         let subscribe_aoi_stream = client
             .subscribe_accounts_of_interest(AccountsOfInterestRequest {})
@@ -311,6 +330,8 @@ impl BlockEngineRelayerHandler {
             refresh_token,
             shared_access_token,
             exit,
+            cluster,
+            region,
         )
         .await
     }
@@ -325,6 +346,8 @@ impl BlockEngineRelayerHandler {
         refresh_token: &mut Token,
         shared_access_token: Arc<Mutex<Token>>,
         exit: &Arc<AtomicBool>,
+        cluster: String,
+        region: String,
     ) -> BlockEngineResult<()> {
         let mut aoi_stream = subscribe_aoi_stream.into_inner();
 
@@ -369,6 +392,8 @@ impl BlockEngineRelayerHandler {
                 _ = metrics_interval.tick() => {
                     trace!("flushing metrics");
                     datapoint_info!("block_engine_relayer-loop_stats",
+                        "cluster" => &cluster,
+                        "region" => &region,
                         ("heartbeat_count", heartbeat_count, i64),
                         ("accounts_of_interest_len", accounts_of_interest.len(), i64),
                         ("aoi_update_count", aoi_update_count, i64),

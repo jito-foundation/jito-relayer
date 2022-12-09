@@ -32,6 +32,8 @@ impl HealthManager {
         slot_sender: Sender<Slot>,
         missing_slot_unhealthy_duration: Duration,
         exit: &Arc<AtomicBool>,
+        cluster: String,
+        region: String,
     ) -> HealthManager {
         let health_state = Arc::new(RwLock::new(HealthState::Unhealthy));
         HealthManager {
@@ -42,6 +44,8 @@ impl HealthManager {
                 missing_slot_unhealthy_duration,
                 exit,
                 health_state,
+                cluster,
+                region,
             ),
         }
     }
@@ -52,6 +56,8 @@ impl HealthManager {
         missing_slot_unhealthy_duration: Duration,
         exit: &Arc<AtomicBool>,
         health_state: Arc<RwLock<HealthState>>,
+        cluster: String,
+        region: String,
     ) -> JoinHandle<()> {
         let exit = exit.clone();
         Builder::new()
@@ -68,6 +74,8 @@ impl HealthManager {
                             *health_state.write().unwrap() = new_health_state;
                             datapoint_info!(
                                 "relayer-health-state",
+                                "cluster" => cluster,
+                                "region" => region,
                                 ("health_state", new_health_state as i64, i64)
                             );
                         }
