@@ -6,17 +6,19 @@ use std::{
     },
     thread,
     thread::{sleep, Builder, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use log::{error, info};
 use solana_client::{pubsub_client::PubsubClient, rpc_client::RpcClient};
-use solana_metrics::datapoint_info;
+use solana_metrics::{datapoint_error, datapoint_info};
 use solana_sdk::{
     clock::Slot,
     commitment_config::{CommitmentConfig, CommitmentLevel},
 };
+
+const DISCONNECT_WEBSOCKET_TIMEOUT_S: u64 = 30;
 
 pub struct LoadBalancer {
     // (http, websocket)
@@ -100,6 +102,8 @@ impl LoadBalancer {
                         while !exit.load(Ordering::Relaxed) {
                             info!("slot subscribing to url: {}", websocket_url);
 
+                            let mut last_slot_update = Instant::now();
+
                             match PubsubClient::slot_subscribe(&websocket_url) {
                                 Ok(subscription) => {
                                     while !exit.load(Ordering::Relaxed) {
@@ -108,6 +112,8 @@ impl LoadBalancer {
                                             .recv_timeout(Duration::from_millis(100))
                                         {
                                             Ok(slot) => {
+                                                last_slot_update = Instant::now();
+
                                                 server_to_slot
                                                     .lock()
                                                     .unwrap()
@@ -134,7 +140,20 @@ impl LoadBalancer {
                                                     }
                                                 }
                                             }
-                                            Err(RecvTimeoutError::Timeout) => {}
+                                            Err(RecvTimeoutError::Timeout) => {
+                                                // RPC servers occasionally stop sending slot updates and never recover.
+                                                // If enough time has passed, attempt to recover by forcing a new connection
+                                                if last_slot_update.elapsed().as_secs()
+                                                    >= DISCONNECT_WEBSOCKET_TIMEOUT_S
+                                                {
+                                                    datapoint_error!(
+                                                        "rpc_load_balancer-force_disconnect",
+                                                        "url" => websocket_url,
+                                                        ("event", 1, i64)
+                                                    );
+                                                    break;
+                                                }
+                                            }
                                             Err(RecvTimeoutError::Disconnected) => {
                                                 info!(
                                                     "slot subscribe disconnected url: {}",
