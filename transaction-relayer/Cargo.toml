@@ -23,6 +23,7 @@ jwt = { version = "0.16.0", features = ["openssl"] }
 log = "0.4.14"
 openssl = "0.10.41"
 prost-types = "0.10.1"
+reqwest = "0.11.13"
 solana-core = "=1.11.10"
 solana-metrics = "=1.11.10"
 solana-net-utils = "=1.11.10"
