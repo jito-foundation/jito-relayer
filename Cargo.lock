@@ -2030,6 +2030,7 @@ dependencies = [
  "log",
  "openssl",
  "prost-types 0.10.1",
+ "reqwest",
  "solana-core",
  "solana-metrics",
  "solana-net-utils",
@@ -3548,9 +3549,9 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.11.11"
+version = "0.11.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b75aa69a3f06bbcc66ede33af2af253c6f7a86b1ca0033f60c580a27074fbf92"
+checksum = "68cc60575865c7831548863cc02356512e3f1dc2f3f82cb837d7fc4cc8f3c97c"
 dependencies = [
  "async-compression",
  "base64 0.13.0",
@@ -3566,10 +3567,10 @@ dependencies = [
  "hyper-tls",
  "ipnet",
  "js-sys",
- "lazy_static",
  "log",
  "mime",
  "native-tls",
+ "once_cell",
  "percent-encoding 2.1.0",
  "pin-project-lite",
  "rustls 0.20.6",

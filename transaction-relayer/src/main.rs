@@ -88,7 +88,7 @@ struct Args {
     /// This is the IP address that will be shared with the validator. The validator will
     /// tell the rest of the network to send packets here.
     #[clap(long, env, value_parser)]
-    public_ip: IpAddr,
+    public_ip: Option<IpAddr>,
 
     /// Packet delay in milliseconds
     #[clap(long, env, value_parser, default_value_t = 200)]
@@ -208,6 +208,18 @@ fn main() {
     let args: Args = Args::parse();
     info!("args: {:?}", args);
 
+    let public_ip = if args.public_ip.is_some() {
+        args.public_ip.unwrap()
+    } else {
+        info!("reading public ip from ifconfig.me...");
+        let response = reqwest::blocking::get("https://ifconfig.me")
+            .expect("response from ifconfig.me")
+            .text()
+            .expect("public ip response");
+        response.parse().unwrap()
+    };
+    info!("public ip: {:?}", public_ip);
+
     // Supporting IPV6 addresses is a DOS vector since they are cheap and there's a much larger amount of them.
     // The DOS is specifically with regards to the challenges queue filling up and starving other legitimate
     // challenge requests.
@@ -311,7 +323,7 @@ fn main() {
         delay_receiver,
         leader_cache.handle(),
         &exit,
-        args.public_ip,
+        public_ip,
         args.tpu_port,
         args.tpu_fwd_port,
         health_manager.handle(),

@@ -31,3 +31,4 @@ solana-sdk = "=1.11.10"
 tokio = { version = "1.14.1", features = ["rt-multi-thread"] }
 tokio-stream = "0.1.8"
 tonic = "0.7.2"
+reqwest = "0.11.13"
