@@ -22,7 +22,7 @@ jito-rpc = { path = "../rpc" }
 jwt = { version = "0.16.0", features = ["openssl"] }
 log = "0.4.14"
 openssl = "0.10.41"
-prost-types = "0.10.1"
+prost-types = "0.11.5"
 reqwest = "0.11.13"
 solana-core = "=1.14.11"
 solana-metrics = "=1.14.11"
@@ -31,4 +31,4 @@ solana-perf = "=1.14.11"
 solana-sdk = "=1.14.11"
 tokio = { version = "1.14.1", features = ["rt-multi-thread"] }
 tokio-stream = "0.1.8"
-tonic = "0.7.2"
+tonic = "0.8.3"

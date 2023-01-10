@@ -10,11 +10,11 @@ publish = false
 [dependencies]
 jito-protos = { path = "../jito-protos" }
 log = "0.4.17"
-prost-types = "0.10.1"
+prost-types = "0.11.5"
 solana-metrics = "=1.14.11"
 solana-perf = "=1.14.11"
 solana-sdk = "=1.14.11"
 thiserror = "1.0.31"
 tokio = { version = "1.14.1", features = ["full"] }
 tokio-stream = "0.1.9"
-tonic = { version = "0.7.2", features = ["tls", "tls-roots", "tls-webpki-roots"] }
+tonic = { version = "0.8.3", features = ["tls", "tls-roots", "tls-webpki-roots"] }
