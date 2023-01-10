@@ -10,6 +10,6 @@ publish = false
 [dependencies]
 crossbeam-channel = "0.5.4"
 log = "0.4.17"
-solana-client = "=1.11.10"
-solana-metrics = "=1.11.10"
-solana-sdk = "=1.11.10"
+solana-client = "=1.14.11"
+solana-metrics = "=1.14.11"
+solana-sdk = "=1.14.11"
