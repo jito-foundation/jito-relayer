@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::RandomState, HashSet},
+    collections::HashSet,
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -7,9 +7,10 @@ use std::{
     },
     thread,
     thread::{Builder, JoinHandle},
-    time::{Duration, SystemTime},
+    time::{Duration, Instant, SystemTime},
 };
 
+use cached::{Cached, TimedCache};
 use jito_protos::{
     auth::{
         auth_service_client::AuthServiceClient, GenerateAuthChallengeRequest,
@@ -17,9 +18,9 @@ use jito_protos::{
         Token,
     },
     block_engine::{
-        accounts_of_interest_update, block_engine_relayer_client::BlockEngineRelayerClient,
-        packet_batch_update::Msg, AccountsOfInterestRequest, AccountsOfInterestUpdate,
-        ExpiringPacketBatch, PacketBatchUpdate,
+        block_engine_relayer_client::BlockEngineRelayerClient, packet_batch_update::Msg,
+        AccountsOfInterestRequest, AccountsOfInterestUpdate, ExpiringPacketBatch,
+        PacketBatchUpdate,
     },
     convert::{packet_to_proto_packet, versioned_tx_from_packet},
     packet::{Packet as ProtoPacket, PacketBatch as ProtoPacketBatch},
@@ -99,6 +100,7 @@ impl BlockEngineRelayerHandler {
         exit: &Arc<AtomicBool>,
         cluster: String,
         region: String,
+        aoi_cache_ttl_s: u64,
     ) -> BlockEngineRelayerHandler {
         let block_engine_forwarder = Self::start_block_engine_relayer_stream(
             block_engine_url,
@@ -108,6 +110,7 @@ impl BlockEngineRelayerHandler {
             exit,
             cluster,
             region,
+            aoi_cache_ttl_s,
         );
         BlockEngineRelayerHandler {
             block_engine_forwarder,
@@ -126,6 +129,7 @@ impl BlockEngineRelayerHandler {
         exit: &Arc<AtomicBool>,
         cluster: String,
         region: String,
+        aoi_cache_ttl_s: u64,
     ) -> JoinHandle<()> {
         let exit = exit.clone();
         Builder::new()
@@ -142,6 +146,7 @@ impl BlockEngineRelayerHandler {
                             &exit,
                             &cluster,
                             &region,
+                            aoi_cache_ttl_s,
                         )
                         .await
                         {
@@ -225,6 +230,7 @@ impl BlockEngineRelayerHandler {
         exit: &Arc<AtomicBool>,
         cluster: &str,
         region: &str,
+        aoi_cache_ttl_s: u64,
     ) -> BlockEngineResult<()> {
         let mut auth_endpoint = Endpoint::from_str(auth_service_url).expect("valid auth url");
         if auth_service_url.contains("https") {
@@ -290,6 +296,7 @@ impl BlockEngineRelayerHandler {
             exit,
             String::from(cluster),
             String::from(region),
+            aoi_cache_ttl_s,
         )
         .await
     }
@@ -310,6 +317,7 @@ impl BlockEngineRelayerHandler {
         exit: &Arc<AtomicBool>,
         cluster: String,
         region: String,
+        aoi_cache_ttl_s: u64,
     ) -> BlockEngineResult<()> {
         let subscribe_aoi_stream = client
             .subscribe_accounts_of_interest(AccountsOfInterestRequest {})
@@ -332,6 +340,7 @@ impl BlockEngineRelayerHandler {
             exit,
             cluster,
             region,
+            aoi_cache_ttl_s,
         )
         .await
     }
@@ -348,13 +357,15 @@ impl BlockEngineRelayerHandler {
         exit: &Arc<AtomicBool>,
         cluster: String,
         region: String,
+        aoi_cache_ttl_s: u64,
     ) -> BlockEngineResult<()> {
         let mut aoi_stream = subscribe_aoi_stream.into_inner();
 
         // drain old buffered packets before streaming packets to the block engine
         while block_engine_receiver.try_recv().is_ok() {}
 
-        let mut accounts_of_interest: HashSet<Pubkey, RandomState> = HashSet::new();
+        let mut accounts_of_interest: TimedCache<Pubkey, u8> =
+            TimedCache::with_lifespan_and_capacity(aoi_cache_ttl_s, 1_000_000);
 
         let mut heartbeat_count = 0;
         let mut aoi_update_count = 0;
@@ -374,14 +385,14 @@ impl BlockEngineRelayerHandler {
                 }
                 maybe_aoi = aoi_stream.message() => {
                     trace!("received aoi message");
-                    Self::handle_aoi(maybe_aoi, &mut accounts_of_interest).await?;
+                    Self::handle_aoi(maybe_aoi, &mut accounts_of_interest)?;
                     aoi_update_count += 1;
                 }
                 block_engine_batches = block_engine_receiver.recv() => {
                     trace!("received block engine batches");
                     let block_engine_batches = block_engine_batches
                         .ok_or_else(|| BlockEngineError::BlockEngineFailure("disconnected".to_string()))?;
-                    if let Some(filtered_packets) = Self::filter_aoi_packets(block_engine_batches, &accounts_of_interest).await {
+                    if let Some(filtered_packets) = Self::filter_aoi_packets(block_engine_batches, &mut accounts_of_interest).await {
                         packet_forward_count += Self::forward_packets(&block_engine_packet_sender, filtered_packets).await?;
                     }
                 }
@@ -391,14 +402,21 @@ impl BlockEngineRelayerHandler {
                 }
                 _ = metrics_interval.tick() => {
                     trace!("flushing metrics");
+
+                    // removes expired items from aoi cache
+                    let flush_start = Instant::now();
+                    accounts_of_interest.flush();
+                    let flush_elapsed_us = flush_start.elapsed().as_micros();
+
                     datapoint_info!("block_engine_relayer-loop_stats",
                         "cluster" => &cluster,
                         "region" => &region,
                         ("heartbeat_count", heartbeat_count, i64),
-                        ("accounts_of_interest_len", accounts_of_interest.len(), i64),
+                        ("accounts_of_interest_len", accounts_of_interest.cache_size(), i64),
                         ("aoi_update_count", aoi_update_count, i64),
                         ("auth_refresh_count", auth_refresh_count, i64),
                         ("packet_forward_count", packet_forward_count, i64),
+                        ("flush_elapsed_us", flush_elapsed_us, i64)
                     );
                 }
             }
@@ -485,49 +503,23 @@ impl BlockEngineRelayerHandler {
         }
     }
 
-    async fn handle_aoi(
+    fn handle_aoi(
         maybe_msg: Result<Option<AccountsOfInterestUpdate>, Status>,
-        accounts_of_interest: &mut HashSet<Pubkey, RandomState>,
+        accounts_of_interest: &mut TimedCache<Pubkey, u8>,
     ) -> BlockEngineResult<()> {
         match maybe_msg {
-            Ok(Some(aoi_update)) => match aoi_update.msg {
-                None => Err(BlockEngineError::BlockEngineFailure(
-                    "AOI message malformed".to_string(),
-                )),
-                Some(accounts_of_interest_update::Msg::Add(accounts)) => {
-                    let accounts: HashSet<Pubkey> = accounts
-                        .accounts
-                        .iter()
-                        .filter_map(|a| Pubkey::from_str(a).ok())
-                        .collect();
+            Ok(Some(aoi_update)) => {
+                let pubkeys: Vec<Pubkey> = aoi_update
+                    .accounts
+                    .iter()
+                    .filter_map(|a| Pubkey::from_str(a).ok())
+                    .collect();
+                pubkeys.into_iter().for_each(|pubkey| {
+                    accounts_of_interest.cache_set(pubkey, 0);
+                });
 
-                    for a in accounts {
-                        accounts_of_interest.insert(a);
-                    }
-
-                    Ok(())
-                }
-                Some(accounts_of_interest_update::Msg::Remove(accounts)) => {
-                    let accounts: HashSet<Pubkey> = accounts
-                        .accounts
-                        .iter()
-                        .filter_map(|a| Pubkey::from_str(a).ok())
-                        .collect();
-
-                    for a in accounts {
-                        accounts_of_interest.remove(&a);
-                    }
-                    Ok(())
-                }
-                Some(accounts_of_interest_update::Msg::Overwrite(accounts)) => {
-                    *accounts_of_interest = accounts
-                        .accounts
-                        .iter()
-                        .filter_map(|a| Pubkey::from_str(a).ok())
-                        .collect();
-                    Ok(())
-                }
-            },
+                Ok(())
+            }
             Ok(None) => Err(BlockEngineError::BlockEngineFailure(
                 "disconnected".to_string(),
             )),
@@ -560,7 +552,7 @@ impl BlockEngineRelayerHandler {
     /// Filters out packets that aren't on list of interest
     async fn filter_aoi_packets(
         block_engine_batches: BlockEnginePackets,
-        accounts_of_interest: &HashSet<Pubkey, RandomState>,
+        accounts_of_interest: &mut TimedCache<Pubkey, u8>,
     ) -> Option<ExpiringPacketBatch> {
         let filtered_packets: Vec<ProtoPacket> = block_engine_batches
             .packet_batches
@@ -585,7 +577,7 @@ impl BlockEngineRelayerHandler {
                         let writable_accounts: HashSet<&Pubkey> = HashSet::from_iter(writable_iter);
                         if writable_accounts
                             .iter()
-                            .any(|a| accounts_of_interest.contains(a))
+                            .any(|a| accounts_of_interest.cache_get(a).is_some())
                         {
                             Some(pb)
                         } else {

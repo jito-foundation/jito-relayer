@@ -146,6 +146,10 @@ struct Args {
     /// Region (amsterdam, dallas, frankfurt, ...)
     #[clap(long, env)]
     region: String,
+
+    /// Accounts of interest cache TTL
+    #[clap(long, env, default_value_t = 300)]
+    aoi_cache_ttl_s: u64,
 }
 
 struct Sockets {
@@ -305,6 +309,7 @@ fn main() {
         &exit,
         args.cluster.clone(),
         args.region.clone(),
+        args.aoi_cache_ttl_s,
     );
 
     let (slot_sender, slot_receiver) = unbounded();
