@@ -92,7 +92,7 @@ pub struct BlockEngineRelayerHandler {
 }
 
 impl BlockEngineRelayerHandler {
-    #[warn(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         block_engine_url: String,
         auth_service_url: String,
@@ -122,7 +122,7 @@ impl BlockEngineRelayerHandler {
         self.block_engine_forwarder.join()
     }
 
-    #[warn(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     fn start_block_engine_relayer_stream(
         block_engine_url: String,
         auth_service_url: String,
@@ -224,7 +224,7 @@ impl BlockEngineRelayerHandler {
     }
 
     /// Authenticates the relayer with the block engine and connects to the forwarding service
-    #[warn(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     async fn auth_and_connect(
         block_engine_url: &str,
         auth_service_url: &str,
