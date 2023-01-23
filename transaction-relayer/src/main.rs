@@ -147,7 +147,8 @@ struct Args {
     #[clap(long, env)]
     region: String,
 
-    /// Accounts of interest cache TTL
+    /// Accounts of interest cache TTL. Note this must play nicely with the refresh period that
+    /// block engine uses to send full updates.
     #[clap(long, env, default_value_t = 300)]
     aoi_cache_ttl_s: u64,
 }
