@@ -121,11 +121,12 @@ impl LoadBalancer {
                                                 {
                                                     let url_split: Vec<&str> =
                                                         websocket_url.split('?').collect();
+                                                    let url = url_split.get(0).unwrap_or(&"");
                                                     datapoint_info!(
                                                         "rpc_load_balancer-slot_count",
                                                         "cluster" => &cluster,
                                                         "region" => &region,
-                                                        "url" => url_split[0],
+                                                        "url" => url,
                                                         ("slot", slot.slot, i64)
                                                     );
 
@@ -150,9 +151,10 @@ impl LoadBalancer {
                                                 {
                                                     let url_split: Vec<&str> =
                                                         websocket_url.split('?').collect();
+                                                    let url = url_split.get(0).unwrap_or(&"");
                                                     datapoint_error!(
                                                         "rpc_load_balancer-force_disconnect",
-                                                        "url" => url_split[0],
+                                                        "url" => url,
                                                         ("event", 1, i64)
                                                     );
                                                     break;
