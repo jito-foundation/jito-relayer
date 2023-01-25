@@ -46,6 +46,8 @@ use tonic::{
     Response, Status, Streaming,
 };
 
+use crate::block_engine_stats::BlockEngineStats;
+
 #[derive(Clone)]
 struct AuthInterceptor {
     access_token: Arc<Mutex<Token>>,
@@ -370,57 +372,78 @@ impl BlockEngineRelayerHandler {
         let mut accounts_of_interest: TimedCache<Pubkey, u8> =
             TimedCache::with_lifespan_and_capacity(aoi_cache_ttl_s, 1_000_000);
 
-        let mut heartbeat_count = 0;
-        let mut aoi_update_count = 0;
-        let mut auth_refresh_count = 0;
-        let mut packet_forward_count = 0;
+        let mut block_engine_stats = BlockEngineStats::default();
 
         let mut heartbeat = interval(Duration::from_millis(500));
         let mut refresh_interval = interval(Duration::from_secs(60));
         let mut metrics_interval = interval(Duration::from_secs(1));
 
+        let mut heartbeat_count = 0;
         while !exit.load(Ordering::Relaxed) {
             select! {
                 _ = heartbeat.tick() => {
                     trace!("sending heartbeat");
+
+                    let now = Instant::now();
+
                     Self::check_and_send_heartbeat(&block_engine_packet_sender, &heartbeat_count).await?;
+
+                    block_engine_stats.increment_heartbeat_elapsed_us(now.elapsed().as_micros() as u64);
+                    block_engine_stats.increment_heartbeat_count(1);
+
                     heartbeat_count += 1;
                 }
                 maybe_aoi = aoi_stream.message() => {
                     trace!("received aoi message");
-                    Self::handle_aoi(maybe_aoi, &mut accounts_of_interest)?;
-                    aoi_update_count += 1;
+
+                    let now = Instant::now();
+
+                    let num_pubkeys = Self::handle_aoi(maybe_aoi, &mut accounts_of_interest)?;
+
+                    block_engine_stats.increment_aoi_update_elapsed_us(now.elapsed().as_micros() as u64);
+                    block_engine_stats.increment_aoi_update_count(1);
+                    block_engine_stats.increment_aoi_accounts_received(num_pubkeys as u64);
                 }
                 block_engine_batches = block_engine_receiver.recv() => {
                     trace!("received block engine batches");
                     let block_engine_batches = block_engine_batches
                         .ok_or_else(|| BlockEngineError::BlockEngineFailure("disconnected".to_string()))?;
-                    if let Some(filtered_packets) = Self::filter_aoi_packets(block_engine_batches, &mut accounts_of_interest).await {
-                        packet_forward_count += Self::forward_packets(&block_engine_packet_sender, filtered_packets).await?;
+
+                    let now = Instant::now();
+                    block_engine_stats.increment_num_packets_received(block_engine_batches.packet_batches.iter().map(|b|b.len() as u64).sum::<u64>());
+                    let filtered_packets = Self::filter_aoi_packets(block_engine_batches, &mut accounts_of_interest);
+                    block_engine_stats.increment_packet_filter_elapsed(now.elapsed().as_micros() as u64);
+
+                    if let Some(filtered_packets) = filtered_packets {
+                        let now = Instant::now();
+                        let packet_forward_count = Self::forward_packets(&block_engine_packet_sender, filtered_packets).await?;
+                        block_engine_stats.increment_packet_forward_count(packet_forward_count as u64);
+                        block_engine_stats.increment_packet_forward_elapsed(now.elapsed().as_micros() as u64);
                     }
                 }
                 _ = refresh_interval.tick() => {
                     trace!("refreshing auth interval");
-                    Self::maybe_refresh_auth(&mut auth_client, keypair, refresh_token, &shared_access_token, &mut auth_refresh_count).await?;
+                    let now = Instant::now();
+
+                    let did_refresh = Self::maybe_refresh_auth(&mut auth_client, keypair, refresh_token, &shared_access_token).await?;
+                    if did_refresh {
+                        block_engine_stats.increment_auth_refresh_count(1);
+                    }
+                    block_engine_stats.increment_refresh_auth_elapsed_us(now.elapsed().as_micros() as u64);
                 }
-                _ = metrics_interval.tick() => {
+                rx = metrics_interval.tick() => {
                     trace!("flushing metrics");
+                    block_engine_stats.increment_metrics_delay_us(rx.elapsed().as_micros() as u64);
 
                     // removes expired items from aoi cache
                     let flush_start = Instant::now();
                     accounts_of_interest.flush();
-                    let flush_elapsed_us = flush_start.elapsed().as_micros();
 
-                    datapoint_info!("block_engine_relayer-loop_stats",
-                        "cluster" => &cluster,
-                        "region" => &region,
-                        ("heartbeat_count", heartbeat_count, i64),
-                        ("accounts_of_interest_len", accounts_of_interest.cache_size(), i64),
-                        ("aoi_update_count", aoi_update_count, i64),
-                        ("auth_refresh_count", auth_refresh_count, i64),
-                        ("packet_forward_count", packet_forward_count, i64),
-                        ("flush_elapsed_us", flush_elapsed_us, i64)
-                    );
+                    block_engine_stats.increment_flush_elapsed_us(flush_start.elapsed().as_micros() as u64);
+                    block_engine_stats.increment_accounts_of_interest_len(accounts_of_interest.cache_size() as u64);
+
+                    block_engine_stats.report(&cluster, &region);
+                    block_engine_stats = BlockEngineStats::default();
                 }
             }
         }
@@ -433,8 +456,7 @@ impl BlockEngineRelayerHandler {
         keypair: &Arc<Keypair>,
         refresh_token: &mut Token,
         shared_access_token: &Arc<Mutex<Token>>,
-        auth_refresh_count: &mut u64,
-    ) -> BlockEngineResult<()> {
+    ) -> BlockEngineResult<bool> {
         // expires_at_utc is checked for None when establishing connection
         let access_token_expiration_time = shared_access_token
             .lock()
@@ -475,9 +497,7 @@ impl BlockEngineRelayerHandler {
                 *shared_access_token.lock().unwrap() = access_token;
                 info!("access and refresh token were refreshed");
 
-                *auth_refresh_count += 1;
-
-                Ok(())
+                Ok(true)
             }
             (false, true) => {
                 // fetch a new access token
@@ -498,18 +518,16 @@ impl BlockEngineRelayerHandler {
                 *shared_access_token.lock().unwrap() = maybe_access_token.unwrap();
                 info!("access token was refreshed");
 
-                *auth_refresh_count += 1;
-
-                Ok(())
+                Ok(true)
             }
-            (false, false) => Ok(()),
+            (false, false) => Ok(false),
         }
     }
 
     fn handle_aoi(
         maybe_msg: Result<Option<AccountsOfInterestUpdate>, Status>,
         accounts_of_interest: &mut TimedCache<Pubkey, u8>,
-    ) -> BlockEngineResult<()> {
+    ) -> BlockEngineResult<usize> {
         match maybe_msg {
             Ok(Some(aoi_update)) => {
                 let pubkeys: Vec<Pubkey> = aoi_update
@@ -517,11 +535,14 @@ impl BlockEngineRelayerHandler {
                     .iter()
                     .filter_map(|a| Pubkey::from_str(a).ok())
                     .collect();
+
+                let num_pubkeys = pubkeys.len();
+
                 pubkeys.into_iter().for_each(|pubkey| {
                     accounts_of_interest.cache_set(pubkey, 0);
                 });
 
-                Ok(())
+                Ok(num_pubkeys)
             }
             Ok(None) => Err(BlockEngineError::BlockEngineFailure(
                 "disconnected".to_string(),
@@ -535,7 +556,7 @@ impl BlockEngineRelayerHandler {
         block_engine_packet_sender: &Sender<PacketBatchUpdate>,
         batch: ExpiringPacketBatch,
     ) -> BlockEngineResult<usize> {
-        let num_packets = batch.clone().batch.unwrap().packets.len();
+        let num_packets = batch.batch.as_ref().unwrap().packets.len();
 
         if let Err(e) = block_engine_packet_sender
             .send(PacketBatchUpdate {
@@ -553,7 +574,7 @@ impl BlockEngineRelayerHandler {
     }
 
     /// Filters out packets that aren't on list of interest
-    async fn filter_aoi_packets(
+    fn filter_aoi_packets(
         block_engine_batches: BlockEnginePackets,
         accounts_of_interest: &mut TimedCache<Pubkey, u8>,
     ) -> Option<ExpiringPacketBatch> {

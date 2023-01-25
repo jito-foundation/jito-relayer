@@ -119,11 +119,14 @@ impl LoadBalancer {
                                                     .unwrap()
                                                     .insert(websocket_url.clone(), slot.slot);
                                                 {
+                                                    let url_split: Vec<&str> =
+                                                        websocket_url.split('?').collect();
+                                                    let url = url_split.get(0).unwrap_or(&"");
                                                     datapoint_info!(
                                                         "rpc_load_balancer-slot_count",
                                                         "cluster" => &cluster,
                                                         "region" => &region,
-                                                        "url" => websocket_url,
+                                                        "url" => url,
                                                         ("slot", slot.slot, i64)
                                                     );
 
@@ -146,9 +149,12 @@ impl LoadBalancer {
                                                 if last_slot_update.elapsed().as_secs()
                                                     >= DISCONNECT_WEBSOCKET_TIMEOUT_S
                                                 {
+                                                    let url_split: Vec<&str> =
+                                                        websocket_url.split('?').collect();
+                                                    let url = url_split.get(0).unwrap_or(&"");
                                                     datapoint_error!(
                                                         "rpc_load_balancer-force_disconnect",
-                                                        "url" => websocket_url,
+                                                        "url" => url,
                                                         ("event", 1, i64)
                                                     );
                                                     break;
