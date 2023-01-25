@@ -431,8 +431,9 @@ impl BlockEngineRelayerHandler {
                     }
                     block_engine_stats.increment_refresh_auth_elapsed_us(now.elapsed().as_micros() as u64);
                 }
-                _ = metrics_interval.tick() => {
+                rx_time = metrics_interval.tick() => {
                     trace!("flushing metrics");
+                    block_engine_stats.increment_metrics_delay_us(rx.elapsed().as_micros() as u64);
 
                     // removes expired items from aoi cache
                     let flush_start = Instant::now();
@@ -555,7 +556,7 @@ impl BlockEngineRelayerHandler {
         block_engine_packet_sender: &Sender<PacketBatchUpdate>,
         batch: ExpiringPacketBatch,
     ) -> BlockEngineResult<usize> {
-        let num_packets = batch.clone().batch.unwrap().packets.len();
+        let num_packets = batch.batch.as_ref().unwrap().packets.len();
 
         if let Err(e) = block_engine_packet_sender
             .send(PacketBatchUpdate {
