@@ -431,7 +431,7 @@ impl BlockEngineRelayerHandler {
                     }
                     block_engine_stats.increment_refresh_auth_elapsed_us(now.elapsed().as_micros() as u64);
                 }
-                rx_time = metrics_interval.tick() => {
+                rx = metrics_interval.tick() => {
                     trace!("flushing metrics");
                     block_engine_stats.increment_metrics_delay_us(rx.elapsed().as_micros() as u64);
 

@@ -84,7 +84,7 @@ impl BlockEngineStats {
 
     pub fn report(&self, cluster: &str, region: &str) {
         datapoint_info!(
-            "relayer_block_engine-loop_stats",
+            "block_engine_relayer-loop_stats",
             "cluster" => &cluster,
             "region" => &region,
             ("heartbeat_count", self.heartbeat_count, i64),
