@@ -119,11 +119,13 @@ impl LoadBalancer {
                                                     .unwrap()
                                                     .insert(websocket_url.clone(), slot.slot);
                                                 {
+                                                    let url_split: Vec<&str> =
+                                                        websocket_url.split('?').collect();
                                                     datapoint_info!(
                                                         "rpc_load_balancer-slot_count",
                                                         "cluster" => &cluster,
                                                         "region" => &region,
-                                                        "url" => websocket_url,
+                                                        "url" => url_split[0],
                                                         ("slot", slot.slot, i64)
                                                     );
 
@@ -146,9 +148,11 @@ impl LoadBalancer {
                                                 if last_slot_update.elapsed().as_secs()
                                                     >= DISCONNECT_WEBSOCKET_TIMEOUT_S
                                                 {
+                                                    let url_split: Vec<&str> =
+                                                        websocket_url.split('?').collect();
                                                     datapoint_error!(
                                                         "rpc_load_balancer-force_disconnect",
-                                                        "url" => websocket_url,
+                                                        "url" => url_split[0],
                                                         ("event", 1, i64)
                                                     );
                                                     break;
