@@ -1,5 +1,4 @@
 use std::{
-    collections::HashSet,
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -20,7 +19,7 @@ use jito_protos::{
     block_engine::{
         block_engine_relayer_client::BlockEngineRelayerClient, packet_batch_update::Msg,
         AccountsOfInterestRequest, AccountsOfInterestUpdate, ExpiringPacketBatch,
-        PacketBatchUpdate,
+        PacketBatchUpdate, ProgramsOfInterestRequest, ProgramsOfInterestUpdate,
     },
     convert::{packet_to_proto_packet, versioned_tx_from_packet},
     packet::{Packet as ProtoPacket, PacketBatch as ProtoPacketBatch},
@@ -328,7 +327,11 @@ impl BlockEngineRelayerHandler {
             .subscribe_accounts_of_interest(AccountsOfInterestRequest {})
             .await
             .map_err(|e| BlockEngineError::BlockEngineFailure(e.to_string()))?;
-        let (packet_msg_sender, packet_msg_receiver) = channel(100);
+        let subscribe_poi_stream = client
+            .subscribe_programs_of_interest(ProgramsOfInterestRequest {})
+            .await
+            .map_err(|e| BlockEngineError::BlockEngineFailure(e.to_string()))?;
+        let (packet_msg_sender, packet_msg_receiver) = channel(1_000);
         let _response = client
             .start_expiring_packet_stream(ReceiverStream::new(packet_msg_receiver))
             .await
@@ -338,6 +341,7 @@ impl BlockEngineRelayerHandler {
             packet_msg_sender,
             block_engine_receiver,
             subscribe_aoi_stream,
+            subscribe_poi_stream,
             auth_client,
             keypair,
             refresh_token,
@@ -355,6 +359,7 @@ impl BlockEngineRelayerHandler {
         block_engine_packet_sender: Sender<PacketBatchUpdate>,
         block_engine_receiver: &mut Receiver<BlockEnginePackets>,
         subscribe_aoi_stream: Response<Streaming<AccountsOfInterestUpdate>>,
+        subscribe_poi_stream: Response<Streaming<ProgramsOfInterestUpdate>>,
         mut auth_client: AuthServiceClient<Channel>,
         keypair: &Arc<Keypair>,
         refresh_token: &mut Token,
@@ -365,11 +370,15 @@ impl BlockEngineRelayerHandler {
         aoi_cache_ttl_s: u64,
     ) -> BlockEngineResult<()> {
         let mut aoi_stream = subscribe_aoi_stream.into_inner();
+        let mut poi_stream = subscribe_poi_stream.into_inner();
 
         // drain old buffered packets before streaming packets to the block engine
         while block_engine_receiver.try_recv().is_ok() {}
 
         let mut accounts_of_interest: TimedCache<Pubkey, u8> =
+            TimedCache::with_lifespan_and_capacity(aoi_cache_ttl_s, 1_000_000);
+
+        let mut programs_of_interest: TimedCache<Pubkey, u8> =
             TimedCache::with_lifespan_and_capacity(aoi_cache_ttl_s, 1_000_000);
 
         let mut block_engine_stats = BlockEngineStats::default();
@@ -404,6 +413,17 @@ impl BlockEngineRelayerHandler {
                     block_engine_stats.increment_aoi_update_count(1);
                     block_engine_stats.increment_aoi_accounts_received(num_pubkeys as u64);
                 }
+                maybe_poi = poi_stream.message() => {
+                    trace!("received poi message");
+
+                    let now = Instant::now();
+
+                    let num_pubkeys = Self::handle_poi(maybe_poi, &mut programs_of_interest)?;
+
+                    block_engine_stats.increment_poi_update_elapsed_us(now.elapsed().as_micros() as u64);
+                    block_engine_stats.increment_poi_update_count(1);
+                    block_engine_stats.increment_poi_accounts_received(num_pubkeys as u64);
+                }
                 block_engine_batches = block_engine_receiver.recv() => {
                     trace!("received block engine batches");
                     let block_engine_batches = block_engine_batches
@@ -411,7 +431,7 @@ impl BlockEngineRelayerHandler {
 
                     let now = Instant::now();
                     block_engine_stats.increment_num_packets_received(block_engine_batches.packet_batches.iter().map(|b|b.len() as u64).sum::<u64>());
-                    let filtered_packets = Self::filter_aoi_packets(block_engine_batches, &mut accounts_of_interest);
+                    let filtered_packets = Self::filter_packets(block_engine_batches, &mut accounts_of_interest, &mut programs_of_interest);
                     block_engine_stats.increment_packet_filter_elapsed(now.elapsed().as_micros() as u64);
 
                     if let Some(filtered_packets) = filtered_packets {
@@ -438,6 +458,7 @@ impl BlockEngineRelayerHandler {
                     // removes expired items from aoi cache
                     let flush_start = Instant::now();
                     accounts_of_interest.flush();
+                    programs_of_interest.flush();
 
                     block_engine_stats.increment_flush_elapsed_us(flush_start.elapsed().as_micros() as u64);
                     block_engine_stats.increment_accounts_of_interest_len(accounts_of_interest.cache_size() as u64);
@@ -551,6 +572,33 @@ impl BlockEngineRelayerHandler {
         }
     }
 
+    fn handle_poi(
+        maybe_msg: Result<Option<ProgramsOfInterestUpdate>, Status>,
+        programs_of_interest: &mut TimedCache<Pubkey, u8>,
+    ) -> BlockEngineResult<usize> {
+        match maybe_msg {
+            Ok(Some(aoi_update)) => {
+                let pubkeys: Vec<Pubkey> = aoi_update
+                    .programs
+                    .iter()
+                    .filter_map(|a| Pubkey::from_str(a).ok())
+                    .collect();
+
+                let num_pubkeys = pubkeys.len();
+
+                pubkeys.into_iter().for_each(|pubkey| {
+                    programs_of_interest.cache_set(pubkey, 0);
+                });
+
+                Ok(num_pubkeys)
+            }
+            Ok(None) => Err(BlockEngineError::BlockEngineFailure(
+                "disconnected".to_string(),
+            )),
+            Err(e) => Err(BlockEngineError::BlockEngineFailure(e.to_string())),
+        }
+    }
+
     /// Forwards packets to the Block Engine
     async fn forward_packets(
         block_engine_packet_sender: &Sender<PacketBatchUpdate>,
@@ -574,9 +622,10 @@ impl BlockEngineRelayerHandler {
     }
 
     /// Filters out packets that aren't on list of interest
-    fn filter_aoi_packets(
+    fn filter_packets(
         block_engine_batches: BlockEnginePackets,
         accounts_of_interest: &mut TimedCache<Pubkey, u8>,
+        programs_of_interest: &mut TimedCache<Pubkey, u8>,
     ) -> Option<ExpiringPacketBatch> {
         let filtered_packets: Vec<ProtoPacket> = block_engine_batches
             .packet_batches
@@ -586,23 +635,18 @@ impl BlockEngineRelayerHandler {
                     .filter_map(|p| {
                         let pb = packet_to_proto_packet(p)?;
                         let tx = versioned_tx_from_packet(&pb)?;
-                        let writable_iter = tx
-                            .message
-                            .static_account_keys()
-                            .iter()
-                            .enumerate()
-                            .filter_map(|(idx, acc)| {
-                                if tx.message.is_maybe_writable(idx) {
-                                    Some(acc)
-                                } else {
-                                    None
-                                }
-                            });
-                        let writable_accounts: HashSet<&Pubkey> = HashSet::from_iter(writable_iter);
-                        if writable_accounts
-                            .iter()
-                            .any(|a| accounts_of_interest.cache_get(a).is_some())
-                        {
+
+                        let is_forwardable =
+                            tx.message.static_account_keys().iter().enumerate().any(
+                                |(idx, acc)| {
+                                    (tx.message.is_maybe_writable(idx)
+                                        && accounts_of_interest.cache_get(acc).is_some())
+                                        || (tx.message.is_invoked(idx)
+                                            && programs_of_interest.cache_get(acc).is_some())
+                                },
+                            );
+
+                        if is_forwardable {
                             Some(pb)
                         } else {
                             None
