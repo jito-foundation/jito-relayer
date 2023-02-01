@@ -28,8 +28,6 @@ pub const DEFAULT_TPU_COALESCE_MS: u64 = 5;
 pub const MAX_QUIC_CONNECTIONS_PER_IP: usize = 8;
 
 pub struct TpuSockets {
-    pub transactions_sockets: Vec<UdpSocket>,
-    pub transactions_forward_sockets: Vec<UdpSocket>,
     pub transactions_quic_sockets: UdpSocket,
     pub transactions_forwards_quic_sockets: UdpSocket,
 }
@@ -47,15 +45,12 @@ impl Tpu {
     pub fn new(
         sockets: TpuSockets,
         exit: &Arc<AtomicBool>,
-        tpu_coalesce_ms: u64,
         keypair: &Keypair,
         tpu_ip: &IpAddr,
         tpu_fwd_ip: &IpAddr,
         rpc_load_balancer: &Arc<Mutex<LoadBalancer>>,
     ) -> (Self, Receiver<BankingPacketBatch>) {
         let TpuSockets {
-            transactions_sockets,
-            transactions_forward_sockets,
             transactions_quic_sockets,
             transactions_forwards_quic_sockets,
         } = sockets;
@@ -63,16 +58,8 @@ impl Tpu {
         let (packet_sender, packet_receiver) = unbounded();
         let (forwarded_packet_sender, forwarded_packet_receiver) = unbounded();
 
-        let fetch_stage = FetchStage::new_with_sender(
-            transactions_sockets,
-            transactions_forward_sockets,
-            exit,
-            &packet_sender,
-            &forwarded_packet_sender,
-            forwarded_packet_receiver,
-            tpu_coalesce_ms,
-            None,
-        );
+        let fetch_stage =
+            FetchStage::new_with_sender(exit, &forwarded_packet_sender, forwarded_packet_receiver);
 
         let staked_nodes = Arc::new(RwLock::new(StakedNodes::default()));
         let staked_nodes_updater_service = StakedNodesUpdaterService::new(

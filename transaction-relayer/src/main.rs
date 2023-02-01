@@ -45,11 +45,15 @@ struct Args {
     #[clap(long, env, value_parser)]
     tpu_bind_ip: IpAddr,
 
-    /// Port to bind to for tpu packets
+    /// Port to bind to advertise for TPU
+    /// NOTE: There is no longer a socket created at this port since UDP transaction receiving is
+    /// deprecated.
     #[clap(long, env, value_parser, default_value_t = 11_222)]
     tpu_port: u16,
 
     /// Port to bind to for tpu fwd packets
+    /// NOTE: There is no longer a socket created at this port since UDP transaction receiving is
+    /// deprecated.
     #[clap(long, env, value_parser, default_value_t = 11_223)]
     tpu_fwd_port: u16,
 
@@ -160,20 +164,6 @@ struct Sockets {
 }
 
 fn get_sockets(args: &Args) -> Sockets {
-    let (tpu_bind_port, transactions_sockets) = multi_bind_in_range(
-        args.tpu_bind_ip,
-        (args.tpu_port, args.tpu_port + 1),
-        args.num_tpu_binds,
-    )
-    .expect("to bind tpu sockets");
-
-    let (tpu_bind_fwd_port, transactions_forward_sockets) = multi_bind_in_range(
-        args.tpu_bind_ip,
-        (args.tpu_fwd_port, args.tpu_fwd_port + 1),
-        args.num_tpu_fwd_binds,
-    )
-    .expect("to bind tpu_forward sockets");
-
     let (tpu_quic_bind_port, mut tpu_quic_sockets) = multi_bind_in_range(
         args.tpu_bind_ip,
         (args.tpu_quic_port, args.tpu_quic_port + 1),
@@ -188,17 +178,13 @@ fn get_sockets(args: &Args) -> Sockets {
     )
     .expect("to bind tpu_quic sockets");
 
-    assert_eq!(tpu_bind_port, args.tpu_port);
-    assert_eq!(tpu_bind_fwd_port, args.tpu_fwd_port);
     assert_eq!(tpu_quic_bind_port, args.tpu_quic_port);
     assert_eq!(tpu_fwd_quic_bind_port, args.tpu_quic_fwd_port);
-    assert_eq!(tpu_bind_port + 6, tpu_quic_bind_port); // QUIC is expected to be at TPU + 6
-    assert_eq!(tpu_bind_fwd_port + 6, tpu_fwd_quic_bind_port); // QUIC is expected to be at TPU + 6
+    assert_eq!(args.tpu_port + 6, tpu_quic_bind_port); // QUIC is expected to be at TPU + 6
+    assert_eq!(args.tpu_fwd_port + 6, tpu_fwd_quic_bind_port); // QUIC is expected to be at TPU forward + 6
 
     Sockets {
         tpu_sockets: TpuSockets {
-            transactions_sockets,
-            transactions_forward_sockets,
             transactions_quic_sockets: tpu_quic_sockets.pop().unwrap(),
             transactions_forwards_quic_sockets: tpu_fwd_quic_sockets.pop().unwrap(),
         },
@@ -272,7 +258,6 @@ fn main() {
     let (tpu, packet_receiver) = Tpu::new(
         sockets.tpu_sockets,
         &exit,
-        5,
         &keypair,
         &sockets.tpu_ip,
         &sockets.tpu_fwd_ip,

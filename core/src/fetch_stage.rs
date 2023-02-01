@@ -1,21 +1,16 @@
 //! The `fetch_stage` batches input from a UDP socket and sends it to a channel.
 
 use std::{
-    net::UdpSocket,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    thread::{self, sleep, Builder, JoinHandle},
-    time::Duration,
+    thread::{self, Builder, JoinHandle},
 };
 
 use crossbeam_channel::{RecvError, RecvTimeoutError};
-use solana_perf::{packet::PacketBatchRecycler, recycler::Recycler};
 use solana_sdk::packet::{Packet, PacketFlags};
-use solana_streamer::streamer::{
-    self, PacketBatchReceiver, PacketBatchSender, StreamerReceiveStats,
-};
+use solana_streamer::streamer::{PacketBatchReceiver, PacketBatchSender};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -36,27 +31,11 @@ pub struct FetchStage {
 impl FetchStage {
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_sender(
-        sockets: Vec<UdpSocket>,
-        tpu_forwards_sockets: Vec<UdpSocket>,
         exit: &Arc<AtomicBool>,
-        sender: &PacketBatchSender,
         forward_sender: &PacketBatchSender,
         forward_receiver: PacketBatchReceiver,
-        coalesce_ms: u64,
-        in_vote_only_mode: Option<Arc<AtomicBool>>,
     ) -> Self {
-        let tx_sockets = sockets.into_iter().map(Arc::new).collect();
-        let tpu_forwards_sockets = tpu_forwards_sockets.into_iter().map(Arc::new).collect();
-        Self::new_multi_socket(
-            tx_sockets,
-            tpu_forwards_sockets,
-            exit,
-            sender,
-            forward_sender,
-            forward_receiver,
-            coalesce_ms,
-            in_vote_only_mode,
-        )
+        Self::new_fwd_thread(exit, forward_sender, forward_receiver)
     }
 
     fn handle_forwarded_packets(
@@ -92,52 +71,11 @@ impl FetchStage {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn new_multi_socket(
-        tpu_sockets: Vec<Arc<UdpSocket>>,
-        tpu_forwards_sockets: Vec<Arc<UdpSocket>>,
+    fn new_fwd_thread(
         exit: &Arc<AtomicBool>,
         sender: &PacketBatchSender,
-        forward_sender: &PacketBatchSender,
         forward_receiver: PacketBatchReceiver,
-        coalesce_ms: u64,
-        in_vote_only_mode: Option<Arc<AtomicBool>>,
     ) -> Self {
-        let recycler: PacketBatchRecycler = Recycler::warmed(1000, 1024);
-
-        let tpu_stats = Arc::new(StreamerReceiveStats::new("tpu_receiver"));
-        let tpu_threads: Vec<_> = tpu_sockets
-            .into_iter()
-            .map(|socket| {
-                streamer::receiver(
-                    socket,
-                    exit.clone(),
-                    sender.clone(),
-                    recycler.clone(),
-                    tpu_stats.clone(),
-                    coalesce_ms,
-                    true,
-                    in_vote_only_mode.clone(),
-                )
-            })
-            .collect();
-
-        let tpu_forward_stats = Arc::new(StreamerReceiveStats::new("tpu_forwards_receiver"));
-        let tpu_forwards_threads: Vec<_> = tpu_forwards_sockets
-            .into_iter()
-            .map(|socket| {
-                streamer::receiver(
-                    socket,
-                    exit.clone(),
-                    forward_sender.clone(),
-                    recycler.clone(),
-                    tpu_forward_stats.clone(),
-                    coalesce_ms,
-                    true,
-                    in_vote_only_mode.clone(),
-                )
-            })
-            .collect();
-
         let sender = sender.clone();
 
         let fwd_thread_hdl = {
@@ -159,29 +97,8 @@ impl FetchStage {
                 .unwrap()
         };
 
-        let metrics_thread_hdl = {
-            let exit = exit.clone();
-            Builder::new()
-                .name("solana-fetch-stage-metrics".to_string())
-                .spawn(move || {
-                    while !exit.load(Ordering::Relaxed) {
-                        sleep(Duration::from_secs(1));
-                        tpu_stats.report();
-                        tpu_forward_stats.report();
-                    }
-                })
-                .unwrap()
-        };
-
         Self {
-            thread_hdls: [
-                tpu_threads,
-                tpu_forwards_threads,
-                vec![fwd_thread_hdl, metrics_thread_hdl],
-            ]
-            .into_iter()
-            .flatten()
-            .collect(),
+            thread_hdls: vec![fwd_thread_hdl],
         }
     }
 
