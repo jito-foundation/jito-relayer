@@ -577,8 +577,8 @@ impl BlockEngineRelayerHandler {
         programs_of_interest: &mut TimedCache<Pubkey, u8>,
     ) -> BlockEngineResult<usize> {
         match maybe_msg {
-            Ok(Some(aoi_update)) => {
-                let pubkeys: Vec<Pubkey> = aoi_update
+            Ok(Some(poi_update)) => {
+                let pubkeys: Vec<Pubkey> = poi_update
                     .programs
                     .iter()
                     .filter_map(|a| Pubkey::from_str(a).ok())
