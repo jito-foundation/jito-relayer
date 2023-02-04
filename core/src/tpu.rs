@@ -59,7 +59,7 @@ impl Tpu {
         let (forwarded_packet_sender, forwarded_packet_receiver) = unbounded();
 
         let fetch_stage =
-            FetchStage::new_with_sender(exit, &forwarded_packet_sender, forwarded_packet_receiver);
+            FetchStage::new_with_sender(exit, &packet_sender, forwarded_packet_receiver);
 
         let staked_nodes = Arc::new(RwLock::new(StakedNodes::default()));
         let staked_nodes_updater_service = StakedNodesUpdaterService::new(
