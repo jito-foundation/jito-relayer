@@ -2038,6 +2038,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "jito-geyser-state-manager"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "log",
+ "solana-client",
+ "solana-metrics",
+ "solana-sdk",
+]
+
+[[package]]
 name = "jito-packet-blaster"
 version = "0.1.0"
 dependencies = [
