@@ -33,6 +33,7 @@ use jwt::{AlgorithmType, PKeyWithDigest};
 use log::{debug, error, info, warn};
 use openssl::{hash::MessageDigest, pkey::PKey};
 use solana_address_lookup_table_program::state::AddressLookupTable;
+use solana_metrics::{datapoint_error, datapoint_info};
 use solana_net_utils::multi_bind_in_range;
 use solana_sdk::{
     address_lookup_table_account::AddressLookupTableAccount,
@@ -270,6 +271,8 @@ fn main() {
         &address_lookup_table_cache,
         args.lookup_table_refresh_s,
         &exit,
+        args.cluster.clone(),
+        args.region.clone(),
     );
 
     let (tpu, packet_receiver) = Tpu::new(
@@ -462,6 +465,8 @@ fn start_lookup_table_refresher(
     lookup_table: &Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>>,
     lookup_table_refresh_s: u64,
     exit: &Arc<AtomicBool>,
+    cluster: String,
+    region: String,
 ) -> JoinHandle<()> {
     let rpc_load_balancer = rpc_load_balancer.clone();
     let lookup_table = lookup_table.clone();
@@ -479,13 +484,33 @@ fn start_lookup_table_refresher(
 
             let tick_receiver = tick(Duration::from_secs(1));
             let mut last_refresh = Instant::now();
+
             while !exit.load(Ordering::Relaxed) {
                 let _ = tick_receiver.recv();
 
                 if last_refresh.elapsed() > refresh_duration {
-                    if let Err(e) = refresh_address_lookup_table(&rpc_load_balancer, &lookup_table)
-                    {
-                        error!("error refreshing address lookup table: {:?}", e);
+                    let now = Instant::now();
+                    let refresh_result =
+                        refresh_address_lookup_table(&rpc_load_balancer, &lookup_table);
+                    let updated_elapsed = now.elapsed().as_micros();
+                    match refresh_result {
+                        Ok(_) => {
+                            datapoint_info!("lookup_table_refresher-ok",
+                                "cluster" => cluster,
+                                "region" => region,
+                                ("count", 1, i64),
+                                ("updated_elapsed_us", updated_elapsed as u64, i64),
+                            );
+                        }
+                        Err(e) => {
+                            datapoint_error!("lookup_table_refresher-error",
+                                "cluster" => cluster,
+                                "region" => region,
+                                ("count", 1, i64),
+                                ("updated_elapsed_us", updated_elapsed as u64, i64),
+                                ("error", e.to_string(), String),
+                            );
+                        }
                     }
                     last_refresh = Instant::now();
                 }
