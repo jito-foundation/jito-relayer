@@ -1,9 +1,8 @@
 use std::{
-    collections::HashMap,
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex, RwLock,
+        Arc, Mutex,
     },
     thread,
     thread::{Builder, JoinHandle},
@@ -11,6 +10,7 @@ use std::{
 };
 
 use cached::{Cached, TimedCache};
+use dashmap::DashMap;
 use jito_protos::{
     auth::{
         auth_service_client::AuthServiceClient, GenerateAuthChallengeRequest,
@@ -107,7 +107,7 @@ impl BlockEngineRelayerHandler {
         cluster: String,
         region: String,
         aoi_cache_ttl_s: u64,
-        address_lookup_table_cache: Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>>,
+        address_lookup_table_cache: DashMap<Pubkey, AddressLookupTableAccount>,
     ) -> BlockEngineRelayerHandler {
         let block_engine_forwarder = Self::start_block_engine_relayer_stream(
             block_engine_url,
@@ -139,7 +139,7 @@ impl BlockEngineRelayerHandler {
         cluster: String,
         region: String,
         aoi_cache_ttl_s: u64,
-        address_lookup_table_cache: Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>>,
+        address_lookup_table_cache: DashMap<Pubkey, AddressLookupTableAccount>,
     ) -> JoinHandle<()> {
         let exit = exit.clone();
         Builder::new()
@@ -243,7 +243,7 @@ impl BlockEngineRelayerHandler {
         cluster: &str,
         region: &str,
         aoi_cache_ttl_s: u64,
-        address_lookup_table_cache: &Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>>,
+        address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
     ) -> BlockEngineResult<()> {
         let mut auth_endpoint = Endpoint::from_str(auth_service_url).expect("valid auth url");
         if auth_service_url.contains("https") {
@@ -332,7 +332,7 @@ impl BlockEngineRelayerHandler {
         cluster: String,
         region: String,
         aoi_cache_ttl_s: u64,
-        address_lookup_table_cache: &Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>>,
+        address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
     ) -> BlockEngineResult<()> {
         let subscribe_aoi_stream = client
             .subscribe_accounts_of_interest(AccountsOfInterestRequest {})
@@ -380,7 +380,7 @@ impl BlockEngineRelayerHandler {
         cluster: String,
         region: String,
         aoi_cache_ttl_s: u64,
-        address_lookup_table_cache: &Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>>,
+        address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
     ) -> BlockEngineResult<()> {
         let mut aoi_stream = subscribe_aoi_stream.into_inner();
         let mut poi_stream = subscribe_poi_stream.into_inner();
@@ -639,7 +639,7 @@ impl BlockEngineRelayerHandler {
         block_engine_batches: BlockEnginePackets,
         accounts_of_interest: &mut TimedCache<Pubkey, u8>,
         programs_of_interest: &mut TimedCache<Pubkey, u8>,
-        address_lookup_table_cache: &Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>>,
+        address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
     ) -> Option<ExpiringPacketBatch> {
         let filtered_packets: Vec<ProtoPacket> = block_engine_batches
             .packet_batches
@@ -730,15 +730,11 @@ fn is_aoi_in_lookup_table(
     tx: &VersionedTransaction,
     accounts_of_interest: &mut TimedCache<Pubkey, u8>,
     programs_of_interest: &mut TimedCache<Pubkey, u8>,
-    address_lookup_table_cache: &Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>>,
+    address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
 ) -> bool {
     if let Some(lookup_tables) = tx.message.address_table_lookups() {
         for table in lookup_tables {
-            if let Some(lookup_info) = address_lookup_table_cache
-                .read()
-                .unwrap()
-                .get(&table.account_key)
-            {
+            if let Some(lookup_info) = address_lookup_table_cache.get(&table.account_key) {
                 for idx in &table.writable_indexes {
                     if let Some(writable_account) = lookup_info.addresses.get(*idx as usize) {
                         if accounts_of_interest.cache_get(writable_account).is_some()

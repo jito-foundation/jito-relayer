@@ -1,12 +1,12 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     fs::File,
     io::Read,
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex, RwLock,
+        Arc, Mutex,
     },
     thread,
     thread::JoinHandle,
@@ -15,6 +15,7 @@ use std::{
 
 use clap::Parser;
 use crossbeam_channel::{tick, unbounded};
+use dashmap::DashMap;
 use jito_block_engine::block_engine::BlockEngineRelayerHandler;
 use jito_core::tpu::{Tpu, TpuSockets};
 use jito_protos::{
@@ -264,8 +265,7 @@ fn main() {
     let rpc_load_balancer = Arc::new(Mutex::new(rpc_load_balancer));
 
     // Lookup table refresher
-    let address_lookup_table_cache: Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>> =
-        Arc::new(RwLock::new(HashMap::new()));
+    let address_lookup_table_cache: DashMap<Pubkey, AddressLookupTableAccount> = DashMap::new();
     let lookup_table_refresher = start_lookup_table_refresher(
         &rpc_load_balancer,
         &address_lookup_table_cache,
@@ -462,7 +462,7 @@ impl ValidatorAuther for ValidatorAutherImpl {
 
 fn start_lookup_table_refresher(
     rpc_load_balancer: &Arc<Mutex<LoadBalancer>>,
-    lookup_table: &Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>>,
+    lookup_table: &DashMap<Pubkey, AddressLookupTableAccount>,
     lookup_table_refresh_s: u64,
     exit: &Arc<AtomicBool>,
     cluster: String,
@@ -499,6 +499,7 @@ fn start_lookup_table_refresher(
                                 "cluster" => cluster,
                                 "region" => region,
                                 ("count", 1, i64),
+                                ("lookup_table_size", lookup_table.len(), i64),
                                 ("updated_elapsed_us", updated_elapsed as u64, i64),
                             );
                         }
@@ -507,6 +508,7 @@ fn start_lookup_table_refresher(
                                 "cluster" => cluster,
                                 "region" => region,
                                 ("count", 1, i64),
+                                ("lookup_table_size", lookup_table.len(), i64),
                                 ("updated_elapsed_us", updated_elapsed as u64, i64),
                                 ("error", e.to_string(), String),
                             );
@@ -521,7 +523,7 @@ fn start_lookup_table_refresher(
 
 fn refresh_address_lookup_table(
     rpc_load_balancer: &Arc<Mutex<LoadBalancer>>,
-    lookup_table: &Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>>,
+    lookup_table: &DashMap<Pubkey, AddressLookupTableAccount>,
 ) -> solana_client::client_error::Result<()> {
     let rpc_client = rpc_load_balancer.lock().unwrap().rpc_client();
 
@@ -530,6 +532,7 @@ fn refresh_address_lookup_table(
     let accounts = rpc_client.get_program_accounts(&address_lookup_table)?;
     info!("loaded {} lookup tables", accounts.len());
 
+    let mut new_pubkeys = HashSet::new();
     for (pubkey, account_data) in &accounts {
         match AddressLookupTable::deserialize(account_data.data.as_slice()) {
             Err(e) => {
@@ -540,7 +543,8 @@ fn refresh_address_lookup_table(
                     "lookup table loaded pubkey: {:?} table: {:?}",
                     pubkey, table
                 );
-                lookup_table.write().unwrap().insert(
+                new_pubkeys.insert(pubkey);
+                lookup_table.insert(
                     *pubkey,
                     AddressLookupTableAccount {
                         key: *pubkey,
@@ -550,6 +554,9 @@ fn refresh_address_lookup_table(
             }
         }
     }
+
+    // remove all the closed lookup tables
+    lookup_table.retain(|pubkey, _| new_pubkeys.contains(pubkey));
 
     Ok(())
 }
