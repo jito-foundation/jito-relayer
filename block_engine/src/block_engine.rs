@@ -1,8 +1,9 @@
 use std::{
+    collections::HashMap,
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, RwLock,
     },
     thread,
     thread::{Builder, JoinHandle},
@@ -29,7 +30,10 @@ use log::{error, *};
 use prost_types::Timestamp;
 use solana_metrics::{datapoint_error, datapoint_info};
 use solana_perf::packet::PacketBatch;
-use solana_sdk::{pubkey::Pubkey, signature::Signer, signer::keypair::Keypair};
+use solana_sdk::{
+    address_lookup_table_account::AddressLookupTableAccount, pubkey::Pubkey, signature::Signer,
+    signer::keypair::Keypair,
+};
 use thiserror::Error;
 use tokio::{
     runtime::Runtime,
@@ -103,6 +107,7 @@ impl BlockEngineRelayerHandler {
         cluster: String,
         region: String,
         aoi_cache_ttl_s: u64,
+        address_lookup_table_cache: Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>>,
     ) -> BlockEngineRelayerHandler {
         let block_engine_forwarder = Self::start_block_engine_relayer_stream(
             block_engine_url,
@@ -113,6 +118,7 @@ impl BlockEngineRelayerHandler {
             cluster,
             region,
             aoi_cache_ttl_s,
+            address_lookup_table_cache,
         );
         BlockEngineRelayerHandler {
             block_engine_forwarder,
@@ -133,6 +139,7 @@ impl BlockEngineRelayerHandler {
         cluster: String,
         region: String,
         aoi_cache_ttl_s: u64,
+        address_lookup_table_cache: Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>>,
     ) -> JoinHandle<()> {
         let exit = exit.clone();
         Builder::new()
@@ -150,6 +157,7 @@ impl BlockEngineRelayerHandler {
                             &cluster,
                             &region,
                             aoi_cache_ttl_s,
+                            &address_lookup_table_cache,
                         )
                         .await
                         {
@@ -235,6 +243,7 @@ impl BlockEngineRelayerHandler {
         cluster: &str,
         region: &str,
         aoi_cache_ttl_s: u64,
+        address_lookup_table_cache: &Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>>,
     ) -> BlockEngineResult<()> {
         let mut auth_endpoint = Endpoint::from_str(auth_service_url).expect("valid auth url");
         if auth_service_url.contains("https") {
@@ -301,6 +310,7 @@ impl BlockEngineRelayerHandler {
             String::from(cluster),
             String::from(region),
             aoi_cache_ttl_s,
+            address_lookup_table_cache,
         )
         .await
     }
@@ -322,6 +332,7 @@ impl BlockEngineRelayerHandler {
         cluster: String,
         region: String,
         aoi_cache_ttl_s: u64,
+        address_lookup_table_cache: &Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>>,
     ) -> BlockEngineResult<()> {
         let subscribe_aoi_stream = client
             .subscribe_accounts_of_interest(AccountsOfInterestRequest {})
@@ -350,6 +361,7 @@ impl BlockEngineRelayerHandler {
             cluster,
             region,
             aoi_cache_ttl_s,
+            address_lookup_table_cache,
         )
         .await
     }
@@ -368,6 +380,7 @@ impl BlockEngineRelayerHandler {
         cluster: String,
         region: String,
         aoi_cache_ttl_s: u64,
+        address_lookup_table_cache: &Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>>,
     ) -> BlockEngineResult<()> {
         let mut aoi_stream = subscribe_aoi_stream.into_inner();
         let mut poi_stream = subscribe_poi_stream.into_inner();
@@ -431,7 +444,7 @@ impl BlockEngineRelayerHandler {
 
                     let now = Instant::now();
                     block_engine_stats.increment_num_packets_received(block_engine_batches.packet_batches.iter().map(|b|b.len() as u64).sum::<u64>());
-                    let filtered_packets = Self::filter_packets(block_engine_batches, &mut accounts_of_interest, &mut programs_of_interest);
+                    let filtered_packets = Self::filter_packets(block_engine_batches, &mut accounts_of_interest, &mut programs_of_interest, address_lookup_table_cache);
                     block_engine_stats.increment_packet_filter_elapsed(now.elapsed().as_micros() as u64);
 
                     if let Some(filtered_packets) = filtered_packets {
@@ -626,6 +639,7 @@ impl BlockEngineRelayerHandler {
         block_engine_batches: BlockEnginePackets,
         accounts_of_interest: &mut TimedCache<Pubkey, u8>,
         programs_of_interest: &mut TimedCache<Pubkey, u8>,
+        address_lookup_table_cache: &Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>>,
     ) -> Option<ExpiringPacketBatch> {
         let filtered_packets: Vec<ProtoPacket> = block_engine_batches
             .packet_batches

@@ -1,18 +1,20 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs::File,
     io::Read,
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, RwLock,
     },
-    time::Duration,
+    thread,
+    thread::JoinHandle,
+    time::{Duration, Instant},
 };
 
 use clap::Parser;
-use crossbeam_channel::unbounded;
+use crossbeam_channel::{tick, unbounded};
 use jito_block_engine::block_engine::BlockEngineRelayerHandler;
 use jito_core::tpu::{Tpu, TpuSockets};
 use jito_protos::{
@@ -28,14 +30,16 @@ use jito_relayer::{
 use jito_rpc::load_balancer::LoadBalancer;
 use jito_transaction_relayer::forwarder::start_forward_and_delay_thread;
 use jwt::{AlgorithmType, PKeyWithDigest};
-use log::{error, info};
+use log::{debug, error, info, warn};
 use openssl::{hash::MessageDigest, pkey::PKey};
+use solana_address_lookup_table_program::state::AddressLookupTable;
 use solana_net_utils::multi_bind_in_range;
 use solana_sdk::{
+    address_lookup_table_account::AddressLookupTableAccount,
     pubkey::Pubkey,
     signature::{read_keypair_file, Signer},
 };
-use tokio::{runtime::Builder, sync::mpsc::channel};
+use tokio::{runtime::Builder, signal, sync::mpsc::channel};
 use tonic::transport::Server;
 
 #[derive(Parser, Debug)]
@@ -155,6 +159,10 @@ struct Args {
     /// block engine uses to send full updates.
     #[clap(long, env, default_value_t = 300)]
     aoi_cache_ttl_s: u64,
+
+    /// How frequently to refresh the address lookup table accounts
+    #[clap(long, env, default_value_t = 30)]
+    lookup_table_refresh_s: u64,
 }
 
 struct Sockets {
@@ -224,7 +232,6 @@ fn main() {
     info!("Relayer started with pubkey: {}", keypair.pubkey());
 
     let exit = Arc::new(AtomicBool::new(false));
-    create_ctrlc_handler(&exit);
 
     let rpc_servers: Vec<String> = args.rpc_servers.split(' ').map(String::from).collect();
     let websocket_servers: Vec<String> = args
@@ -254,6 +261,16 @@ fn main() {
     let (rpc_load_balancer, health_manager_slot_receiver) =
         LoadBalancer::new(&servers, &exit, args.cluster.clone(), args.region.clone());
     let rpc_load_balancer = Arc::new(Mutex::new(rpc_load_balancer));
+
+    // Lookup table refresher
+    let address_lookup_table_cache: Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>> =
+        Arc::new(RwLock::new(HashMap::new()));
+    let lookup_table_refresher = start_lookup_table_refresher(
+        &rpc_load_balancer,
+        &address_lookup_table_cache,
+        args.lookup_table_refresh_s,
+        &exit,
+    );
 
     let (tpu, packet_receiver) = Tpu::new(
         sockets.tpu_sockets,
@@ -296,6 +313,7 @@ fn main() {
         args.cluster.clone(),
         args.region.clone(),
         args.aoi_cache_ttl_s,
+        address_lookup_table_cache,
     );
 
     let (slot_sender, slot_receiver) = unbounded();
@@ -378,7 +396,7 @@ fn main() {
                 AuthInterceptor::new(verifying_key.clone(), AlgorithmType::Rs256),
             ))
             .add_service(AuthServiceServer::new(auth_svc))
-            .serve(server_addr)
+            .serve_with_shutdown(server_addr, shutdown_signal())
             .await
             .expect("serve relayer");
     });
@@ -391,7 +409,34 @@ fn main() {
     for t in forward_and_delay_threads {
         t.join().unwrap();
     }
+    lookup_table_refresher.join().unwrap();
     block_engine_forwarder.join().unwrap();
+}
+
+pub async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    warn!("signal received, starting graceful shutdown");
 }
 
 enum ValidatorStore {
@@ -412,11 +457,74 @@ impl ValidatorAuther for ValidatorAutherImpl {
     }
 }
 
-fn create_ctrlc_handler(exit: &Arc<AtomicBool>) {
+fn start_lookup_table_refresher(
+    rpc_load_balancer: &Arc<Mutex<LoadBalancer>>,
+    lookup_table: &Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>>,
+    lookup_table_refresh_s: u64,
+    exit: &Arc<AtomicBool>,
+) -> JoinHandle<()> {
+    let rpc_load_balancer = rpc_load_balancer.clone();
+    let lookup_table = lookup_table.clone();
     let exit = exit.clone();
-    ctrlc::set_handler(move || {
-        error!("received Ctrl+C!");
-        exit.store(true, Ordering::SeqCst);
-    })
-    .expect("Error setting Ctrl-C handler");
+
+    thread::Builder::new()
+        .name("lookup_table_refresher".to_string())
+        .spawn(move || {
+            let refresh_duration = Duration::from_secs(lookup_table_refresh_s);
+
+            // seed lookup table
+            if let Err(e) = refresh_address_lookup_table(&rpc_load_balancer, &lookup_table) {
+                error!("error refreshing address lookup table: {:?}", e);
+            }
+
+            let tick_receiver = tick(Duration::from_secs(1));
+            let mut last_refresh = Instant::now();
+            while !exit.load(Ordering::Relaxed) {
+                let _ = tick_receiver.recv();
+
+                if last_refresh.elapsed() > refresh_duration {
+                    if let Err(e) = refresh_address_lookup_table(&rpc_load_balancer, &lookup_table)
+                    {
+                        error!("error refreshing address lookup table: {:?}", e);
+                    }
+                    last_refresh = Instant::now();
+                }
+            }
+        })
+        .unwrap()
+}
+
+fn refresh_address_lookup_table(
+    rpc_load_balancer: &Arc<Mutex<LoadBalancer>>,
+    lookup_table: &Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>>,
+) -> solana_client::client_error::Result<()> {
+    let rpc_client = rpc_load_balancer.lock().unwrap().rpc_client();
+
+    let address_lookup_table =
+        Pubkey::from_str("AddressLookupTab1e1111111111111111111111111").unwrap();
+    let accounts = rpc_client.get_program_accounts(&address_lookup_table)?;
+    info!("loaded {} lookup tables", accounts.len());
+
+    for (pubkey, account_data) in &accounts {
+        match AddressLookupTable::deserialize(account_data.data.as_slice()) {
+            Err(e) => {
+                error!("error deserializing AddressLookupTable pubkey: {pubkey} error: {e}");
+            }
+            Ok(table) => {
+                debug!(
+                    "lookup table loaded pubkey: {:?} table: {:?}",
+                    pubkey, table
+                );
+                lookup_table.write().unwrap().insert(
+                    *pubkey,
+                    AddressLookupTableAccount {
+                        key: *pubkey,
+                        addresses: table.addresses.to_vec(),
+                    },
+                );
+            }
+        }
+    }
+
+    Ok(())
 }

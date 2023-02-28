@@ -2,7 +2,6 @@
 members = [
     "block_engine",
     "core",
-    "geyser_state_manager",
     "jito-protos",
     "packet_blaster",
     "relayer",
