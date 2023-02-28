@@ -32,7 +32,7 @@ use solana_metrics::{datapoint_error, datapoint_info};
 use solana_perf::packet::PacketBatch;
 use solana_sdk::{
     address_lookup_table_account::AddressLookupTableAccount, pubkey::Pubkey, signature::Signer,
-    signer::keypair::Keypair,
+    signer::keypair::Keypair, transaction::VersionedTransaction,
 };
 use thiserror::Error;
 use tokio::{
@@ -651,14 +651,13 @@ impl BlockEngineRelayerHandler {
                         let tx = versioned_tx_from_packet(&pb)?;
 
                         let is_forwardable =
-                            tx.message.static_account_keys().iter().enumerate().any(
-                                |(idx, acc)| {
-                                    (tx.message.is_maybe_writable(idx)
-                                        && accounts_of_interest.cache_get(acc).is_some())
-                                        || (tx.message.is_invoked(idx)
-                                            && programs_of_interest.cache_get(acc).is_some())
-                                },
-                            );
+                            is_aoi_in_static_keys(&tx, accounts_of_interest, programs_of_interest)
+                                || is_aoi_in_lookup_table(
+                                    &tx,
+                                    accounts_of_interest,
+                                    programs_of_interest,
+                                    address_lookup_table_cache,
+                                );
 
                         if is_forwardable {
                             Some(pb)
@@ -707,4 +706,62 @@ impl BlockEngineRelayerHandler {
 
         Ok(())
     }
+}
+
+fn is_aoi_in_static_keys(
+    tx: &VersionedTransaction,
+    accounts_of_interest: &mut TimedCache<Pubkey, u8>,
+    programs_of_interest: &mut TimedCache<Pubkey, u8>,
+) -> bool {
+    tx.message
+        .static_account_keys()
+        .iter()
+        .enumerate()
+        .any(|(idx, acc)| {
+            (tx.message.is_maybe_writable(idx) && accounts_of_interest.cache_get(acc).is_some())
+                // note: can't detect CPIs without execution, so aggressively forward txs than contain account in POI
+                || programs_of_interest.cache_get(acc).is_some()
+        })
+}
+
+/// For each lookup table, look at the writable_indexes and do a lookup in the address_lookup_table_cache
+/// to find the address. Then determine if in accounts_of_interest
+fn is_aoi_in_lookup_table(
+    tx: &VersionedTransaction,
+    accounts_of_interest: &mut TimedCache<Pubkey, u8>,
+    programs_of_interest: &mut TimedCache<Pubkey, u8>,
+    address_lookup_table_cache: &Arc<RwLock<HashMap<Pubkey, AddressLookupTableAccount>>>,
+) -> bool {
+    if let Some(lookup_tables) = tx.message.address_table_lookups() {
+        for table in lookup_tables {
+            if let Some(lookup_info) = address_lookup_table_cache
+                .read()
+                .unwrap()
+                .get(&table.account_key)
+            {
+                for idx in &table.writable_indexes {
+                    if let Some(writable_account) = lookup_info.addresses.get(*idx as usize) {
+                        if accounts_of_interest.cache_get(writable_account).is_some()
+                            // note: can't detect CPIs without execution, so aggressively forward txs than contain account in POI
+                            // also txs can say programs are write-locked, but they're demoted to read-locked when loaded. 
+                            || programs_of_interest.cache_get(writable_account).is_some()
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                for idx in &table.readonly_indexes {
+                    if let Some(readonly_account) = lookup_info.addresses.get(*idx as usize) {
+                        // note: can't detect CPIs without execution, so aggressively forward txs than contain account in POI
+                        // also txs can say programs are write-locked, but they're demoted to read-locked when loaded.
+                        if programs_of_interest.cache_get(readonly_account).is_some() {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return false;
 }
