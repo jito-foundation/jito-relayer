@@ -10,6 +10,7 @@ use std::{
 };
 
 use cached::{Cached, TimedCache};
+use dashmap::DashMap;
 use jito_protos::{
     auth::{
         auth_service_client::AuthServiceClient, GenerateAuthChallengeRequest,
@@ -29,7 +30,10 @@ use log::{error, *};
 use prost_types::Timestamp;
 use solana_metrics::{datapoint_error, datapoint_info};
 use solana_perf::packet::PacketBatch;
-use solana_sdk::{pubkey::Pubkey, signature::Signer, signer::keypair::Keypair};
+use solana_sdk::{
+    address_lookup_table_account::AddressLookupTableAccount, pubkey::Pubkey, signature::Signer,
+    signer::keypair::Keypair, transaction::VersionedTransaction,
+};
 use thiserror::Error;
 use tokio::{
     runtime::Runtime,
@@ -103,6 +107,7 @@ impl BlockEngineRelayerHandler {
         cluster: String,
         region: String,
         aoi_cache_ttl_s: u64,
+        address_lookup_table_cache: DashMap<Pubkey, AddressLookupTableAccount>,
     ) -> BlockEngineRelayerHandler {
         let block_engine_forwarder = Self::start_block_engine_relayer_stream(
             block_engine_url,
@@ -113,6 +118,7 @@ impl BlockEngineRelayerHandler {
             cluster,
             region,
             aoi_cache_ttl_s,
+            address_lookup_table_cache,
         );
         BlockEngineRelayerHandler {
             block_engine_forwarder,
@@ -133,6 +139,7 @@ impl BlockEngineRelayerHandler {
         cluster: String,
         region: String,
         aoi_cache_ttl_s: u64,
+        address_lookup_table_cache: DashMap<Pubkey, AddressLookupTableAccount>,
     ) -> JoinHandle<()> {
         let exit = exit.clone();
         Builder::new()
@@ -150,6 +157,7 @@ impl BlockEngineRelayerHandler {
                             &cluster,
                             &region,
                             aoi_cache_ttl_s,
+                            &address_lookup_table_cache,
                         )
                         .await
                         {
@@ -235,6 +243,7 @@ impl BlockEngineRelayerHandler {
         cluster: &str,
         region: &str,
         aoi_cache_ttl_s: u64,
+        address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
     ) -> BlockEngineResult<()> {
         let mut auth_endpoint = Endpoint::from_str(auth_service_url).expect("valid auth url");
         if auth_service_url.contains("https") {
@@ -301,6 +310,7 @@ impl BlockEngineRelayerHandler {
             String::from(cluster),
             String::from(region),
             aoi_cache_ttl_s,
+            address_lookup_table_cache,
         )
         .await
     }
@@ -322,6 +332,7 @@ impl BlockEngineRelayerHandler {
         cluster: String,
         region: String,
         aoi_cache_ttl_s: u64,
+        address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
     ) -> BlockEngineResult<()> {
         let subscribe_aoi_stream = client
             .subscribe_accounts_of_interest(AccountsOfInterestRequest {})
@@ -350,6 +361,7 @@ impl BlockEngineRelayerHandler {
             cluster,
             region,
             aoi_cache_ttl_s,
+            address_lookup_table_cache,
         )
         .await
     }
@@ -368,6 +380,7 @@ impl BlockEngineRelayerHandler {
         cluster: String,
         region: String,
         aoi_cache_ttl_s: u64,
+        address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
     ) -> BlockEngineResult<()> {
         let mut aoi_stream = subscribe_aoi_stream.into_inner();
         let mut poi_stream = subscribe_poi_stream.into_inner();
@@ -431,7 +444,7 @@ impl BlockEngineRelayerHandler {
 
                     let now = Instant::now();
                     block_engine_stats.increment_num_packets_received(block_engine_batches.packet_batches.iter().map(|b|b.len() as u64).sum::<u64>());
-                    let filtered_packets = Self::filter_packets(block_engine_batches, &mut accounts_of_interest, &mut programs_of_interest);
+                    let filtered_packets = Self::filter_packets(block_engine_batches, &mut accounts_of_interest, &mut programs_of_interest, address_lookup_table_cache);
                     block_engine_stats.increment_packet_filter_elapsed(now.elapsed().as_micros() as u64);
 
                     if let Some(filtered_packets) = filtered_packets {
@@ -626,6 +639,7 @@ impl BlockEngineRelayerHandler {
         block_engine_batches: BlockEnginePackets,
         accounts_of_interest: &mut TimedCache<Pubkey, u8>,
         programs_of_interest: &mut TimedCache<Pubkey, u8>,
+        address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
     ) -> Option<ExpiringPacketBatch> {
         let filtered_packets: Vec<ProtoPacket> = block_engine_batches
             .packet_batches
@@ -637,14 +651,13 @@ impl BlockEngineRelayerHandler {
                         let tx = versioned_tx_from_packet(&pb)?;
 
                         let is_forwardable =
-                            tx.message.static_account_keys().iter().enumerate().any(
-                                |(idx, acc)| {
-                                    (tx.message.is_maybe_writable(idx)
-                                        && accounts_of_interest.cache_get(acc).is_some())
-                                        || (tx.message.is_invoked(idx)
-                                            && programs_of_interest.cache_get(acc).is_some())
-                                },
-                            );
+                            is_aoi_in_static_keys(&tx, accounts_of_interest, programs_of_interest)
+                                || is_aoi_in_lookup_table(
+                                    &tx,
+                                    accounts_of_interest,
+                                    programs_of_interest,
+                                    address_lookup_table_cache,
+                                );
 
                         if is_forwardable {
                             Some(pb)
@@ -693,4 +706,58 @@ impl BlockEngineRelayerHandler {
 
         Ok(())
     }
+}
+
+fn is_aoi_in_static_keys(
+    tx: &VersionedTransaction,
+    accounts_of_interest: &mut TimedCache<Pubkey, u8>,
+    programs_of_interest: &mut TimedCache<Pubkey, u8>,
+) -> bool {
+    tx.message
+        .static_account_keys()
+        .iter()
+        .enumerate()
+        .any(|(idx, acc)| {
+            (tx.message.is_maybe_writable(idx) && accounts_of_interest.cache_get(acc).is_some())
+                // note: can't detect CPIs without execution, so aggressively forward txs than contain account in POI
+                || programs_of_interest.cache_get(acc).is_some()
+        })
+}
+
+/// For each lookup table, look at the writable_indexes and do a lookup in the address_lookup_table_cache
+/// to find the address. Then determine if in accounts_of_interest
+fn is_aoi_in_lookup_table(
+    tx: &VersionedTransaction,
+    accounts_of_interest: &mut TimedCache<Pubkey, u8>,
+    programs_of_interest: &mut TimedCache<Pubkey, u8>,
+    address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
+) -> bool {
+    if let Some(lookup_tables) = tx.message.address_table_lookups() {
+        for table in lookup_tables {
+            if let Some(lookup_info) = address_lookup_table_cache.get(&table.account_key) {
+                for idx in &table.writable_indexes {
+                    if let Some(writable_account) = lookup_info.addresses.get(*idx as usize) {
+                        if accounts_of_interest.cache_get(writable_account).is_some()
+                            // note: can't detect CPIs without execution, so aggressively forward txs than contain account in POI
+                            // also txs can say programs are write-locked, but they're demoted to read-locked when loaded. 
+                            || programs_of_interest.cache_get(writable_account).is_some()
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                for idx in &table.readonly_indexes {
+                    if let Some(readonly_account) = lookup_info.addresses.get(*idx as usize) {
+                        // note: can't detect CPIs without execution, so aggressively forward txs than contain account in POI
+                        // also txs can say programs are write-locked, but they're demoted to read-locked when loaded.
+                        if programs_of_interest.cache_get(readonly_account).is_some() {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
 }

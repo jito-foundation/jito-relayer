@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 cached = "0.42.0"
+dashmap = "5.4.0"
 jito-protos = { path = "../jito-protos" }
 log = "0.4.17"
 prost-types = "0.10.1"

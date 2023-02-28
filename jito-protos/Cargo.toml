@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 bytes = "1.1.0"
-prost = "0.10.3"
+prost = "0.10.1"
 prost-types = "0.10.1"
 solana-perf = "=1.14.13"
 solana-sdk = "=1.14.13"
