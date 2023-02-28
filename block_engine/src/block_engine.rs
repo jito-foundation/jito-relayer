@@ -759,5 +759,5 @@ fn is_aoi_in_lookup_table(
             }
         }
     }
-    return false;
+    false
 }
