@@ -41,7 +41,7 @@ impl LoadBalancer {
             // warm up the connection
             let rpc_client = Arc::new(RpcClient::new_with_timeout_and_commitment(
                 http,
-                Duration::from_secs(5),
+                Duration::from_secs(15),
                 CommitmentConfig {
                     commitment: CommitmentLevel::Processed,
                 },
