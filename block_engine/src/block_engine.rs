@@ -342,7 +342,7 @@ impl BlockEngineRelayerHandler {
             .subscribe_programs_of_interest(ProgramsOfInterestRequest {})
             .await
             .map_err(|e| BlockEngineError::BlockEngineFailure(e.to_string()))?;
-        let (packet_msg_sender, packet_msg_receiver) = channel(1_000);
+        let (packet_msg_sender, packet_msg_receiver) = channel(50_000);
         let _response = client
             .start_expiring_packet_stream(ReceiverStream::new(packet_msg_receiver))
             .await
