@@ -17,7 +17,10 @@ use clap::Parser;
 use crossbeam_channel::{tick, unbounded};
 use dashmap::DashMap;
 use jito_block_engine::block_engine::BlockEngineRelayerHandler;
-use jito_core::tpu::{Tpu, TpuSockets};
+use jito_core::{
+    graceful_panic,
+    tpu::{Tpu, TpuSockets},
+};
 use jito_protos::{
     auth::auth_service_server::AuthServiceServer, relayer::relayer_server::RelayerServer,
 };
@@ -233,7 +236,7 @@ fn main() {
     solana_metrics::set_host_id(keypair.pubkey().to_string());
     info!("Relayer started with pubkey: {}", keypair.pubkey());
 
-    let exit = Arc::new(AtomicBool::new(false));
+    let exit = graceful_panic(None);
 
     let rpc_servers: Vec<String> = args.rpc_servers.split(' ').map(String::from).collect();
     let websocket_servers: Vec<String> = args
