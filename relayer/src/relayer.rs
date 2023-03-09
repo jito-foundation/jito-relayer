@@ -494,7 +494,7 @@ impl Relayer for RelayerImpl {
             .get()
             .ok_or_else(|| Status::internal("internal error fetching public key"))?;
 
-        let (sender, receiver) = channel(1_000);
+        let (sender, receiver) = channel(50_000);
         self.subscription_sender
             .send(Subscription::ValidatorPacketSubscription {
                 pubkey: *pubkey,
