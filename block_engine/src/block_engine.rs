@@ -440,7 +440,7 @@ impl BlockEngineRelayerHandler {
                 block_engine_batches = block_engine_receiver.recv() => {
                     trace!("received block engine batches");
                     let block_engine_batches = block_engine_batches
-                        .ok_or_else(|| BlockEngineError::BlockEngineFailure("disconnected".to_string()))?;
+                        .ok_or_else(|| BlockEngineError::BlockEngineFailure("block engine packet receiver disconnected".to_string()))?;
 
                     let now = Instant::now();
                     block_engine_stats.increment_num_packets_received(block_engine_batches.packet_batches.iter().map(|b|b.len() as u64).sum::<u64>());
@@ -579,7 +579,7 @@ impl BlockEngineRelayerHandler {
                 Ok(num_pubkeys)
             }
             Ok(None) => Err(BlockEngineError::BlockEngineFailure(
-                "disconnected".to_string(),
+                "aoi updates disconnected".to_string(),
             )),
             Err(e) => Err(BlockEngineError::BlockEngineFailure(e.to_string())),
         }
@@ -606,7 +606,7 @@ impl BlockEngineRelayerHandler {
                 Ok(num_pubkeys)
             }
             Ok(None) => Err(BlockEngineError::BlockEngineFailure(
-                "disconnected".to_string(),
+                "poi disconnected".to_string(),
             )),
             Err(e) => Err(BlockEngineError::BlockEngineFailure(e.to_string())),
         }
@@ -627,7 +627,7 @@ impl BlockEngineRelayerHandler {
         {
             error!("error forwarding packets {}", e);
             Err(BlockEngineError::BlockEngineFailure(
-                "disconnected".to_string(),
+                "error forwarding packets".to_string(),
             ))
         } else {
             Ok(num_packets)
@@ -700,7 +700,7 @@ impl BlockEngineRelayerHandler {
         {
             error!("error sending heartbeat {}", e);
             return Err(BlockEngineError::BlockEngineFailure(
-                "disconnected".to_string(),
+                "error sending heartbeat".to_string(),
             ));
         }
 
