@@ -440,7 +440,7 @@ impl BlockEngineRelayerHandler {
                 block_engine_batches = block_engine_receiver.recv() => {
                     trace!("received block engine batches");
                     let block_engine_batches = block_engine_batches
-                        .ok_or_else(|| BlockEngineError::BlockEngineFailure("packets disconnected".to_string()))?;
+                        .ok_or_else(|| BlockEngineError::BlockEngineFailure("block engine packet receiver disconnected".to_string()))?;
 
                     let now = Instant::now();
                     block_engine_stats.increment_num_packets_received(block_engine_batches.packet_batches.iter().map(|b|b.len() as u64).sum::<u64>());
