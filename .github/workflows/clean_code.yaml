@@ -34,14 +34,13 @@ jobs:
 
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly
+          toolchain: stable
           override: true
           components: clippy
-
-      - uses: actions-rs/clippy-check@v1
-        with:
-          token: ${{ secrets.GHUB_TOKEN }}
-          args: --all-features
+#
+#      - uses: actions-rs/clippy-check@v1
+#        with:
+#          args: --all-features
 
       - uses: actions-rs/cargo@v1
         with:
