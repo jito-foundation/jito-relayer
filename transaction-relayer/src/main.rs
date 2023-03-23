@@ -133,8 +133,8 @@ struct Args {
 
     /// Validators allowed to authenticate and connect to the relayer, comma separated.
     /// If null then all validators on the leader schedule shall be permitted.
-    #[arg(long, env, value_delimiter = ',', required(true))]
-    allowed_validators: Option<Vec<String>>,
+    #[arg(long, env, value_delimiter = ',', value_parser = Pubkey::from_str)]
+    allowed_validators: Option<Vec<Pubkey>>,
 
     /// The private key used to sign tokens by this server.
     #[arg(long, env)]
@@ -253,7 +253,7 @@ fn main() {
     assert_eq!(
         args.rpc_servers.len(),
         args.websocket_servers.len(),
-        "num rpc servers = num websocket servers"
+        "number of rpc servers must match number of websocket servers"
     );
 
     let servers: Vec<(String, String)> = args
@@ -366,16 +366,7 @@ fn main() {
     });
 
     let validator_store = match args.allowed_validators {
-        Some(pubkeys) => {
-            let pubkeys = pubkeys
-                .into_iter()
-                .map(|pk| {
-                    Pubkey::from_str(&pk)
-                        .unwrap_or_else(|_| panic!("failed to parse pubkey from string: {pk}"))
-                })
-                .collect::<HashSet<Pubkey>>();
-            ValidatorStore::UserDefined(pubkeys)
-        }
+        Some(pubkeys) => ValidatorStore::UserDefined(HashSet::from_iter(pubkeys.into_iter())),
         None => ValidatorStore::LeaderSchedule(leader_cache.handle()),
     };
 
