@@ -19,7 +19,7 @@ jobs:
       - name: Cache Docker layers
         uses: actions/cache@v3
         with:
-          path: /tmp/.buildx-cache
+          path: /var/lib/docker
           key: ${{ runner.os }}-buildx-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-buildx-
@@ -31,3 +31,5 @@ jobs:
           DOCKER_BUILDKIT: 1
           ORG: jitolabs
           TAG: ${{ inputs.TAG }}
+
+      - run: ls -lah /tmp
