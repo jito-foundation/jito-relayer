@@ -82,15 +82,15 @@ impl HealthManager {
                         recv(slot_receiver) -> maybe_slot => {
                             let slot = maybe_slot.expect("error receiving slot, exiting");
                             slot_sender.send(slot).expect("error forwarding slot, exiting");
+                            last_update = Instant::now();
+                        }
+                    }
 
-                            if iter_count % HealthManager::CHANNEL_REPORT_INTERVAL == 0 {
-                                datapoint_info!(
+                    if iter_count % HealthManager::CHANNEL_REPORT_INTERVAL == 0 {
+                        datapoint_info!(
                                     "health_manager-channel_stats",
                                     ("slot_sender_queue_len", slot_sender.len(), i64),
                                 );
-                            }
-                            last_update = Instant::now();
-                        }
                     }
                     iter_count += 1;
                 }

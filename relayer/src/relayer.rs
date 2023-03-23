@@ -228,13 +228,7 @@ impl RelayerImpl {
                 },
                 recv(subscription_receiver) -> maybe_subscription => {
                     Self::handle_subscription(maybe_subscription, &mut packet_subscriptions, &mut router_metrics, &region, &cluster)?;
-                    if iter_count % RelayerImpl::CHANNEL_REPORT_INTERVAL == 0 {
-                        datapoint_info!(
-                            "relayer_impl-channel_stats",
-                            ("subscription_receiver_len", subscription_receiver.len(), i64),
-                            ("delay_packet_receiver_len", delay_packet_receiver.len(), i64),
-                        );
-                    }
+
                 }
                 recv(heartbeat_tick) -> time_generated => {
                     if let Ok(time_generated) = time_generated {
@@ -259,6 +253,23 @@ impl RelayerImpl {
                     router_metrics.report(&cluster, &region);
                     router_metrics = RelayerMetrics::default();
                 }
+            }
+
+            if iter_count % RelayerImpl::CHANNEL_REPORT_INTERVAL == 0 {
+                datapoint_info!(
+                    "relayer_impl-channel_stats",
+                    ("slot_receiver_len", slot_receiver.len(), i64),
+                    (
+                        "subscription_receiver_len",
+                        subscription_receiver.len(),
+                        i64
+                    ),
+                    (
+                        "delay_packet_receiver_len",
+                        delay_packet_receiver.len(),
+                        i64
+                    ),
+                );
             }
             iter_count += 1;
         }

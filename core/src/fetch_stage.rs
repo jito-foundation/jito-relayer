@@ -44,14 +44,7 @@ impl FetchStage {
                 let mut iter_count = 0usize;
                 while !exit.load(Ordering::Relaxed) {
                     match Self::handle_forwarded_packets(&forward_receiver, &sender) {
-                        Ok(()) | Err(FetchStageError::RecvTimeout(RecvTimeoutError::Timeout)) => {
-                            if iter_count % FetchStage::CHANNEL_REPORT_INTERVAL == 0 {
-                                datapoint_info!(
-                                    "fetch_stage-channel_stats",
-                                    ("forward_sender_queue_len", sender.len(), i64),
-                                );
-                            }
-                        }
+                        Ok(()) | Err(FetchStageError::RecvTimeout(RecvTimeoutError::Timeout)) => {}
                         Err(e) => {
                             datapoint_error!(
                                 "fetch_stage-handle_forwarded_packets_error",
@@ -60,6 +53,13 @@ impl FetchStage {
                             panic!("Failed to handle forwarded packets. Error: {e}")
                         }
                     };
+
+                    if iter_count % FetchStage::CHANNEL_REPORT_INTERVAL == 0 {
+                        datapoint_info!(
+                            "fetch_stage-channel_stats",
+                            ("forward_sender_queue_len", sender.len(), i64),
+                        );
+                    }
                     iter_count += 1;
                 }
             })
