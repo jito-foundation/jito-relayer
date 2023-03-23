@@ -1,0 +1,56 @@
+name: Setup Rust
+on:
+  workflow_call:
+    secrets:
+      GHUB_TOKEN:
+        required: true
+
+jobs:
+  setup_rust:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Protobuf
+        run: |
+          export PROTOC_VERSION=21.12 && \
+          export PROTOC_ZIP=protoc-$PROTOC_VERSION-linux-x86_64.zip && \
+          curl -Ss -OL https://github.com/google/protobuf/releases/download/v$PROTOC_VERSION/$PROTOC_ZIP \
+          && sudo unzip -o $PROTOC_ZIP -d /usr/local bin/protoc \
+          && sudo unzip -o $PROTOC_ZIP -d /usr/local include/* \
+          && rm -f $PROTOC_ZIP
+
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: clippy
+
+      - name: Check rust version
+        run: |
+          rustc --version;
+          cargo --version;
+          cargo clippy --version;
+          cargo fmt --version;
+#
+#      - uses: actions-rs/clippy-check@v1
+#        with:
+#          args: --all-features
+
+      - uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: cargo-udeps --locked
+
+      - name: cargo udeps
+        uses: actions-rs/cargo@v1
+        with:
+          command: udeps
