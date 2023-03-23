@@ -27,6 +27,8 @@ services:
       - VERIFYING_KEY_PEM_PATH=/etc/keys/public.pem
       - BLOCK_ENGINE_AUTH_SERVICE_URL=$BLOCK_ENGINE_AUTH_SERVICE_URL
       - BLOCK_ENGINE_URL=$BLOCK_ENGINE_URL
+      - CLUSTER=$CLUSTER
+      - REGION=$REGION
     restart: on-failure
     volumes:
       - ./config/keys:/etc/keys
