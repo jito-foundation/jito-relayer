@@ -88,6 +88,11 @@ impl LoadBalancer {
         servers
             .iter()
             .map(|(_, websocket_url)| {
+                let ws_url_no_token = websocket_url
+                    .split('?')
+                    .next()
+                    .unwrap_or_default()
+                    .to_string();
                 let exit = exit.clone();
                 let websocket_url = websocket_url.clone();
                 let server_to_slot = server_to_slot.clone();
@@ -119,14 +124,11 @@ impl LoadBalancer {
                                                     .unwrap()
                                                     .insert(websocket_url.clone(), slot.slot);
                                                 {
-                                                    let url_split: Vec<&str> =
-                                                        websocket_url.split('?').collect();
-                                                    let url = url_split.first().unwrap_or(&"");
                                                     datapoint_info!(
                                                         "rpc_load_balancer-slot_count",
                                                         "cluster" => &cluster,
                                                         "region" => &region,
-                                                        "url" => url,
+                                                        "url" => ws_url_no_token,
                                                         ("slot", slot.slot, i64)
                                                     );
 
@@ -149,12 +151,9 @@ impl LoadBalancer {
                                                 if last_slot_update.elapsed().as_secs()
                                                     >= DISCONNECT_WEBSOCKET_TIMEOUT_S
                                                 {
-                                                    let url_split: Vec<&str> =
-                                                        websocket_url.split('?').collect();
-                                                    let url = url_split.first().unwrap_or(&"");
                                                     datapoint_error!(
                                                         "rpc_load_balancer-force_disconnect",
-                                                        "url" => url,
+                                                        "url" => ws_url_no_token,
                                                         ("event", 1, i64)
                                                     );
                                                     break;

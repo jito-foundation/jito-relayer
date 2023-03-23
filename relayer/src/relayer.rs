@@ -142,12 +142,13 @@ pub struct RelayerImpl {
 }
 
 impl RelayerImpl {
-    #![allow(clippy::too_many_arguments)]
+    const REPORT_INTERVAL: usize = 100;
+
     pub fn new(
         slot_receiver: Receiver<Slot>,
         packet_receiver: Receiver<RouterPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
-        exit: &Arc<AtomicBool>,
+        exit: Arc<AtomicBool>,
         public_ip: IpAddr,
         tpu_port: u16,
         tpu_fwd_port: u16,
@@ -158,63 +159,35 @@ impl RelayerImpl {
         const LEADER_LOOKAHEAD: u64 = 2;
 
         let (subscription_sender, subscription_receiver) = unbounded();
-        let threads = vec![Self::start_router_thread(
-            slot_receiver,
-            subscription_receiver,
-            packet_receiver,
-            leader_schedule_cache,
-            exit,
-            LEADER_LOOKAHEAD,
-            health_state.clone(),
-            cluster,
-            region,
-        )];
+        let thread = {
+            let health_state = health_state.clone();
+            thread::Builder::new()
+                .name("jito-packet-router".to_string())
+                .spawn(move || {
+                    let res = Self::run_event_loop(
+                        slot_receiver,
+                        subscription_receiver,
+                        packet_receiver,
+                        leader_schedule_cache,
+                        exit,
+                        LEADER_LOOKAHEAD,
+                        health_state,
+                        cluster,
+                        region,
+                    );
+                    warn!("RelayerImpl thread exited with result {res:?}")
+                })
+                .unwrap()
+        };
 
         Self {
             tpu_port,
             tpu_fwd_port,
             subscription_sender,
             public_ip,
-            threads,
+            threads: vec![thread],
             health_state,
         }
-    }
-
-    pub fn join(self) -> thread::Result<()> {
-        for t in self.threads {
-            t.join()?;
-        }
-        Ok(())
-    }
-
-    fn start_router_thread(
-        slot_receiver: Receiver<Slot>,
-        subscription_receiver: Receiver<Subscription>,
-        packet_receiver: Receiver<RouterPacketBatches>,
-        leader_schedule_cache: LeaderScheduleUpdatingHandle,
-        exit: &Arc<AtomicBool>,
-        leader_lookahead: u64,
-        health_state: Arc<RwLock<HealthState>>,
-        cluster: String,
-        region: String,
-    ) -> JoinHandle<()> {
-        let exit = exit.clone();
-        thread::Builder::new()
-            .name("jito-packet-router".into())
-            .spawn(move || {
-                let _ = Self::run_event_loop(
-                    slot_receiver,
-                    subscription_receiver,
-                    packet_receiver,
-                    leader_schedule_cache,
-                    exit,
-                    leader_lookahead,
-                    health_state,
-                    cluster,
-                    region,
-                );
-            })
-            .unwrap()
     }
 
     fn run_event_loop(
@@ -234,6 +207,7 @@ impl RelayerImpl {
             TokioSender<Result<SubscribePacketsResponse, Status>>,
         > = HashMap::default();
 
+        let mut iter_count = 0usize;
         let mut heartbeat_count = 0;
 
         let heartbeat_tick = crossbeam_channel::tick(Duration::from_millis(500));
@@ -252,6 +226,9 @@ impl RelayerImpl {
                 },
                 recv(subscription_receiver) -> maybe_subscription => {
                     Self::handle_subscription(maybe_subscription, &mut packet_subscriptions, &mut router_metrics, &region, &cluster)?;
+                    if iter_count % RelayerImpl::REPORT_INTERVAL == 0 {
+
+                    }
                 }
                 recv(heartbeat_tick) -> time_generated => {
                     if let Ok(time_generated) = time_generated {
@@ -277,6 +254,7 @@ impl RelayerImpl {
                     router_metrics = RelayerMetrics::default();
                 }
             }
+            iter_count += 1;
         }
         Ok(())
     }
@@ -432,7 +410,7 @@ impl RelayerImpl {
                             "region" => region,
                             ("pubkey", pubkey.to_string(), String)
                         );
-                        error!("already connected, dropping old connection: {:?}", pubkey);
+                        error!("already connected, dropping old connection: {pubkey:?}");
                         entry.insert(sender);
                     }
                 }
@@ -458,6 +436,13 @@ impl RelayerImpl {
         } else {
             Ok(())
         }
+    }
+
+    pub fn join(self) -> thread::Result<()> {
+        for t in self.threads {
+            t.join()?;
+        }
+        Ok(())
     }
 }
 

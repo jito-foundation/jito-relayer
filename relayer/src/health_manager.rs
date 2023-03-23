@@ -9,7 +9,6 @@ use std::{
 };
 
 use crossbeam_channel::{select, tick, Receiver, Sender};
-use log::error;
 use solana_metrics::datapoint_info;
 use solana_sdk::clock::Slot;
 
@@ -31,7 +30,7 @@ impl HealthManager {
         slot_receiver: Receiver<Slot>,
         slot_sender: Sender<Slot>,
         missing_slot_unhealthy_duration: Duration,
-        exit: &Arc<AtomicBool>,
+        exit: Arc<AtomicBool>,
         cluster: String,
         region: String,
     ) -> HealthManager {
@@ -54,12 +53,11 @@ impl HealthManager {
         slot_receiver: Receiver<Slot>,
         slot_sender: Sender<Slot>,
         missing_slot_unhealthy_duration: Duration,
-        exit: &Arc<AtomicBool>,
+        exit: Arc<AtomicBool>,
         health_state: Arc<RwLock<HealthState>>,
         cluster: String,
         region: String,
     ) -> JoinHandle<()> {
-        let exit = exit.clone();
         Builder::new()
             .name("health-manager".to_string())
             .spawn(move || {
@@ -80,15 +78,8 @@ impl HealthManager {
                             );
                         }
                         recv(slot_receiver) -> maybe_slot => {
-                            if maybe_slot.is_err() {
-                                error!("error receiving slot, exiting");
-                                break;
-                            }
-                            let slot = maybe_slot.unwrap();
-                            if slot_sender.send(slot).is_err() {
-                                error!("error forwarding slot, exiting");
-                                break;
-                            }
+                            let slot = maybe_slot.expect("error receiving slot, exiting");
+                            slot_sender.send(slot).expect("error forwarding slot, exiting");
                             last_update = Instant::now();
                         }
                     }

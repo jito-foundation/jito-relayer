@@ -51,8 +51,6 @@ impl FetchStage {
                                     ("sender_queue_len", sender.len(), i64)
                                 );
                             }
-                            iter_count += 1;
-                            continue;
                         }
                         Err(e) => {
                             datapoint_error!(
@@ -61,7 +59,8 @@ impl FetchStage {
                             );
                             panic!("Failed to handle forwarded packets. Error: {e}")
                         }
-                    }
+                    };
+                    iter_count += 1;
                 }
             })
             .unwrap();

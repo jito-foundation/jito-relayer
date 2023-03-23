@@ -326,7 +326,7 @@ fn main() {
         health_manager_slot_receiver,
         slot_sender,
         Duration::from_secs(args.missing_slot_unhealthy_secs),
-        &exit,
+        exit.clone(),
         args.cluster.clone(),
         args.region.clone(),
     );
@@ -336,7 +336,7 @@ fn main() {
         slot_receiver,
         delay_receiver,
         leader_cache.handle(),
-        &exit,
+        exit.clone(),
         public_ip,
         args.tpu_port,
         args.tpu_fwd_port,
