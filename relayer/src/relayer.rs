@@ -144,6 +144,7 @@ pub struct RelayerImpl {
 impl RelayerImpl {
     const REPORT_INTERVAL: usize = 100;
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         slot_receiver: Receiver<Slot>,
         delay_packet_receiver: Receiver<RouterPacketBatches>,
@@ -190,6 +191,7 @@ impl RelayerImpl {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn run_event_loop(
         slot_receiver: Receiver<Slot>,
         subscription_receiver: Receiver<Subscription>,
