@@ -2,7 +2,7 @@ use std::{
     collections::HashSet,
     fs::File,
     io::Read,
-    net::{IpAddr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -12,7 +12,6 @@ use std::{
     thread::JoinHandle,
     time::{Duration, Instant},
 };
-use std::net::Ipv4Addr;
 
 use clap::Parser;
 use crossbeam_channel::{tick, unbounded};
@@ -52,122 +51,134 @@ use tonic::transport::Server;
 #[clap(author, version, about, long_about = None)]
 struct Args {
     /// IP address to bind to for transaction packets
-    #[clap(long, env, value_parser)]
+    #[arg(long, env, default_value_t = IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)))]
     tpu_bind_ip: IpAddr,
 
     /// Port to bind to advertise for TPU
     /// NOTE: There is no longer a socket created at this port since UDP transaction receiving is
     /// deprecated.
-    #[clap(long, env, value_parser, default_value_t = 11_222)]
+    #[arg(long, env, default_value_t = 11_222)]
     tpu_port: u16,
 
     /// Port to bind to for tpu fwd packets
     /// NOTE: There is no longer a socket created at this port since UDP transaction receiving is
     /// deprecated.
-    #[clap(long, env, value_parser, default_value_t = 11_223)]
+    #[arg(long, env, default_value_t = 11_223)]
     tpu_fwd_port: u16,
 
     /// Port to bind to for tpu packets. Needs to be tpu_port + 6
-    #[clap(long, env, value_parser, default_value_t = 11_228)]
+    #[arg(long, env, default_value_t = 11_228)]
     tpu_quic_port: u16,
 
     /// Port to bind to for tpu fwd packets. Needs to be tpu_fwd_port + 6
-    #[clap(long, env, value_parser, default_value_t = 11_229)]
+    #[arg(long, env, default_value_t = 11_229)]
     tpu_quic_fwd_port: u16,
 
     /// Bind IP address for GRPC server
-    #[clap(long, env, value_parser)]
+    #[arg(long, env, default_value_t = IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)))]
     grpc_bind_ip: IpAddr,
 
     /// Bind port address for GRPC server
-    #[clap(long, env, value_parser, default_value_t = 11_226)]
+    #[arg(long, env, default_value_t = 11_226)]
     grpc_bind_port: u16,
 
     /// Number of TPU threads
-    #[clap(long, env, value_parser, default_value_t = 32)]
+    #[arg(long, env, default_value_t = 32)]
     num_tpu_binds: usize,
 
     /// Number of TPU forward threads
-    #[clap(long, env, value_parser, default_value_t = 16)]
+    #[arg(long, env, default_value_t = 16)]
     num_tpu_fwd_binds: usize,
 
     /// RPC servers as a space-separated list. Shall be same position as websocket equivalent below
-    #[clap(long, env, value_parser, default_value = "http://127.0.0.1:8899")]
-    rpc_servers: String,
+    #[arg(
+        long,
+        env,
+        value_delimiter = ' ',
+        required = true,
+        default_value = "http://127.0.0.1:8899"
+    )]
+    rpc_servers: Vec<String>,
 
     /// Websocket servers as a space-separated list. Shall be same position as RPC equivalent above
-    #[clap(long, env, value_parser, default_value = "ws://127.0.0.1:8900")]
-    websocket_servers: String,
+    #[arg(
+        long,
+        env,
+        value_delimiter = ' ',
+        required = true,
+        default_value = "ws://127.0.0.1:8900"
+    )]
+    websocket_servers: Vec<String>,
 
     /// This is the IP address that will be shared with the validator. The validator will
     /// tell the rest of the network to send packets here.
-    #[clap(long, env, value_parser)]
+    #[arg(long, env)]
     public_ip: Option<IpAddr>,
 
     /// Packet delay in milliseconds
-    #[clap(long, env, value_parser, default_value_t = 200)]
+    #[arg(long, env, default_value_t = 200)]
     packet_delay_ms: u32,
 
     /// Block engine address
-    #[clap(long, env, value_parser)]
+    #[arg(long, env)]
     block_engine_url: String,
 
     /// Authentication service address of the block-engine. Keypairs are authenticated against the block engine
-    #[clap(long, env, value_parser)]
+    #[arg(long, env)]
     block_engine_auth_service_url: String,
 
     /// Keypair path
-    #[clap(long, env, value_parser)]
+    #[arg(long, env)]
     keypair_path: String,
 
-    /// Validators allowed to authenticate and connect to the relayer.
+    /// Validators allowed to authenticate and connect to the relayer, comma separated.
     /// If null then all validators on the leader schedule shall be permitted.
-    #[clap(long, env)]
+    #[arg(long, env, value_delimiter = ',', required(true))]
     allowed_validators: Option<Vec<String>>,
 
     /// The private key used to sign tokens by this server.
-    #[clap(long, env)]
+    #[arg(long, env)]
     signing_key_pem_path: String,
 
     /// The public key used to verify tokens by this and other services.
-    #[clap(long, env)]
+    #[arg(long, env)]
     verifying_key_pem_path: String,
 
     /// Specifies how long access_tokens are valid for, expressed in seconds.
-    #[clap(long, env, default_value_t = 1800)]
+    #[arg(long, env, default_value_t = 1_800)]
     access_token_ttl_secs: i64,
 
     /// Specifies how long access_tokens are valid for, expressed in seconds.
-    #[clap(long, env, default_value_t = 180000)]
+    #[arg(long, env, default_value_t = 180_000)]
     refresh_token_ttl_secs: i64,
 
     /// Specifies how long challenges are valid for, expressed in seconds.
-    #[clap(long, env, default_value_t = 1800)]
+    #[arg(long, env, default_value_t = 1800)]
     challenge_ttl_secs: i64,
 
     /// The interval at which challenges are checked for expiration.
-    #[clap(long, env, default_value_t = 180)]
+    #[arg(long, env, default_value_t = 180)]
     challenge_expiration_sleep_interval: i64,
 
     /// How long it takes to miss a slot for the system to be considered unhealthy
-    #[clap(long, env, default_value_t = 10)]
+    #[arg(long, env, default_value_t = 10)]
     missing_slot_unhealthy_secs: u64,
 
     /// Solana cluster name (mainnet-beta, testnet, devnet, ...)
-    #[clap(long, env)]
+    #[arg(long, env)]
     cluster: String,
 
     /// Region (amsterdam, dallas, frankfurt, ...)
-    #[clap(long, env)]
+    #[arg(long, env)]
     region: String,
 
     /// Accounts of interest cache TTL. Note this must play nicely with the refresh period that
     /// block engine uses to send full updates.
-    #[clap(long, env, default_value_t = 300)]
+    #[arg(long, env, default_value_t = 300)]
     aoi_cache_ttl_s: u64,
 
     /// How frequently to refresh the address lookup table accounts
-    #[clap(long, env, default_value_t = 30)]
+    #[arg(long, env, default_value_t = 30)]
     lookup_table_refresh_s: u64,
 }
 
@@ -239,29 +250,16 @@ fn main() {
 
     let exit = graceful_panic(None);
 
-    let rpc_servers: Vec<String> = args.rpc_servers.split(' ').map(String::from).collect();
-    let websocket_servers: Vec<String> = args
-        .websocket_servers
-        .split(' ')
-        .map(String::from)
-        .collect();
-    info!("rpc servers: {:?}", rpc_servers);
-    info!("ws servers: {:?}", websocket_servers);
-
-    assert!(!rpc_servers.is_empty(), "num rpc servers >= 1");
     assert_eq!(
-        rpc_servers.len(),
-        websocket_servers.len(),
+        args.rpc_servers.len(),
+        args.websocket_servers.len(),
         "num rpc servers = num websocket servers"
     );
-    assert!(
-        args.missing_slot_unhealthy_secs > 0,
-        "need to provide non-zero check time"
-    );
 
-    let servers: Vec<(String, String)> = rpc_servers
+    let servers: Vec<(String, String)> = args
+        .rpc_servers
         .into_iter()
-        .zip(websocket_servers.into_iter())
+        .zip(args.websocket_servers.into_iter())
         .collect();
 
     let (rpc_load_balancer, health_manager_slot_receiver) =
@@ -367,17 +365,18 @@ fn main() {
         key: PKey::public_key_from_pem(&buf[..]).unwrap(),
     });
 
-    let validator_store = if let Some(pubkeys) = args.allowed_validators {
-        let pubkeys = pubkeys
-            .into_iter()
-            .map(|pk| {
-                Pubkey::from_str(&pk)
-                    .unwrap_or_else(|_| panic!("failed to parse pubkey from string: {pk}"))
-            })
-            .collect::<HashSet<Pubkey>>();
-        ValidatorStore::UserDefined(pubkeys)
-    } else {
-        ValidatorStore::LeaderSchedule(leader_cache.handle())
+    let validator_store = match args.allowed_validators {
+        Some(pubkeys) => {
+            let pubkeys = pubkeys
+                .into_iter()
+                .map(|pk| {
+                    Pubkey::from_str(&pk)
+                        .unwrap_or_else(|_| panic!("failed to parse pubkey from string: {pk}"))
+                })
+                .collect::<HashSet<Pubkey>>();
+            ValidatorStore::UserDefined(pubkeys)
+        }
+        None => ValidatorStore::LeaderSchedule(leader_cache.handle()),
     };
 
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();

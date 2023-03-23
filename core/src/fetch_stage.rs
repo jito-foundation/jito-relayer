@@ -8,17 +8,19 @@ use std::{
     thread::{self, Builder, JoinHandle},
 };
 
-use crossbeam_channel::{RecvError, RecvTimeoutError};
+use crossbeam_channel::{RecvError, RecvTimeoutError, SendError};
+use solana_metrics::datapoint_error;
+use solana_perf::packet::PacketBatch;
 use solana_sdk::packet::{Packet, PacketFlags};
 use solana_streamer::streamer::{PacketBatchReceiver, PacketBatchSender};
 
 #[derive(Debug, thiserror::Error)]
 pub enum FetchStageError {
-    #[error("send error")]
-    Send,
+    #[error("send error: {0}")]
+    Send(#[from] SendError<PacketBatch>),
     #[error("recv timeout")]
     RecvTimeout(#[from] RecvTimeoutError),
-    #[error("recv error")]
+    #[error("recv error: {0}")]
     Recv(#[from] RecvError),
 }
 
@@ -40,10 +42,16 @@ impl FetchStage {
             .spawn(move || {
                 while !exit.load(Ordering::Relaxed) {
                     match Self::handle_forwarded_packets(&forward_receiver, &sender) {
-                        Ok(_) | Err(FetchStageError::RecvTimeout(RecvTimeoutError::Timeout)) => (),
-                        Err(FetchStageError::RecvTimeout(RecvTimeoutError::Disconnected)) => break,
-                        Err(FetchStageError::Recv(_)) => break,
-                        Err(FetchStageError::Send) => break,
+                        Ok(()) | Err(FetchStageError::RecvTimeout(RecvTimeoutError::Timeout)) => {
+                            continue
+                        }
+                        Err(e) => {
+                            datapoint_error!(
+                                "fetch_stage-handle_forwarded_packets_error",
+                                ("error", e.to_string(), String)
+                            );
+                            panic!("Failed to handle forwarded packets. Error: {e}")
+                        }
                     }
                 }
             })
@@ -77,8 +85,8 @@ impl FetchStage {
         }
 
         for packet_batch in packet_batches {
-            if sendr.send(packet_batch).is_err() {
-                return Err(FetchStageError::Send);
+            if let Err(e) = sendr.send(packet_batch) {
+                return Err(FetchStageError::Send(e));
             }
         }
 
