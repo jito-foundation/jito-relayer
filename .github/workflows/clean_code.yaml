@@ -9,50 +9,16 @@ jobs:
   clippy_and_udeps_check:
     runs-on: big-runner-1
     steps:
+      - name: Setup Rust
+        uses: ./.github/workflows/setup_rust_native.yaml
+
       - uses: actions/checkout@v3
         with:
           submodules: 'recursive'
 
-      - name: Install Protobuf
-        run: |
-          export PROTOC_VERSION=21.12 && \
-          export PROTOC_ZIP=protoc-$PROTOC_VERSION-linux-x86_64.zip && \
-          curl -Ss -OL https://github.com/google/protobuf/releases/download/v$PROTOC_VERSION/$PROTOC_ZIP \
-          && sudo unzip -o $PROTOC_ZIP -d /usr/local bin/protoc \
-          && sudo unzip -o $PROTOC_ZIP -d /usr/local include/* \
-          && rm -f $PROTOC_ZIP
-
-      - uses: actions/cache@v3
+      - uses: actions-rs/clippy-check@v1
         with:
-          path: |
-            ~/.cargo
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Check rust version before
-        run: |
-          rustc --version || true;
-          cargo --version || true;
-          cargo clippy --version || true;
-          cargo fmt --version || true;
-
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          override: true
-          components: clippy, rustfmt
-
-      - name: Check rust version after
-        run: |
-          rustc --version;
-          cargo --version;
-          cargo clippy --version;
-          cargo fmt --version;
-
-#
-#      - uses: actions-rs/clippy-check@v1
-#        with:
-#          args: --all-features
+          args: --all-features
 
       - name: Install udeps
         run: "cargo install cargo-udeps"

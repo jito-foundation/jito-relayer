@@ -56,7 +56,7 @@ impl LoadBalancer {
 
         let (slot_sender, slot_receiver) = unbounded();
         let subscription_threads = Self::start_subscription_threads(
-            servers.to_vec(),
+            servers,
             &server_to_slot,
             &server_to_rpc_client,
             exit,
@@ -75,7 +75,7 @@ impl LoadBalancer {
     }
 
     fn start_subscription_threads(
-        servers: Vec<(String, String)>,
+        servers: &[(String, String)],
         server_to_slot: &Arc<Mutex<HashMap<String, Slot>>>,
         _server_to_rpc_client: &Arc<Mutex<HashMap<String, Arc<RpcClient>>>>,
         exit: &Arc<AtomicBool>,
@@ -105,12 +105,11 @@ impl LoadBalancer {
                     .name(format_args!("rpc-thread({websocket_url})").to_string())
                     .spawn(move || {
                         while !exit.load(Ordering::Relaxed) {
-                            info!("slot subscribing to url: {}", websocket_url);
-
+                            info!("slot subscribing to url: {websocket_url}");
                             let mut last_slot_update = Instant::now();
 
                             let receiver = match PubsubClient::slot_subscribe(&websocket_url) {
-                                Ok(x) => x.1,
+                                Ok(s) => s.1,
                                 Err(e) => {
                                     error!("slot subscription error. url: {websocket_url}, error: {e:?}");
                                     continue;
