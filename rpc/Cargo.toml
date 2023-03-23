@@ -8,7 +8,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-crossbeam-channel = "0.5.4"
+crossbeam-channel = "0.5.7"
 log = "0.4.17"
 solana-client = "=1.14.13"
 solana-metrics = "=1.14.13"

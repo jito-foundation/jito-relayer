@@ -8,8 +8,8 @@ edition = "2021"
 publish = false
 
 [dependencies]
-chrono = "0.4.22"
-crossbeam-channel = "0.5.4"
+chrono = "0.4.24"
+crossbeam-channel = "0.5.7"
 ed25519-dalek = "1.0.1"
 histogram = "0.6.9"
 jito-protos = { path = "../jito-protos" }
@@ -17,16 +17,16 @@ jito-rpc = { path = "../rpc" }
 jwt = { version = "0.16.0", features = ["openssl"] }
 keyed_priority_queue = "0.4.1"
 log = "0.4.17"
-openssl = "0.10.41"
-prost-types = "0.10.1"
+openssl = "0.10.47"
+prost-types = "0.11.8"
 rand = "0.8.5"
-serde = "1.0.143"
-sha2 = "0.10.2"
+serde = "1.0.158"
+sha2 = "0.10.6"
 solana-client = "=1.14.13"
 solana-metrics = "=1.14.13"
 solana-perf = "=1.14.13"
 solana-sdk = "=1.14.13"
-thiserror = "1.0.31"
-tokio = { version = "1.14.1" }
-tokio-stream = "0.1.9"
-tonic = "0.7.2"
+thiserror = "1.0.40"
+tokio = { version = "~1.14.1" }
+tokio-stream = "0.1.12"
+tonic = "0.8.3"

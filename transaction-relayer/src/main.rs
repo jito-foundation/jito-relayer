@@ -12,6 +12,7 @@ use std::{
     thread::JoinHandle,
     time::{Duration, Instant},
 };
+use std::net::Ipv4Addr;
 
 use clap::Parser;
 use crossbeam_channel::{tick, unbounded};
@@ -201,8 +202,8 @@ fn get_sockets(args: &Args) -> Sockets {
             transactions_quic_sockets: tpu_quic_sockets.pop().unwrap(),
             transactions_forwards_quic_sockets: tpu_fwd_quic_sockets.pop().unwrap(),
         },
-        tpu_ip: IpAddr::from_str("0.0.0.0").unwrap(),
-        tpu_fwd_ip: IpAddr::from_str("0.0.0.0").unwrap(),
+        tpu_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+        tpu_fwd_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
     }
 }
 
