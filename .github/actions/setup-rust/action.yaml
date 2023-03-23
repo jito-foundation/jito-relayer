@@ -1,0 +1,40 @@
+name: Setup Rust
+description: Installs rust in a bare metal fashion
+runs:
+  using: composite
+  steps:
+    - name: Install Protobuf
+      run: |
+        export PROTOC_VERSION=21.12 && \
+        export PROTOC_ZIP=protoc-$PROTOC_VERSION-linux-x86_64.zip && \
+        curl -Ss -OL https://github.com/google/protobuf/releases/download/v$PROTOC_VERSION/$PROTOC_ZIP \
+        && sudo unzip -o $PROTOC_ZIP -d /usr/local bin/protoc \
+        && sudo unzip -o $PROTOC_ZIP -d /usr/local include/* \
+        && rm -f $PROTOC_ZIP
+
+    - uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Check rust version before
+      run: |
+        rustc --version || true;
+        cargo --version || true;
+        cargo clippy --version || true;
+        cargo fmt --version || true;
+
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+        components: clippy, rustfmt
+
+    - name: Check rust version after
+      run: |
+        rustc --version;
+        cargo --version;
+        cargo clippy --version;
+        cargo fmt --version;

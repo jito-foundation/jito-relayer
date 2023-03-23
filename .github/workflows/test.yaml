@@ -11,7 +11,7 @@ jobs:
         submodules: 'recursive'
 
     - name: Setup Rust
-      uses: ./.github/workflows/setup_rust_native.yaml
+      uses: ./.github/actions/setup-rust
 
     - name: Run tests
       run: RUST_LOG=info cargo test

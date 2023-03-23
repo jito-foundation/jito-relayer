@@ -14,7 +14,7 @@ jobs:
           submodules: 'recursive'
 #
 #      - name: Setup Rust
-#        uses: ./.github/workflows/setup_rust_native.yaml
+#        uses: ./.github/actions/setup-rust
 #
 #      - uses: actions-rs/clippy-check@v1
 #        with:
