@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: big-runner-1
     steps:
       - uses: actions/checkout@v3
         with:
