@@ -9,7 +9,7 @@ use std::{
 };
 
 use crossbeam_channel::{RecvError, RecvTimeoutError, SendError};
-use solana_metrics::datapoint_error;
+use solana_metrics::{datapoint_error, datapoint_info};
 use solana_perf::packet::PacketBatch;
 use solana_sdk::packet::{Packet, PacketFlags};
 use solana_streamer::streamer::{PacketBatchReceiver, PacketBatchSender};
@@ -31,6 +31,7 @@ pub struct FetchStage {
 }
 
 impl FetchStage {
+    const REPORT_INTERVAL: usize = 100;
     pub fn new_with_sender(
         forward_sender: &PacketBatchSender,
         forward_receiver: PacketBatchReceiver,
@@ -40,10 +41,18 @@ impl FetchStage {
         let fwd_thread_hdl = Builder::new()
             .name("solana-fetch-stage-fwd-rcvr".to_string())
             .spawn(move || {
+                let mut iter_count = 0usize;
                 while !exit.load(Ordering::Relaxed) {
                     match Self::handle_forwarded_packets(&forward_receiver, &sender) {
                         Ok(()) | Err(FetchStageError::RecvTimeout(RecvTimeoutError::Timeout)) => {
-                            continue
+                            if iter_count % FetchStage::REPORT_INTERVAL == 0 {
+                                datapoint_info!(
+                                    "fetch_stage-handle_forwarded_packets",
+                                    ("sender_queue_len", sender.len(), i64)
+                                );
+                            }
+                            iter_count += 1;
+                            continue;
                         }
                         Err(e) => {
                             datapoint_error!(
@@ -63,8 +72,8 @@ impl FetchStage {
     }
 
     fn handle_forwarded_packets(
-        recvr: &PacketBatchReceiver,
-        sendr: &PacketBatchSender,
+        recvr: &PacketBatchReceiver, /* incoming */
+        sendr: &PacketBatchSender,   /* outgoing */
     ) -> FetchStageResult<()> {
         let mark_forwarded = |packet: &mut Packet| {
             packet.meta.flags |= PacketFlags::FORWARDED;

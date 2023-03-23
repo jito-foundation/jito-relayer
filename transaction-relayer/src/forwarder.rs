@@ -11,7 +11,6 @@ use std::{
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use jito_block_engine::block_engine::BlockEnginePackets;
 use jito_relayer::relayer::RouterPacketBatches;
-use log::error;
 use solana_core::banking_stage::BankingPacketBatch;
 use solana_metrics::datapoint_info;
 use solana_perf::packet::PacketBatch;
@@ -85,7 +84,7 @@ pub fn start_forward_and_delay_thread(
             let region = region.clone();
             let exit = exit.clone();
             Builder::new()
-                .name("jito-forward_packets_to_block_engine".into())
+                .name("jito-forward_packets_to_block_engine".to_string())
                 .spawn(move || {
                     let mut buffered_packet_batches = VecDeque::with_capacity(100_000);
 
@@ -146,10 +145,9 @@ pub fn start_forward_and_delay_thread(
                                             num_packets_received;
                                     }
                                     Err(TrySendError::Closed(_)) => {
-                                        error!(
+                                        panic!(
                                             "error sending packet batch to block engine handler"
                                         );
-                                        break;
                                     }
                                     Err(TrySendError::Full(_)) => {
                                         // block engine most likely not connected
@@ -165,25 +163,23 @@ pub fn start_forward_and_delay_thread(
                             }
                             Err(RecvTimeoutError::Timeout) => {}
                             Err(RecvTimeoutError::Disconnected) => {
-                                break;
+                                panic!("packet receiver disconnected");
                             }
                         }
 
                         while let Some(packet_batches) = buffered_packet_batches.front() {
-                            if packet_batches.stamp.elapsed() >= packet_delay {
-                                let batch = buffered_packet_batches.pop_front().unwrap();
-
-                                let num_packets =
-                                    batch.batches.iter().map(|b| b.len() as u64).sum::<u64>();
-                                forwarder_metrics.num_relayer_packets_forwarded += num_packets;
-
-                                if let Err(e) = delay_sender.send(batch) {
-                                    error!("exiting forwarding delayed packets: {:?}", e);
-                                    return;
-                                }
-                            } else {
+                            if packet_batches.stamp.elapsed() < packet_delay {
                                 break;
                             }
+                            let batch = buffered_packet_batches.pop_front().unwrap();
+
+                            let num_packets =
+                                batch.batches.iter().map(|b| b.len() as u64).sum::<u64>();
+                            forwarder_metrics.num_relayer_packets_forwarded += num_packets;
+
+                            delay_sender
+                                .send(batch)
+                                .expect("exiting forwarding delayed packets");
                         }
                     }
                 })
