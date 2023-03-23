@@ -109,71 +109,61 @@ impl LoadBalancer {
 
                             let mut last_slot_update = Instant::now();
 
-                            match PubsubClient::slot_subscribe(&websocket_url) {
-                                Ok(subscription) => {
-                                    while !exit.load(Ordering::Relaxed) {
-                                        match subscription
-                                            .1
-                                            .recv_timeout(Duration::from_millis(100))
+                            let receiver = match PubsubClient::slot_subscribe(&websocket_url) {
+                                Ok(x) => x.1,
+                                Err(e) => {
+                                    error!("slot subscription error. url: {websocket_url}, error: {e:?}");
+                                    continue;
+                                }
+                            };
+
+                            while !exit.load(Ordering::Relaxed) {
+                                match receiver.recv_timeout(Duration::from_millis(100)) {
+                                    Ok(slot) => {
+                                        last_slot_update = Instant::now();
+
+                                        server_to_slot
+                                            .lock()
+                                            .unwrap()
+                                            .insert(websocket_url.clone(), slot.slot);
+
+                                        datapoint_info!(
+                                            "rpc_load_balancer-slot_count",
+                                            "cluster" => &cluster,
+                                            "region" => &region,
+                                            "url" => ws_url_no_token,
+                                            ("slot", slot.slot, i64)
+                                        );
+
                                         {
-                                            Ok(slot) => {
-                                                last_slot_update = Instant::now();
-
-                                                server_to_slot
-                                                    .lock()
-                                                    .unwrap()
-                                                    .insert(websocket_url.clone(), slot.slot);
-                                                {
-                                                    datapoint_info!(
-                                                        "rpc_load_balancer-slot_count",
-                                                        "cluster" => &cluster,
-                                                        "region" => &region,
-                                                        "url" => ws_url_no_token,
-                                                        ("slot", slot.slot, i64)
-                                                    );
-
-                                                    let mut highest_slot_l =
-                                                        highest_slot.lock().unwrap();
-
-                                                    if slot.slot > *highest_slot_l {
-                                                        *highest_slot_l = slot.slot;
-                                                        if let Err(e) = slot_sender.send(slot.slot)
-                                                        {
-                                                            error!("error sending slot: {}", e);
-                                                            break;
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            Err(RecvTimeoutError::Timeout) => {
-                                                // RPC servers occasionally stop sending slot updates and never recover.
-                                                // If enough time has passed, attempt to recover by forcing a new connection
-                                                if last_slot_update.elapsed().as_secs()
-                                                    >= DISCONNECT_WEBSOCKET_TIMEOUT_S
-                                                {
-                                                    datapoint_error!(
-                                                        "rpc_load_balancer-force_disconnect",
-                                                        "url" => ws_url_no_token,
-                                                        ("event", 1, i64)
-                                                    );
+                                            let mut highest_slot_l = highest_slot.lock().unwrap();
+                                            if slot.slot > *highest_slot_l {
+                                                *highest_slot_l = slot.slot;
+                                                if let Err(e) = slot_sender.send(slot.slot) {
+                                                    error!("error sending slot: {e}");
                                                     break;
                                                 }
                                             }
-                                            Err(RecvTimeoutError::Disconnected) => {
-                                                info!(
-                                                    "slot subscribe disconnected url: {}",
-                                                    websocket_url
-                                                );
-                                                break;
-                                            }
                                         }
                                     }
-                                }
-                                Err(e) => {
-                                    error!(
-                                        "slot subscription error client: {}, error: {:?}",
-                                        websocket_url, e
-                                    );
+                                    Err(RecvTimeoutError::Timeout) => {
+                                        // RPC servers occasionally stop sending slot updates and never recover.
+                                        // If enough time has passed, attempt to recover by forcing a new connection
+                                        if last_slot_update.elapsed().as_secs()
+                                            >= DISCONNECT_WEBSOCKET_TIMEOUT_S
+                                        {
+                                            datapoint_error!(
+                                                "rpc_load_balancer-force_disconnect",
+                                                "url" => ws_url_no_token,
+                                                ("event", 1, i64)
+                                            );
+                                            break;
+                                        }
+                                    }
+                                    Err(RecvTimeoutError::Disconnected) => {
+                                        info!("slot subscribe disconnected. url: {websocket_url}");
+                                        break;
+                                    }
                                 }
                             }
 

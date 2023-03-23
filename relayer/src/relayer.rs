@@ -142,7 +142,7 @@ pub struct RelayerImpl {
 }
 
 impl RelayerImpl {
-    const REPORT_INTERVAL: usize = 100;
+    const CHANNEL_REPORT_INTERVAL: usize = 100;
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -228,7 +228,7 @@ impl RelayerImpl {
                 },
                 recv(subscription_receiver) -> maybe_subscription => {
                     Self::handle_subscription(maybe_subscription, &mut packet_subscriptions, &mut router_metrics, &region, &cluster)?;
-                    if iter_count % RelayerImpl::REPORT_INTERVAL == 0 {
+                    if iter_count % RelayerImpl::CHANNEL_REPORT_INTERVAL == 0 {
                         datapoint_info!(
                             "relayer_impl-channel_stats",
                             ("subscription_receiver_len", subscription_receiver.len(), i64),
