@@ -7,7 +7,7 @@ on:
 
 jobs:
   clippy_and_udeps_check:
-    runs-on: big-runner-1
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
         with:
