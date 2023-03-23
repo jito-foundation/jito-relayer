@@ -11,6 +11,7 @@ runs:
         && sudo unzip -o $PROTOC_ZIP -d /usr/local bin/protoc \
         && sudo unzip -o $PROTOC_ZIP -d /usr/local include/* \
         && rm -f $PROTOC_ZIP
+      shell: bash
 
     - uses: actions/cache@v3
       with:
@@ -18,6 +19,7 @@ runs:
           ~/.cargo
           target/
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      shell: bash
 
     - name: Check rust version before
       run: |
@@ -25,6 +27,7 @@ runs:
         cargo --version || true;
         cargo clippy --version || true;
         cargo fmt --version || true;
+      shell: bash
 
     - uses: actions-rs/toolchain@v1
       with:
@@ -38,3 +41,4 @@ runs:
         cargo --version;
         cargo clippy --version;
         cargo fmt --version;
+      shell: bash
