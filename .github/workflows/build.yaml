@@ -33,3 +33,4 @@ jobs:
           TAG: ${{ inputs.TAG }}
 
       - run: ls -lah /tmp
+      - run: sudo ls -lh /var/lib/docker
