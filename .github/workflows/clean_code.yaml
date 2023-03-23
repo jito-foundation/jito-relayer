@@ -12,19 +12,36 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: 'recursive'
+
+      - name: Install Protobuf
+        run: sudo apt-get -qq install -y protobuf-compiler
+
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
           override: true
           components: clippy
+
       - uses: actions-rs/clippy-check@v1
         with:
           token: ${{ secrets.GHUB_TOKEN }}
           args: --all-features
+
       - uses: actions-rs/cargo@v1
         with:
           command: install
           args: cargo-udeps --locked
+
       - name: cargo udeps
         uses: actions-rs/cargo@v1
         with:
