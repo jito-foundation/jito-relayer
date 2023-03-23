@@ -146,7 +146,7 @@ impl RelayerImpl {
 
     pub fn new(
         slot_receiver: Receiver<Slot>,
-        packet_receiver: Receiver<RouterPacketBatches>,
+        delay_packet_receiver: Receiver<RouterPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
         exit: Arc<AtomicBool>,
         public_ip: IpAddr,
@@ -167,7 +167,7 @@ impl RelayerImpl {
                     let res = Self::run_event_loop(
                         slot_receiver,
                         subscription_receiver,
-                        packet_receiver,
+                        delay_packet_receiver,
                         leader_schedule_cache,
                         exit,
                         LEADER_LOOKAHEAD,
@@ -193,7 +193,7 @@ impl RelayerImpl {
     fn run_event_loop(
         slot_receiver: Receiver<Slot>,
         subscription_receiver: Receiver<Subscription>,
-        packet_receiver: Receiver<RouterPacketBatches>,
+        delay_packet_receiver: Receiver<RouterPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
         exit: Arc<AtomicBool>,
         leader_lookahead: u64,
@@ -220,14 +220,18 @@ impl RelayerImpl {
                 recv(slot_receiver) -> maybe_slot => {
                     Self::update_highest_slot(maybe_slot, &mut highest_slot, &mut router_metrics)?;
                 },
-                recv(packet_receiver) -> maybe_packet_batches => {
+                recv(delay_packet_receiver) -> maybe_packet_batches => {
                     let failed_forwards = Self::forward_packets(maybe_packet_batches, &packet_subscriptions, &leader_schedule_cache, &highest_slot, &leader_lookahead, &mut router_metrics)?;
                     Self::drop_connections(failed_forwards, &mut packet_subscriptions, &mut router_metrics, &cluster, &region);
                 },
                 recv(subscription_receiver) -> maybe_subscription => {
                     Self::handle_subscription(maybe_subscription, &mut packet_subscriptions, &mut router_metrics, &region, &cluster)?;
                     if iter_count % RelayerImpl::REPORT_INTERVAL == 0 {
-
+                        datapoint_info!(
+                            "relayer_impl-channel_stats",
+                            ("subscription_receiver_len", subscription_receiver.len(), i64),
+                            ("delay_packet_receiver_len", delay_packet_receiver.len(), i64),
+                        );
                     }
                 }
                 recv(heartbeat_tick) -> time_generated => {

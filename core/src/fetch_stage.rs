@@ -47,8 +47,8 @@ impl FetchStage {
                         Ok(()) | Err(FetchStageError::RecvTimeout(RecvTimeoutError::Timeout)) => {
                             if iter_count % FetchStage::REPORT_INTERVAL == 0 {
                                 datapoint_info!(
-                                    "fetch_stage-handle_forwarded_packets",
-                                    ("sender_queue_len", sender.len(), i64)
+                                    "fetch_stage-channel_stats",
+                                    ("forward_sender_queue_len", sender.len(), i64),
                                 );
                             }
                         }
