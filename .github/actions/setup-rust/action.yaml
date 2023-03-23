@@ -19,7 +19,6 @@ runs:
           ~/.cargo
           target/
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      shell: bash
 
     - name: Check rust version before
       run: |
