@@ -40,7 +40,7 @@ jobs:
         with:
           toolchain: nightly
           override: true
-          components: clippy
+          components: clippy, rustfmt
 
       - name: Check rust version after
         run: |
