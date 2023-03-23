@@ -45,7 +45,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: install
-          args: cargo-udeps --locked
+          args: cargo-udeps --locked --force
 
       - name: cargo udeps
         uses: actions-rs/cargo@v1

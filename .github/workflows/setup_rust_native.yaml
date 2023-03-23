@@ -6,7 +6,7 @@ on:
         required: true
 
 jobs:
-  setup_rust:
+  setup_rust_native:
     runs-on: ubuntu-latest
     steps:
       - name: Install Protobuf
@@ -18,15 +18,15 @@ jobs:
           && sudo unzip -o $PROTOC_ZIP -d /usr/local include/* \
           && rm -f $PROTOC_ZIP
 
-      - uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+#      - uses: actions/cache@v3
+#        with:
+#          path: |
+#            ~/.cargo/bin/
+#            ~/.cargo/registry/index/
+#            ~/.cargo/registry/cache/
+#            ~/.cargo/git/db/
+#            target/
+#          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - uses: actions-rs/toolchain@v1
         with:
@@ -40,10 +40,6 @@ jobs:
           cargo --version;
           cargo clippy --version;
           cargo fmt --version;
-#
-#      - uses: actions-rs/clippy-check@v1
-#        with:
-#          args: --all-features
 
       - uses: actions-rs/cargo@v1
         with:
