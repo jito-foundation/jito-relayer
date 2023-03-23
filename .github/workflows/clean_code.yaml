@@ -9,9 +9,9 @@ jobs:
   clippy_and_udeps_check:
     runs-on: big-runner-1
     steps:
-#      - uses: actions/checkout@v3
-#        with:
-#          submodules: 'recursive'
+      - uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
 #
 #      - name: Setup Rust
 #        uses: ./.github/workflows/setup_rust_native.yaml
