@@ -7,23 +7,6 @@ runs:
       run: echo "WORKFLOW_ID=${{github.workflow}}" >> $GITHUB_ENV
       shell: bash
 
-    - run: echo ${{github}};
-      shell: bash
-    - run: echo ${{env}};
-      shell: bash
-    - run: echo ${{job}};
-      shell: bash
-    - run: echo ${{steps}};
-      shell: bash
-
-    - run: echo ${{runner}};
-      shell: bash
-    - run: echo ${{strategy}};
-      shell: bash
-    - run: echo ${{matrix}};
-      shell: bash
-    - run: echo ${{inputs}};
-      shell: bash
     - name: Install Protobuf
       run: |
         export PROTOC_VERSION=21.12 && \

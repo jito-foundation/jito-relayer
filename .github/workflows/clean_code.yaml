@@ -13,6 +13,34 @@ jobs:
         with:
           submodules: 'recursive'
 
+
+      - run: echo ${{github}};
+        shell: bash
+      - run: echo ${{env}};
+        shell: bash
+      - run: echo ${{vars}};
+        shell: bash
+
+      - run: echo ${{job}};
+        shell: bash
+
+      - run: echo ${{jobs}};
+        shell: bash
+      - run: echo ${{steps}};
+        shell: bash
+
+      - run: echo ${{runner}};
+        shell: bash
+      - run: echo ${{secrets}};
+        shell: bash
+      - run: echo ${{strategy}};
+        shell: bash
+      - run: echo ${{matrix}};
+        shell: bash
+      - run: echo ${{needs}};
+        shell: bash
+      - run: echo ${{inputs}};
+        shell: bash
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
