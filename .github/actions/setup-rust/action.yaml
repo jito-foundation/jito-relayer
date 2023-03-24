@@ -11,7 +11,7 @@ runs:
   steps:
     - name: Generate cache key
       id: cache-key-generator
-      run: echo "cache-key=$(echo ${{inputs.caller-workflow-name}} | tr ' ' '_') >> $GITHUB_ENV
+      run: echo "cache-key=$(echo ${{inputs.caller-workflow-name}} | tr ' ' '_')" >> $GITHUB_ENV
       shell: bash
 
     - run: echo ${{ steps.cache-key-generator.outputs.cache-key }}
