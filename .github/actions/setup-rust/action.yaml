@@ -14,7 +14,8 @@ runs:
       run: echo "cache-key=$(echo ${{inputs.caller-workflow-name}} | tr ' ' '_')" >> $GITHUB_OUTPUT
       shell: bash
 
-    - run: echo ${{ steps.cache-key-generator.outputs.cache-key }}
+    - name: Check cache key
+      run: "echo Cache key: ${{ steps.cache-key-generator.outputs.cache-key }}"
       shell: bash
 
     - name: Install Protobuf
