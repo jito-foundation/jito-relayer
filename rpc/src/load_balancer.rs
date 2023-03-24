@@ -109,11 +109,9 @@ impl LoadBalancer {
                             let mut last_slot_update = Instant::now();
 
                             match PubsubClient::slot_subscribe(&websocket_url) {
-                                Ok(subscription) => {
+                                Ok((subscription, receiver)) => {
                                     while !exit.load(Ordering::Relaxed) {
-                                        match subscription
-                                            .1
-                                            .recv_timeout(Duration::from_millis(100))
+                                        match receiver.recv_timeout(Duration::from_millis(100))
                                         {
                                             Ok(slot) => {
                                                 last_slot_update = Instant::now();
@@ -138,7 +136,7 @@ impl LoadBalancer {
                                                         *highest_slot_l = slot.slot;
                                                         if let Err(e) = slot_sender.send(slot.slot)
                                                         {
-                                                            error!("error sending slot: {}", e);
+                                                            error!("error sending slot: {e}");
                                                             break;
                                                         }
                                                     }
@@ -159,10 +157,7 @@ impl LoadBalancer {
                                                 }
                                             }
                                             Err(RecvTimeoutError::Disconnected) => {
-                                                info!(
-                                                    "slot subscribe disconnected url: {}",
-                                                    websocket_url
-                                                );
+                                                info!("slot subscribe disconnected. url: {websocket_url}");
                                                 break;
                                             }
                                         }
