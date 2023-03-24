@@ -56,7 +56,7 @@ impl LoadBalancer {
 
         let (slot_sender, slot_receiver) = unbounded();
         let subscription_threads = Self::start_subscription_threads(
-            servers.to_vec(),
+            &servers,
             &server_to_slot,
             &server_to_rpc_client,
             exit,
@@ -75,7 +75,7 @@ impl LoadBalancer {
     }
 
     fn start_subscription_threads(
-        servers: Vec<(String, String)>,
+        servers: &[(String, String)],
         server_to_slot: &Arc<Mutex<HashMap<String, Slot>>>,
         _server_to_rpc_client: &Arc<Mutex<HashMap<String, Arc<RpcClient>>>>,
         exit: &Arc<AtomicBool>,
@@ -88,6 +88,11 @@ impl LoadBalancer {
         servers
             .iter()
             .map(|(_, websocket_url)| {
+                let ws_url_no_token = websocket_url
+                    .split('?')
+                    .next()
+                    .unwrap_or_default()
+                    .to_string();
                 let exit = exit.clone();
                 let websocket_url = websocket_url.clone();
                 let server_to_slot = server_to_slot.clone();
@@ -100,8 +105,7 @@ impl LoadBalancer {
                     .name(format_args!("rpc-thread({websocket_url})").to_string())
                     .spawn(move || {
                         while !exit.load(Ordering::Relaxed) {
-                            info!("slot subscribing to url: {}", websocket_url);
-
+                            info!("running slot_subscribe() with url: {websocket_url}");
                             let mut last_slot_update = Instant::now();
 
                             match PubsubClient::slot_subscribe(&websocket_url) {
@@ -118,18 +122,15 @@ impl LoadBalancer {
                                                     .lock()
                                                     .unwrap()
                                                     .insert(websocket_url.clone(), slot.slot);
-                                                {
-                                                    let url_split: Vec<&str> =
-                                                        websocket_url.split('?').collect();
-                                                    let url = url_split.first().unwrap_or(&"");
-                                                    datapoint_info!(
+                                                datapoint_info!(
                                                         "rpc_load_balancer-slot_count",
                                                         "cluster" => &cluster,
                                                         "region" => &region,
-                                                        "url" => url,
+                                                        "url" => ws_url_no_token,
                                                         ("slot", slot.slot, i64)
-                                                    );
+                                                );
 
+                                                {
                                                     let mut highest_slot_l =
                                                         highest_slot.lock().unwrap();
 
@@ -149,12 +150,9 @@ impl LoadBalancer {
                                                 if last_slot_update.elapsed().as_secs()
                                                     >= DISCONNECT_WEBSOCKET_TIMEOUT_S
                                                 {
-                                                    let url_split: Vec<&str> =
-                                                        websocket_url.split('?').collect();
-                                                    let url = url_split.first().unwrap_or(&"");
                                                     datapoint_error!(
                                                         "rpc_load_balancer-force_disconnect",
-                                                        "url" => url,
+                                                        "url" => ws_url_no_token,
                                                         ("event", 1, i64)
                                                     );
                                                     break;
