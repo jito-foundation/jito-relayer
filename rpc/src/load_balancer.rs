@@ -105,7 +105,7 @@ impl LoadBalancer {
                     .name(format_args!("rpc-thread({websocket_url})").to_string())
                     .spawn(move || {
                         while !exit.load(Ordering::Relaxed) {
-                            info!("slot subscribing to url: {websocket_url}");
+                            info!("running slot_subscribe() with url: {websocket_url}");
                             let mut last_slot_update = Instant::now();
 
                             let receiver = match PubsubClient::slot_subscribe(&websocket_url) {
