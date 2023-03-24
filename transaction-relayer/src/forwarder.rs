@@ -72,6 +72,7 @@ pub fn start_forward_and_delay_thread(
     region: String,
 ) -> Vec<JoinHandle<()>> {
     const SLEEP_DURATION: Duration = Duration::from_millis(5);
+    const CHANNEL_REPORT_INTERVAL: usize = 100;
     let packet_delay = Duration::from_millis(packet_delay_ms as u64);
 
     (0..num_threads)
@@ -86,6 +87,7 @@ pub fn start_forward_and_delay_thread(
             Builder::new()
                 .name("jito-forward_packets_to_block_engine".to_string())
                 .spawn(move || {
+                    let mut iter_count = 0usize;
                     let mut buffered_packet_batches = VecDeque::with_capacity(100_000);
 
                     let mut forwarder_metrics = ForwarderMetrics::default();
@@ -181,6 +183,18 @@ pub fn start_forward_and_delay_thread(
                                 .send(batch)
                                 .expect("exiting forwarding delayed packets");
                         }
+
+                        if iter_count % CHANNEL_REPORT_INTERVAL == 0 {
+                            datapoint_info!(
+                                "forwarder-channel_stats",
+                                (
+                                    "buffered_packet_batches-queue_len",
+                                    buffered_packet_batches.len(),
+                                    i64
+                                ),
+                            );
+                        }
+                        iter_count += 1;
                     }
                 })
                 .unwrap()
