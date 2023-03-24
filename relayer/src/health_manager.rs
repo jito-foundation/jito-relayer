@@ -26,7 +26,6 @@ pub struct HealthManager {
 /// Manages health status of the relayer. Reports to metrics and other parts of system health
 /// status so they can react accordingly.
 impl HealthManager {
-    const CHANNEL_REPORT_INTERVAL: usize = 100;
     pub fn new(
         slot_receiver: Receiver<Slot>,
         slot_sender: Sender<Slot>,
@@ -63,7 +62,7 @@ impl HealthManager {
             .name("health-manager".to_string())
             .spawn(move || {
                 let mut last_update = Instant::now();
-                let mut iter_count = 0usize;
+                let channel_len_tick = tick(Duration::from_secs(5));
                 let check_and_metrics_tick = tick(missing_slot_unhealthy_duration / 2);
 
                 while !exit.load(Ordering::Relaxed) {
@@ -84,15 +83,13 @@ impl HealthManager {
                             slot_sender.send(slot).expect("error forwarding slot, exiting");
                             last_update = Instant::now();
                         }
+                        recv(channel_len_tick) -> _ => {
+                            datapoint_info!(
+                                "health_manager-channel_stats",
+                                ("slot_sender-len", slot_sender.len(), i64),
+                            );
+                        }
                     }
-
-                    if iter_count % HealthManager::CHANNEL_REPORT_INTERVAL == 0 {
-                        datapoint_info!(
-                                    "health_manager-channel_stats",
-                                    ("slot_sender-len", slot_sender.len(), i64),
-                                );
-                    }
-                    iter_count += 1;
                 }
             })
             .unwrap()

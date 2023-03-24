@@ -142,8 +142,6 @@ pub struct RelayerImpl {
 }
 
 impl RelayerImpl {
-    const CHANNEL_REPORT_INTERVAL: usize = 200;
-
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         slot_receiver: Receiver<Slot>,
@@ -209,9 +207,9 @@ impl RelayerImpl {
             TokioSender<Result<SubscribePacketsResponse, Status>>,
         > = HashMap::default();
 
-        let mut iter_count = 0usize;
         let mut heartbeat_count = 0;
 
+        let channel_len_tick = crossbeam_channel::tick(Duration::from_secs(5));
         let heartbeat_tick = crossbeam_channel::tick(Duration::from_millis(500));
         let metrics_tick = crossbeam_channel::tick(Duration::from_millis(1000));
 
@@ -252,25 +250,23 @@ impl RelayerImpl {
                     router_metrics.report(&cluster, &region);
                     router_metrics = RelayerMetrics::default();
                 }
+                recv(channel_len_tick) -> _ => {
+                    datapoint_info!(
+                        "relayer_impl-channel_stats",
+                        ("slot_receiver-len", slot_receiver.len(), i64),
+                        (
+                            "subscription_receiver-len",
+                            subscription_receiver.len(),
+                            i64
+                        ),
+                        (
+                            "delay_packet_receiver-len",
+                            delay_packet_receiver.len(),
+                            i64
+                        ),
+                    );
+                }
             }
-
-            if iter_count % RelayerImpl::CHANNEL_REPORT_INTERVAL == 0 {
-                datapoint_info!(
-                    "relayer_impl-channel_stats",
-                    ("slot_receiver-len", slot_receiver.len(), i64),
-                    (
-                        "subscription_receiver-len",
-                        subscription_receiver.len(),
-                        i64
-                    ),
-                    (
-                        "delay_packet_receiver-len",
-                        delay_packet_receiver.len(),
-                        i64
-                    ),
-                );
-            }
-            iter_count += 1;
         }
         Ok(())
     }
