@@ -31,7 +31,7 @@ pub struct FetchStage {
 }
 
 impl FetchStage {
-    const CHANNEL_REPORT_INTERVAL: usize = 100;
+    const CHANNEL_REPORT_INTERVAL: usize = 200;
     pub fn new_with_sender(
         forward_sender: &PacketBatchSender,
         forward_receiver: PacketBatchReceiver,
@@ -57,7 +57,7 @@ impl FetchStage {
                     if iter_count % FetchStage::CHANNEL_REPORT_INTERVAL == 0 {
                         datapoint_info!(
                             "fetch_stage-channel_stats",
-                            ("forward_sender_queue_len", sender.len(), i64),
+                            ("forward_sender-len", sender.len(), i64),
                         );
                     }
                     iter_count += 1;

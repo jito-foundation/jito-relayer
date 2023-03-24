@@ -89,7 +89,7 @@ impl HealthManager {
                     if iter_count % HealthManager::CHANNEL_REPORT_INTERVAL == 0 {
                         datapoint_info!(
                                     "health_manager-channel_stats",
-                                    ("slot_sender_queue_len", slot_sender.len(), i64),
+                                    ("slot_sender-len", slot_sender.len(), i64),
                                 );
                     }
                     iter_count += 1;

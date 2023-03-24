@@ -142,7 +142,7 @@ pub struct RelayerImpl {
 }
 
 impl RelayerImpl {
-    const CHANNEL_REPORT_INTERVAL: usize = 100;
+    const CHANNEL_REPORT_INTERVAL: usize = 200;
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -257,14 +257,14 @@ impl RelayerImpl {
             if iter_count % RelayerImpl::CHANNEL_REPORT_INTERVAL == 0 {
                 datapoint_info!(
                     "relayer_impl-channel_stats",
-                    ("slot_receiver_len", slot_receiver.len(), i64),
+                    ("slot_receiver-len", slot_receiver.len(), i64),
                     (
-                        "subscription_receiver_len",
+                        "subscription_receiver-len",
                         subscription_receiver.len(),
                         i64
                     ),
                     (
-                        "delay_packet_receiver_len",
+                        "delay_packet_receiver-len",
                         delay_packet_receiver.len(),
                         i64
                     ),
