@@ -1,61 +1,23 @@
 name: Setup Rust
 description: Installs rust in a bare metal fashion
+inputs:
+  workflow-name:
+    description: 'Name of workflow used for creating a cache key in ASCII format.'
+    required: true
+    default: ''
+
 runs:
   using: composite
   steps:
-    - name: Generate workflow id (for caching)
-      run: echo "WORKFLOW_ID=${{github.workflow}}" >> $GITHUB_ENV
-      shell: bash
-
-
-    - name: Dump GitHub context
-      env:
-        GITHUB_CONTEXT: ${{ toJson(github) }}
-      shell: bash
-
-      run: echo "$GITHUB_CONTEXT"
-    - name: Dump job context
-      env:
-        JOB_CONTEXT: ${{ toJson(job) }}
-      shell: bash
-
-      run: echo "$JOB_CONTEXT"
-    - name: Dump steps context
-      env:
-        STEPS_CONTEXT: ${{ toJson(steps) }}
-      shell: bash
-
-      run: echo "$STEPS_CONTEXT"
-    - name: Dump runner context
-      env:
-        RUNNER_CONTEXT: ${{ toJson(runner) }}
-      shell: bash
-
-      run: echo "$RUNNER_CONTEXT"
-    - name: Dump strategy context
-      env:
-        STRATEGY_CONTEXT: ${{ toJson(strategy) }}
-      shell: bash
-
-      run: echo "$STRATEGY_CONTEXT"
-
-    - name: Dump matrix context
-      env:
-        MATRIX_CONTEXT: ${{ toJson(matrix) }}
-      shell: bash
-
-      run: echo "$MATRIX_CONTEXT"
-
-    - name: Show default environment variables
+    - name: Generate cache key
+      id: cache-key-generator
       run: |
-        echo "The job_id is: $GITHUB_JOB"   # reference the default environment variables
-        echo "The id of this action is: $GITHUB_ACTION"   # reference the default environment variables
-        echo "The run id is: $GITHUB_RUN_ID"
-        echo "The GitHub Actor's username is: $GITHUB_ACTOR"
-        echo "GitHub SHA: $GITHUB_SHA"
+        echo ${{inputs.workflow-name}} | tr ' ' '_'
+        echo "cache-key=$(echo ${{inputs.workflow-name}} | tr ' ' '_') >> $GITHUB_ENV
       shell: bash
 
-
+    - run: echo ${{ steps.cache-key-generator.outputs.cache-key }}
+      shell: bash
 
     - name: Install Protobuf
       run: |
@@ -72,14 +34,14 @@ runs:
       with:
         path: |
           ~/.cargo
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-cargo-${{ steps.cache-key-generator.outputs.cache-key }}-${{ hashFiles('**/Cargo.lock') }}
 
     - name: cache rust files
       uses: actions/cache@v3
       with:
         path: |
           target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/*.rs') }}
+        key: ${{ runner.os }}-cargo-${{ steps.cache-key-generator.outputs.cache-key }}-${{ hashFiles('**/*.rs') }}
 
     - name: Check rust version before
       run: |

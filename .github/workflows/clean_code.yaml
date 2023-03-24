@@ -13,9 +13,10 @@ jobs:
         with:
           submodules: 'recursive'
 
-
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+        with:
+          step_name: clean_code
 
       - uses: actions-rs/clippy-check@v1
         with:
