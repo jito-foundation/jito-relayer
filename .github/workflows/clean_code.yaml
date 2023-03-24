@@ -18,10 +18,13 @@ jobs:
 
       - uses: actions-rs/clippy-check@v1
         with:
+          token: ${{ secrets.GHUB_TOKEN }}
           args: --all-features
 
-      - name: Install udeps
-        run: "cargo install cargo-udeps"
+      - uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: cargo-udeps --locked
 
       - name: Run cargo udeps
         uses: actions-rs/cargo@v1
