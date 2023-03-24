@@ -17,9 +17,6 @@ runs:
     - run: echo ${{ steps.cache-key-generator.outputs.cache-key }}
       shell: bash
 
-    - run: echo ${{ env.cache-key }}
-      shell: bash
-
     - name: Install Protobuf
       run: |
         export PROTOC_VERSION=21.12 && \
