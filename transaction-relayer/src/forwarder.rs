@@ -192,6 +192,11 @@ pub fn start_forward_and_delay_thread(
                                     buffered_packet_batches.len(),
                                     i64
                                 ),
+                                (
+                                    "buffered_packet_batches-capacity",
+                                    buffered_packet_batches.capacity(),
+                                    i64
+                                ),
                             );
                         }
                         iter_count += 1;
