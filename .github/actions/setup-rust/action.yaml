@@ -3,6 +3,13 @@ description: Installs rust in a bare metal fashion
 runs:
   using: composite
   steps:
+    - name: Generate workflow id (for caching)
+      run: echo "WORKFLOW_ID=${{github.workflow}}" >> $GITHUB_ENV
+      shell: bash
+
+    - run: echo $WORKFLOW_ID; printenv
+      shell: bash
+
     - name: Install Protobuf
       run: |
         export PROTOC_VERSION=21.12 && \
@@ -13,13 +20,15 @@ runs:
         && rm -f $PROTOC_ZIP
       shell: bash
 
-    - uses: actions/cache@v3
+    - name: cache dependencies
+      uses: actions/cache@v3
       with:
         path: |
           ~/.cargo
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-    - uses: actions/cache@v3
+    - name: cache rust files
+      uses: actions/cache@v3
       with:
         path: |
           target/
