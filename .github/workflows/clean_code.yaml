@@ -24,8 +24,6 @@ jobs:
       - run: echo ${{job}};
         shell: bash
 
-      - run: echo ${{jobs}};
-        shell: bash
       - run: echo ${{steps}};
         shell: bash
 
