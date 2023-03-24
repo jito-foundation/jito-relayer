@@ -109,7 +109,7 @@ impl LoadBalancer {
                             let mut last_slot_update = Instant::now();
 
                             match PubsubClient::slot_subscribe(&websocket_url) {
-                                Ok((subscription, receiver)) => {
+                                Ok((_subscription, receiver)) => {
                                     while !exit.load(Ordering::Relaxed) {
                                         match receiver.recv_timeout(Duration::from_millis(100))
                                         {
