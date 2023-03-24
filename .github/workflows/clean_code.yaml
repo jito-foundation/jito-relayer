@@ -12,18 +12,18 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: 'recursive'
-#
-#      - name: Setup Rust
-#        uses: ./.github/actions/setup-rust
-#
-#      - uses: actions-rs/clippy-check@v1
-#        with:
-#          args: --all-features
-#
-#      - name: Install udeps
-#        run: "cargo install cargo-udeps"
-#
-#      - name: Run cargo udeps
-#        uses: actions-rs/cargo@v1
-#        with:
-#          command: udeps
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+
+      - uses: actions-rs/clippy-check@v1
+        with:
+          args: --all-features
+
+      - name: Install udeps
+        run: "cargo install cargo-udeps"
+
+      - name: Run cargo udeps
+        uses: actions-rs/cargo@v1
+        with:
+          command: udeps
