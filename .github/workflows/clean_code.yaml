@@ -16,7 +16,7 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
-          caller-workflow-name: clean_code
+          caller-workflow-name: clippy_and_udeps_check
 
       - uses: actions-rs/clippy-check@v1
         with:
