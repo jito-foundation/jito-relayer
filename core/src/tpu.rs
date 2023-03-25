@@ -3,7 +3,7 @@
 
 use std::{
     net::{IpAddr, UdpSocket},
-    sync::{atomic::AtomicBool, Arc, Mutex, RwLock},
+    sync::{atomic::AtomicBool, Arc, RwLock},
     thread,
     thread::JoinHandle,
 };
@@ -48,7 +48,7 @@ impl Tpu {
         keypair: &Keypair,
         tpu_ip: &IpAddr,
         tpu_fwd_ip: &IpAddr,
-        rpc_load_balancer: &Arc<Mutex<LoadBalancer>>,
+        rpc_load_balancer: &Arc<LoadBalancer>,
     ) -> (Self, Receiver<BankingPacketBatch>) {
         let TpuSockets {
             transactions_quic_sockets,

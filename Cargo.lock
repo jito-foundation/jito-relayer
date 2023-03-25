@@ -2238,6 +2238,7 @@ name = "jito-rpc"
 version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
+ "dashmap 5.4.0",
  "log",
  "solana-client",
  "solana-metrics",

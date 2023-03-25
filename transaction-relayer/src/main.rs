@@ -6,7 +6,7 @@ use std::{
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc,
     },
     thread,
     thread::JoinHandle,
@@ -264,7 +264,7 @@ fn main() {
 
     let (rpc_load_balancer, health_manager_slot_receiver) =
         LoadBalancer::new(&servers, &exit, args.cluster.clone(), args.region.clone());
-    let rpc_load_balancer = Arc::new(Mutex::new(rpc_load_balancer));
+    let rpc_load_balancer = Arc::new(rpc_load_balancer);
 
     // Lookup table refresher
     let address_lookup_table_cache: DashMap<Pubkey, AddressLookupTableAccount> = DashMap::new();
@@ -455,7 +455,7 @@ impl ValidatorAuther for ValidatorAutherImpl {
 }
 
 fn start_lookup_table_refresher(
-    rpc_load_balancer: &Arc<Mutex<LoadBalancer>>,
+    rpc_load_balancer: &Arc<LoadBalancer>,
     lookup_table: &DashMap<Pubkey, AddressLookupTableAccount>,
     lookup_table_refresh_s: u64,
     exit: &Arc<AtomicBool>,
@@ -473,7 +473,7 @@ fn start_lookup_table_refresher(
 
             // seed lookup table
             if let Err(e) = refresh_address_lookup_table(&rpc_load_balancer, &lookup_table) {
-                error!("error refreshing address lookup table: {:?}", e);
+                error!("error refreshing address lookup table: {e:?}");
             }
 
             let tick_receiver = tick(Duration::from_secs(1));
@@ -481,45 +481,46 @@ fn start_lookup_table_refresher(
 
             while !exit.load(Ordering::Relaxed) {
                 let _ = tick_receiver.recv();
-
-                if last_refresh.elapsed() > refresh_duration {
-                    let now = Instant::now();
-                    let refresh_result =
-                        refresh_address_lookup_table(&rpc_load_balancer, &lookup_table);
-                    let updated_elapsed = now.elapsed().as_micros();
-                    match refresh_result {
-                        Ok(_) => {
-                            datapoint_info!("lookup_table_refresher-ok",
-                                "cluster" => cluster,
-                                "region" => region,
-                                ("count", 1, i64),
-                                ("lookup_table_size", lookup_table.len(), i64),
-                                ("updated_elapsed_us", updated_elapsed as u64, i64),
-                            );
-                        }
-                        Err(e) => {
-                            datapoint_error!("lookup_table_refresher-error",
-                                "cluster" => cluster,
-                                "region" => region,
-                                ("count", 1, i64),
-                                ("lookup_table_size", lookup_table.len(), i64),
-                                ("updated_elapsed_us", updated_elapsed as u64, i64),
-                                ("error", e.to_string(), String),
-                            );
-                        }
-                    }
-                    last_refresh = Instant::now();
+                if last_refresh.elapsed() < refresh_duration {
+                    continue;
                 }
+
+                let now = Instant::now();
+                let refresh_result =
+                    refresh_address_lookup_table(&rpc_load_balancer, &lookup_table);
+                let updated_elapsed = now.elapsed().as_micros();
+                match refresh_result {
+                    Ok(_) => {
+                        datapoint_info!("lookup_table_refresher-ok",
+                            "cluster" => cluster,
+                            "region" => region,
+                            ("count", 1, i64),
+                            ("lookup_table_size", lookup_table.len(), i64),
+                            ("updated_elapsed_us", updated_elapsed, i64),
+                        );
+                    }
+                    Err(e) => {
+                        datapoint_error!("lookup_table_refresher-error",
+                            "cluster" => cluster,
+                            "region" => region,
+                            ("count", 1, i64),
+                            ("lookup_table_size", lookup_table.len(), i64),
+                            ("updated_elapsed_us", updated_elapsed, i64),
+                            ("error", e.to_string(), String),
+                        );
+                    }
+                }
+                last_refresh = Instant::now();
             }
         })
         .unwrap()
 }
 
 fn refresh_address_lookup_table(
-    rpc_load_balancer: &Arc<Mutex<LoadBalancer>>,
+    rpc_load_balancer: &Arc<LoadBalancer>,
     lookup_table: &DashMap<Pubkey, AddressLookupTableAccount>,
 ) -> solana_client::client_error::Result<()> {
-    let rpc_client = rpc_load_balancer.lock().unwrap().rpc_client();
+    let rpc_client = rpc_load_balancer.rpc_client();
 
     let address_lookup_table =
         Pubkey::from_str("AddressLookupTab1e1111111111111111111111111").unwrap();
@@ -530,13 +531,10 @@ fn refresh_address_lookup_table(
     for (pubkey, account_data) in &accounts {
         match AddressLookupTable::deserialize(account_data.data.as_slice()) {
             Err(e) => {
-                error!("error deserializing AddressLookupTable pubkey: {pubkey} error: {e}");
+                error!("error deserializing AddressLookupTable pubkey: {pubkey}, error: {e}");
             }
             Ok(table) => {
-                debug!(
-                    "lookup table loaded pubkey: {:?} table: {:?}",
-                    pubkey, table
-                );
+                debug!("lookup table loaded pubkey: {pubkey:?}, table: {table:?}");
                 new_pubkeys.insert(pubkey);
                 lookup_table.insert(
                     *pubkey,

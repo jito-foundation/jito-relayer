@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -10,6 +9,7 @@ use std::{
 };
 
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
+use dashmap::DashMap;
 use log::{error, info};
 use solana_client::{pubsub_client::PubsubClient, rpc_client::RpcClient};
 use solana_metrics::{datapoint_error, datapoint_info};
@@ -21,38 +21,39 @@ use solana_sdk::{
 const DISCONNECT_WEBSOCKET_TIMEOUT_S: u64 = 30;
 
 pub struct LoadBalancer {
-    // (http, websocket)
-    server_to_slot: Arc<Mutex<HashMap<String, Slot>>>,
-    server_to_rpc_client: Arc<Mutex<HashMap<String, Arc<RpcClient>>>>,
+    /// (ws_url, slot)
+    server_to_slot: DashMap<String, Slot>,
+    /// (rpc_url, client)
+    server_to_rpc_client: DashMap<String, Arc<RpcClient>>,
     subscription_threads: Vec<JoinHandle<()>>,
 }
 
 impl LoadBalancer {
+    const RPC_TIMEOUT: Duration = Duration::from_secs(15);
+
     pub fn new(
-        servers: &[(String, String)],
+        servers: &[(String, String)], /* http rpc url, ws url */
         exit: &Arc<AtomicBool>,
         cluster: String,
         region: String,
     ) -> (LoadBalancer, Receiver<Slot>) {
-        let server_to_slot = HashMap::from_iter(servers.iter().map(|(_, ws)| (ws.clone(), 0)));
-        let server_to_slot = Arc::new(Mutex::new(server_to_slot));
+        let server_to_slot = DashMap::from_iter(servers.iter().map(|(_, ws)| (ws.clone(), 0)));
 
-        let server_to_rpc_client = HashMap::from_iter(servers.iter().map(|(http, ws)| {
+        let server_to_rpc_client = DashMap::from_iter(servers.iter().map(|(rpc_url, ws)| {
             // warm up the connection
             let rpc_client = Arc::new(RpcClient::new_with_timeout_and_commitment(
-                http,
-                Duration::from_secs(15),
+                rpc_url,
+                LoadBalancer::RPC_TIMEOUT,
                 CommitmentConfig {
                     commitment: CommitmentLevel::Processed,
                 },
             ));
             if let Err(e) = rpc_client.get_slot() {
-                error!("error warming up http: {} error: {}", http, e);
+                error!("error warming up rpc: {rpc_url}. error: {e}");
             }
             // store as ws instead of http so we can lookup by furthest ahead ws subscription
             (ws.clone(), rpc_client)
         }));
-        let server_to_rpc_client = Arc::new(Mutex::new(server_to_rpc_client));
 
         let (slot_sender, slot_receiver) = unbounded();
         let subscription_threads = Self::start_subscription_threads(
@@ -76,8 +77,8 @@ impl LoadBalancer {
 
     fn start_subscription_threads(
         servers: &[(String, String)],
-        server_to_slot: &Arc<Mutex<HashMap<String, Slot>>>,
-        _server_to_rpc_client: &Arc<Mutex<HashMap<String, Arc<RpcClient>>>>,
+        server_to_slot: &DashMap<String, Slot>,
+        _server_to_rpc_client: &DashMap<String, Arc<RpcClient>>,
         exit: &Arc<AtomicBool>,
         slot_sender: Sender<Slot>,
         cluster: String,
@@ -117,8 +118,6 @@ impl LoadBalancer {
                                                 last_slot_update = Instant::now();
 
                                                 server_to_slot
-                                                    .lock()
-                                                    .unwrap()
                                                     .insert(websocket_url.clone(), slot.slot);
                                                 datapoint_info!(
                                                         "rpc_load_balancer-slot_count",
@@ -165,8 +164,7 @@ impl LoadBalancer {
                                 }
                                 Err(e) => {
                                     error!(
-                                        "slot subscription error client: {}, error: {:?}",
-                                        websocket_url, e
+                                        "slot subscription error client: {websocket_url}, error: {e:?}"
                                     );
                                 }
                             }
@@ -179,24 +177,25 @@ impl LoadBalancer {
             .collect()
     }
 
-    /// Returns the highest URL
+    /// Returns the server with the highest slot URL
     pub fn rpc_client(&self) -> Arc<RpcClient> {
-        let server_to_slot_l = self.server_to_slot.lock().unwrap();
-        let server_to_rpc_client_l = self.server_to_rpc_client.lock().unwrap();
-        let (highest_server, _) = server_to_slot_l
-            .iter()
-            .max_by(|(_, slot_a), (_, slot_b)| slot_a.cmp(slot_b))
-            .unwrap();
-        return server_to_rpc_client_l.get(highest_server).cloned().unwrap();
+        let (highest_server, _) = self.get_highest_slot();
+
+        self.server_to_rpc_client
+            .get(&highest_server)
+            .unwrap()
+            .value()
+            .to_owned()
     }
 
-    pub fn get_highest_slot(&self) -> Slot {
-        let server_to_slot_l = self.server_to_slot.lock().unwrap();
-        let (_, highest_slot) = server_to_slot_l
+    pub fn get_highest_slot(&self) -> (String, Slot) {
+        let multi = self
+            .server_to_slot
             .iter()
-            .max_by(|(_, slot_a), (_, slot_b)| slot_a.cmp(slot_b))
+            .max_by(|lhs, rhs| lhs.value().cmp(rhs.value()))
             .unwrap();
-        *highest_slot
+        let (server, slot) = multi.pair();
+        (server.to_string(), *slot)
     }
 
     pub fn join(self) -> thread::Result<()> {

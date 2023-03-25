@@ -3,7 +3,7 @@ use std::{
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex, RwLock,
+        Arc, RwLock,
     },
     thread,
     thread::{sleep, Builder, JoinHandle},
@@ -60,7 +60,7 @@ impl LeaderScheduleUpdatingHandle {
 
 impl LeaderScheduleCacheUpdater {
     pub fn new(
-        load_balancer: &Arc<Mutex<LoadBalancer>>,
+        load_balancer: &Arc<LoadBalancer>,
         exit: &Arc<AtomicBool>,
         cluster: String,
         region: String,
@@ -90,14 +90,14 @@ impl LeaderScheduleCacheUpdater {
 
     fn refresh_thread(
         schedule: Arc<RwLock<HashMap<Slot, Pubkey>>>,
-        load_balancer: Arc<Mutex<LoadBalancer>>,
+        load_balancer: Arc<LoadBalancer>,
         exit: &Arc<AtomicBool>,
         cluster: String,
         region: String,
     ) -> JoinHandle<()> {
         let exit = exit.clone();
         Builder::new()
-            .name("leader-schedule-refresh".into())
+            .name("leader-schedule-refresh".to_string())
             .spawn(move || {
                 while !exit.load(Ordering::Relaxed) {
                     let mut update_ok_count = 0;
@@ -130,10 +130,10 @@ impl LeaderScheduleCacheUpdater {
     }
 
     pub fn update_leader_cache(
-        load_balancer: &Arc<Mutex<LoadBalancer>>,
+        load_balancer: &Arc<LoadBalancer>,
         schedule: &Arc<RwLock<HashMap<Slot, Pubkey>>>,
     ) -> bool {
-        let rpc_client = load_balancer.lock().unwrap().rpc_client();
+        let rpc_client = load_balancer.rpc_client();
 
         if let Ok(epoch_info) = rpc_client.get_epoch_info() {
             if let Ok(Some(leader_schedule)) = rpc_client.get_leader_schedule(None) {
