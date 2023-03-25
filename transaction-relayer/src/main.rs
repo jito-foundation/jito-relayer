@@ -527,7 +527,7 @@ fn refresh_address_lookup_table(
     let start = Instant::now();
     let accounts = rpc_client.get_program_accounts(&address_lookup_table)?;
     info!(
-        "Fetched {} lookup tables in {:?}",
+        "Fetched {} lookup tables from RPC in {:?}",
         accounts.len(),
         start.elapsed()
     );
