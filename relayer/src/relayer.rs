@@ -1,5 +1,4 @@
 use std::{
-    cmp::max,
     collections::{hash_map::Entry, HashMap},
     net::IpAddr,
     sync::{
@@ -208,8 +207,10 @@ impl RelayerImpl {
         > = HashMap::default();
 
         let mut heartbeat_count = 0;
+        let mut subscription_receiver_max_len = 0usize;
+        let mut delay_packet_receiver_max_len = 0usize;
 
-        let channel_len_tick = crossbeam_channel::tick(Duration::from_secs(5));
+        let channel_len_tick = crossbeam_channel::tick(Duration::from_secs(1));
         let heartbeat_tick = crossbeam_channel::tick(Duration::from_millis(500));
         let metrics_tick = crossbeam_channel::tick(Duration::from_millis(1000));
 
@@ -229,7 +230,7 @@ impl RelayerImpl {
                 }
                 recv(heartbeat_tick) -> time_generated => {
                     if let Ok(time_generated) = time_generated {
-                        router_metrics.max_heartbeat_tick_latency_us = max(router_metrics.max_heartbeat_tick_latency_us, Instant::now().duration_since(time_generated).as_micros() as u64);
+                        router_metrics.max_heartbeat_tick_latency_us = std::cmp::max(router_metrics.max_heartbeat_tick_latency_us, Instant::now().duration_since(time_generated).as_micros() as u64);
                     }
 
                     // heartbeat if state is healthy, drop all connections on unhealthy
@@ -265,8 +266,14 @@ impl RelayerImpl {
                             i64
                         ),
                     );
+                    subscription_receiver_max_len = 0;
+                    delay_packet_receiver_max_len = 0;
                 }
             }
+            subscription_receiver_max_len =
+                std::cmp::max(subscription_receiver_max_len, subscription_receiver.len());
+            delay_packet_receiver_max_len =
+                std::cmp::max(delay_packet_receiver_max_len, delay_packet_receiver.len());
         }
         Ok(())
     }

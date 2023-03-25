@@ -16,50 +16,8 @@ use solana_metrics::datapoint_info;
 use solana_perf::packet::PacketBatch;
 use tokio::sync::mpsc::error::TrySendError;
 
-#[derive(Default)]
-struct ForwarderMetrics {
-    pub num_batches_received: u64,
-    pub num_packets_received: u64,
-    pub num_filtered_packets: u64,
-
-    pub num_be_packets_forwarded: u64,
-    pub num_be_packets_dropped: u64,
-    pub num_be_times_full: u64,
-
-    pub num_relayer_packets_forwarded: u64,
-}
-
-impl ForwarderMetrics {
-    pub fn report(&self, id: u64, delay: u32, cluster: &str, region: &str) {
-        datapoint_info!(
-            "forward_and_delay",
-            "cluster" => cluster,
-            "region" => region,
-            ("id", id, i64),
-            ("delay", delay, i64),
-            ("num_batches_received", self.num_batches_received, i64),
-            ("num_packets_received", self.num_packets_received, i64),
-            ("num_filtered_packets", self.num_filtered_packets, i64),
-            // Relayer -> Block Engine Metrics
-            (
-                "num_be_packets_forwarded",
-                self.num_be_packets_forwarded,
-                i64
-            ),
-            ("num_be_packets_dropped", self.num_be_packets_dropped, i64),
-            ("num_be_times_full", self.num_be_times_full, i64),
-            // Relayer -> validator metrics
-            (
-                "num_relayer_packets_forwarded",
-                self.num_relayer_packets_forwarded,
-                i64
-            ),
-        );
-    }
-}
-
-/// Forwards packets to the Block Engine handler thread then delays transactions for packet_delay_ms
-/// before forwarding them to the validator.
+/// Forwards packets to the Block Engine handler thread.
+/// Delays transactions for packet_delay_ms before forwarding them to the validator.
 #[allow(clippy::too_many_arguments)]
 pub fn start_forward_and_delay_thread(
     packet_receiver: Receiver<BankingPacketBatch>,
@@ -72,11 +30,10 @@ pub fn start_forward_and_delay_thread(
     region: String,
 ) -> Vec<JoinHandle<()>> {
     const SLEEP_DURATION: Duration = Duration::from_millis(5);
-    const CHANNEL_REPORT_INTERVAL: usize = 500;
     let packet_delay = Duration::from_millis(packet_delay_ms as u64);
 
     (0..num_threads)
-        .map(|i| {
+        .map(|thread_id| {
             let packet_receiver = packet_receiver.clone();
             let delay_sender = delay_sender.clone();
             let block_engine_sender = block_engine_sender.clone();
@@ -85,17 +42,17 @@ pub fn start_forward_and_delay_thread(
             let region = region.clone();
             let exit = exit.clone();
             Builder::new()
-                .name("jito-forward_packets_to_block_engine".to_string())
+                .name(format!("forwarder_thread_{thread_id}"))
                 .spawn(move || {
-                    let mut iter_count = 0usize;
-                    let mut buffered_packet_batches = VecDeque::with_capacity(100_000);
-
+                    let metrics_interval = Duration::from_secs(1);
                     let mut forwarder_metrics = ForwarderMetrics::default();
                     let mut last_metrics_upload = Instant::now();
 
+                    let mut buffered_packet_batches = VecDeque::with_capacity(100_000);
+
                     while !exit.load(Ordering::Relaxed) {
-                        if last_metrics_upload.elapsed() >= Duration::from_secs(1) {
-                            forwarder_metrics.report(i, packet_delay_ms, &cluster, &region);
+                        if last_metrics_upload.elapsed() >= metrics_interval {
+                            forwarder_metrics.report(thread_id, packet_delay_ms, &cluster, &region);
 
                             forwarder_metrics = ForwarderMetrics::default();
                             last_metrics_upload = Instant::now();
@@ -131,7 +88,7 @@ pub fn start_forward_and_delay_thread(
                                 let num_batches_received = packet_batches.len() as u64;
 
                                 forwarder_metrics.num_packets_received += total_packets;
-                                forwarder_metrics.num_filtered_packets +=
+                                forwarder_metrics.num_packets_filtered +=
                                     total_packets - num_packets_received;
                                 forwarder_metrics.num_batches_received += num_batches_received;
 
@@ -155,7 +112,7 @@ pub fn start_forward_and_delay_thread(
                                         // block engine most likely not connected
                                         forwarder_metrics.num_be_packets_dropped +=
                                             num_packets_received;
-                                        forwarder_metrics.num_be_times_full += 1;
+                                        forwarder_metrics.num_be_sender_full += 1;
                                     }
                                 }
                                 buffered_packet_batches.push_back(RouterPacketBatches {
@@ -184,25 +141,85 @@ pub fn start_forward_and_delay_thread(
                                 .expect("exiting forwarding delayed packets");
                         }
 
-                        if iter_count % CHANNEL_REPORT_INTERVAL == 0 {
-                            datapoint_info!(
-                                "forwarder-channel_stats",
-                                (
-                                    "buffered_packet_batches-len",
-                                    buffered_packet_batches.len(),
-                                    i64
-                                ),
-                                (
-                                    "buffered_packet_batches-capacity",
-                                    buffered_packet_batches.capacity(),
-                                    i64
-                                ),
-                            );
-                        }
-                        iter_count += 1;
+                        forwarder_metrics.update(
+                            buffered_packet_batches.len(),
+                            buffered_packet_batches.capacity(),
+                        );
                     }
                 })
                 .unwrap()
         })
         .collect()
+}
+
+#[derive(Default)]
+struct ForwarderMetrics {
+    pub num_batches_received: u64,
+    pub num_packets_received: u64,
+    pub num_packets_filtered: u64,
+
+    pub num_be_packets_forwarded: u64,
+    pub num_be_packets_dropped: u64,
+    pub num_be_sender_full: u64,
+
+    pub num_relayer_packets_forwarded: u64,
+
+    pub buffered_packet_batches_max_len: usize,
+    pub buffered_packet_batches_max_capacity: usize,
+}
+
+impl ForwarderMetrics {
+    pub fn update(
+        &mut self,
+        buffered_packet_batches_len: usize,
+        buffered_packet_batches_capacity: usize,
+    ) {
+        self.buffered_packet_batches_max_len = std::cmp::max(
+            self.buffered_packet_batches_max_len,
+            buffered_packet_batches_len,
+        );
+        self.buffered_packet_batches_max_capacity = std::cmp::max(
+            self.buffered_packet_batches_max_capacity,
+            buffered_packet_batches_capacity,
+        );
+    }
+
+    pub fn report(&self, thread_id: u64, delay: u32, cluster: &str, region: &str) {
+        datapoint_info!(
+            "forward_and_delay",
+            "cluster" => cluster,
+            "region" => region,
+            ("thread_id", thread_id, i64),
+            ("delay", delay, i64),
+            ("num_batches_received", self.num_batches_received, i64),
+            ("num_packets_received", self.num_packets_received, i64),
+            ("num_packets_filtered", self.num_packets_filtered, i64),
+            // Relayer -> Block Engine Metrics
+            (
+                "num_be_packets_forwarded",
+                self.num_be_packets_forwarded,
+                i64
+            ),
+            ("num_be_packets_dropped", self.num_be_packets_dropped, i64),
+            ("num_be_sender_full", self.num_be_sender_full, i64),
+            // Relayer -> validator metrics
+            (
+                "num_relayer_packets_forwarded",
+                self.num_relayer_packets_forwarded,
+                i64
+            ),
+
+            // Channel stats
+            (
+                "buffered_packet_batches-len",
+                self.buffered_packet_batches_max_len,
+                i64
+            ),
+            (
+                "buffered_packet_batches-capacity",
+                self.buffered_packet_batches_max_capacity,
+                i64
+            ),
+        );
+    }
 }

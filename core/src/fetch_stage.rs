@@ -6,6 +6,7 @@ use std::{
         Arc,
     },
     thread::{self, Builder, JoinHandle},
+    time::{Duration, Instant},
 };
 
 use crossbeam_channel::{RecvError, RecvTimeoutError, SendError};
@@ -18,7 +19,7 @@ use solana_streamer::streamer::{PacketBatchReceiver, PacketBatchSender};
 pub enum FetchStageError {
     #[error("send error: {0}")]
     Send(#[from] SendError<PacketBatch>),
-    #[error("recv timeout")]
+    #[error("recv timeout: {0}")]
     RecvTimeout(#[from] RecvTimeoutError),
     #[error("recv error: {0}")]
     Recv(#[from] RecvError),
@@ -31,7 +32,6 @@ pub struct FetchStage {
 }
 
 impl FetchStage {
-    const CHANNEL_REPORT_INTERVAL: usize = 200;
     pub fn new_with_sender(
         forward_sender: &PacketBatchSender,
         forward_receiver: PacketBatchReceiver,
@@ -39,9 +39,11 @@ impl FetchStage {
     ) -> Self {
         let sender = forward_sender.clone();
         let fwd_thread_hdl = Builder::new()
-            .name("solana-fetch-stage-fwd-rcvr".to_string())
+            .name("fetch-stage-forwarder_thread".to_string())
             .spawn(move || {
-                let mut iter_count = 0usize;
+                let metrics_interval = Duration::from_secs(1);
+                let mut start = Instant::now();
+                let mut sender_max_len = 0usize;
                 while !exit.load(Ordering::Relaxed) {
                     match Self::handle_forwarded_packets(&forward_receiver, &sender) {
                         Ok(()) | Err(FetchStageError::RecvTimeout(RecvTimeoutError::Timeout)) => {}
@@ -54,13 +56,14 @@ impl FetchStage {
                         }
                     };
 
-                    if iter_count % FetchStage::CHANNEL_REPORT_INTERVAL == 0 {
+                    if start.elapsed() >= metrics_interval {
                         datapoint_info!(
                             "fetch_stage-channel_stats",
-                            ("forward_sender-len", sender.len(), i64),
+                            ("forward_sender-len", sender_max_len, i64),
                         );
+                        start = Instant::now();
                     }
-                    iter_count += 1;
+                    sender_max_len = std::cmp::max(sender_max_len, sender.len());
                 }
             })
             .unwrap();
