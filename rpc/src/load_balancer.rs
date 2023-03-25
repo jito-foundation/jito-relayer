@@ -56,7 +56,7 @@ impl LoadBalancer {
 
         let (slot_sender, slot_receiver) = unbounded();
         let subscription_threads = Self::start_subscription_threads(
-            &servers,
+            servers,
             &server_to_slot,
             &server_to_rpc_client,
             exit,
