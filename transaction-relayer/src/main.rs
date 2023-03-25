@@ -524,12 +524,17 @@ fn refresh_address_lookup_table(
 
     let address_lookup_table =
         Pubkey::from_str("AddressLookupTab1e1111111111111111111111111").unwrap();
+    let start = Instant::now();
     let accounts = rpc_client.get_program_accounts(&address_lookup_table)?;
-    info!("loaded {} lookup tables", accounts.len());
+    info!(
+        "Fetched {} lookup tables in {:?}",
+        accounts.len(),
+        start.elapsed()
+    );
 
     let mut new_pubkeys = HashSet::new();
-    for (pubkey, account_data) in &accounts {
-        match AddressLookupTable::deserialize(account_data.data.as_slice()) {
+    for (pubkey, account_data) in accounts {
+        match AddressLookupTable::deserialize(&account_data.data) {
             Err(e) => {
                 error!("error deserializing AddressLookupTable pubkey: {pubkey}, error: {e}");
             }
@@ -537,9 +542,9 @@ fn refresh_address_lookup_table(
                 debug!("lookup table loaded pubkey: {pubkey:?}, table: {table:?}");
                 new_pubkeys.insert(pubkey);
                 lookup_table.insert(
-                    *pubkey,
+                    pubkey,
                     AddressLookupTableAccount {
-                        key: *pubkey,
+                        key: pubkey,
                         addresses: table.addresses.to_vec(),
                     },
                 );
