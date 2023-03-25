@@ -186,7 +186,7 @@ impl ForwarderMetrics {
 
     pub fn report(&self, thread_id: u64, delay: u32, cluster: &str, region: &str) {
         datapoint_info!(
-            "forward_and_delay",
+            "forwarder_metrics",
             "cluster" => cluster,
             "region" => region,
             ("thread_id", thread_id, i64),
@@ -208,7 +208,6 @@ impl ForwarderMetrics {
                 self.num_relayer_packets_forwarded,
                 i64
             ),
-
             // Channel stats
             (
                 "buffered_packet_batches-len",

@@ -70,9 +70,9 @@ impl HealthManager {
                     select! {
                         recv(check_and_metrics_tick) -> _ => {
                             let new_health_state =
-                                match last_update.elapsed() < missing_slot_unhealthy_threshold {
-                                    true => HealthState::Unhealthy,
-                                    false => HealthState::Healthy,
+                                match last_update.elapsed() <= missing_slot_unhealthy_threshold {
+                                    true => HealthState::Healthy,
+                                    false => HealthState::Unhealthy,
                                 };
                             *health_state.write().unwrap() = new_health_state;
                             datapoint_info!(
