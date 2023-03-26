@@ -55,12 +55,6 @@ impl Tpu {
             transactions_forwards_quic_sockets,
         } = sockets;
 
-        let (packet_sender, packet_receiver) = unbounded();
-        let (forwarded_packet_sender, forwarded_packet_receiver) = unbounded();
-
-        let fetch_stage =
-            FetchStage::new_with_sender(&packet_sender, forwarded_packet_receiver, exit.clone());
-
         let staked_nodes = Arc::new(RwLock::new(StakedNodes::default()));
         let staked_nodes_updater_service = StakedNodesUpdaterService::new(
             exit.clone(),
@@ -68,21 +62,18 @@ impl Tpu {
             staked_nodes.clone(),
         );
 
-        let (find_packet_sender_stake_sender, find_packet_sender_stake_receiver) = unbounded();
+        // sender tracked in fetch_stage-channel_stats
+        let (tpu_sender, tpu_receiver) = unbounded();
 
-        let find_packet_sender_stake_stage = FindPacketSenderStakeStage::new(
-            packet_receiver,
-            find_packet_sender_stake_sender,
-            staked_nodes.clone(),
-            "tpu-find-packet-sender-stake",
-        );
-
+        // receiver tracked in fetch_stage-channel_stats
+        let (tpu_forwards_sender, tpu_forwards_receiver) = unbounded();
         let stats = Arc::new(StreamStats::default());
+
         let tpu_quic_t = spawn_server(
             transactions_quic_sockets,
             keypair,
             *tpu_ip,
-            packet_sender,
+            tpu_sender.clone(),
             exit.clone(),
             MAX_QUIC_CONNECTIONS_PER_IP,
             staked_nodes.clone(),
@@ -96,18 +87,29 @@ impl Tpu {
             transactions_forwards_quic_sockets,
             keypair,
             *tpu_fwd_ip,
-            forwarded_packet_sender,
+            tpu_forwards_sender,
             exit.clone(),
             MAX_QUIC_CONNECTIONS_PER_IP,
-            staked_nodes,
+            staked_nodes.clone(),
             MAX_STAKED_CONNECTIONS.saturating_add(MAX_UNSTAKED_CONNECTIONS),
             0, // Prevent unstaked nodes from forwarding transactions
             stats,
         )
         .unwrap();
 
-        let (verified_sender, verified_receiver) = unbounded();
+        let fetch_stage = FetchStage::new(tpu_forwards_receiver, tpu_sender, exit.clone());
 
+        // channel consumed by solana code, tracked in tpu_find_packet_sender_stake-stats
+        let (find_packet_sender_stake_sender, find_packet_sender_stake_receiver) = unbounded();
+        let find_packet_sender_stake_stage = FindPacketSenderStakeStage::new(
+            tpu_receiver,
+            find_packet_sender_stake_sender,
+            staked_nodes,
+            "tpu_find_packet_sender_stake-stats",
+        );
+
+        // tracked in forwarder_metrics
+        let (verified_sender, verified_receiver) = unbounded();
         let sigverify_stage = {
             let verifier = TransactionSigVerifier::new(verified_sender);
             SigVerifyStage::new(find_packet_sender_stake_receiver, verifier, "tpu-verifier")

@@ -55,7 +55,7 @@ impl LoadBalancer {
             (ws.clone(), rpc_client)
         }));
 
-        let (slot_sender, slot_receiver) = unbounded();
+        let (slot_sender, slot_receiver) = unbounded(); // tracked in health_manager-channel_stats
         let subscription_threads = Self::start_subscription_threads(
             servers,
             &server_to_slot,

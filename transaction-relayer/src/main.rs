@@ -245,7 +245,11 @@ fn main() {
 
     let keypair =
         Arc::new(read_keypair_file(args.keypair_path).expect("keypair file does not exist"));
-    solana_metrics::set_host_id(keypair.pubkey().to_string());
+    solana_metrics::set_host_id(format!(
+        "{}_{}",
+        hostname::get().unwrap().to_str().unwrap(), // hostname should follow RFC1123
+        keypair.pubkey()
+    ));
     info!("Relayer started with pubkey: {}", keypair.pubkey());
 
     let exit = graceful_panic(None);
@@ -293,6 +297,7 @@ fn main() {
         args.region.clone(),
     );
 
+    // tracked in relayer_impl-channel_stats
     let (delay_sender, delay_receiver) = unbounded();
 
     // NOTE: make sure the channel here isn't too big because it will get backed up
@@ -321,6 +326,7 @@ fn main() {
         address_lookup_table_cache,
     );
 
+    // tracked in relayer_impl-channel_stats
     let (slot_sender, slot_receiver) = unbounded();
     let health_manager = HealthManager::new(
         health_manager_slot_receiver,

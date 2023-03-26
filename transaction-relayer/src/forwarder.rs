@@ -10,7 +10,7 @@ use std::{
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use jito_block_engine::block_engine::BlockEnginePackets;
-use jito_relayer::relayer::RouterPacketBatches;
+use jito_relayer::relayer::RelayerPacketBatches;
 use solana_core::banking_stage::BankingPacketBatch;
 use solana_metrics::datapoint_info;
 use solana_perf::packet::PacketBatch;
@@ -21,7 +21,7 @@ use tokio::sync::mpsc::error::TrySendError;
 #[allow(clippy::too_many_arguments)]
 pub fn start_forward_and_delay_thread(
     packet_receiver: Receiver<BankingPacketBatch>,
-    delay_sender: Sender<RouterPacketBatches>,
+    delay_sender: Sender<RelayerPacketBatches>,
     packet_delay_ms: u32,
     block_engine_sender: tokio::sync::mpsc::Sender<BlockEnginePackets>,
     num_threads: u64,
@@ -115,7 +115,7 @@ pub fn start_forward_and_delay_thread(
                                         forwarder_metrics.num_be_sender_full += 1;
                                     }
                                 }
-                                buffered_packet_batches.push_back(RouterPacketBatches {
+                                buffered_packet_batches.push_back(RelayerPacketBatches {
                                     stamp: instant,
                                     batches: packet_batches,
                                 });
@@ -144,6 +144,7 @@ pub fn start_forward_and_delay_thread(
                         forwarder_metrics.update(
                             buffered_packet_batches.len(),
                             buffered_packet_batches.capacity(),
+                            packet_receiver.len(),
                         );
                     }
                 })
@@ -166,6 +167,7 @@ struct ForwarderMetrics {
 
     pub buffered_packet_batches_max_len: usize,
     pub buffered_packet_batches_max_capacity: usize,
+    pub verified_receiver_max_len: usize,
 }
 
 impl ForwarderMetrics {
@@ -173,6 +175,7 @@ impl ForwarderMetrics {
         &mut self,
         buffered_packet_batches_len: usize,
         buffered_packet_batches_capacity: usize,
+        verified_receiver_len: usize,
     ) {
         self.buffered_packet_batches_max_len = std::cmp::max(
             self.buffered_packet_batches_max_len,
@@ -182,6 +185,8 @@ impl ForwarderMetrics {
             self.buffered_packet_batches_max_capacity,
             buffered_packet_batches_capacity,
         );
+        self.verified_receiver_max_len =
+            std::cmp::max(self.verified_receiver_max_len, verified_receiver_len);
     }
 
     pub fn report(&self, thread_id: u64, delay: u32, cluster: &str, region: &str) {
@@ -217,6 +222,11 @@ impl ForwarderMetrics {
             (
                 "buffered_packet_batches-capacity",
                 self.buffered_packet_batches_max_capacity,
+                i64
+            ),
+            (
+                "verified_receiver-len",
+                self.verified_receiver_max_len,
                 i64
             ),
         );

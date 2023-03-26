@@ -13,6 +13,7 @@ clap = { version = "4", features = ["derive", "env"] }
 crossbeam-channel = "0.5.7"
 dashmap = "5.4.0"
 env_logger = "0.9"
+hostname = "0.3"
 itertools = "0.10.5"
 jito-block-engine = { path = "../block_engine", version = "0.1.0" }
 jito-core = { path = "../core" }
