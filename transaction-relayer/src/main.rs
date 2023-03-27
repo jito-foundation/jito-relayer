@@ -297,12 +297,14 @@ fn main() {
         args.region.clone(),
     );
 
-    // tracked in relayer_impl-channel_stats
+    // receiver tracked as relayer_impl-channel_stats.delay_packet_receiver-len
     let (delay_sender, delay_receiver) = unbounded();
 
     // NOTE: make sure the channel here isn't too big because it will get backed up
     // with packets when the block engine isn't connected
-    let (block_engine_sender, block_engine_receiver) = channel(1000);
+    // tracked as forwarder_metrics.block_engine_sender-len
+    let (block_engine_sender, block_engine_receiver) =
+        channel(jito_transaction_relayer::forwarder::BLOCK_ENGINE_QUEUE_CAPACITY);
 
     let forward_and_delay_threads = start_forward_and_delay_thread(
         packet_receiver,
@@ -319,14 +321,14 @@ fn main() {
         args.block_engine_auth_service_url,
         block_engine_receiver,
         keypair,
-        &exit,
+        exit.clone(),
         args.cluster.clone(),
         args.region.clone(),
         args.aoi_cache_ttl_s,
         address_lookup_table_cache,
     );
 
-    // tracked in relayer_impl-channel_stats
+    // receiver tracked as relayer_impl-channel_stats.slot_receiver-len
     let (slot_sender, slot_receiver) = unbounded();
     let health_manager = HealthManager::new(
         health_manager_slot_receiver,

@@ -15,8 +15,8 @@ pub struct BlockEngineStats {
 
     num_packets_received: u64,
 
-    packet_filter_elapsed: u64,
-    packet_forward_elapsed: u64,
+    packet_filter_elapsed_us: u64,
+    packet_forward_elapsed_us: u64,
 
     auth_refresh_count: u64,
     refresh_auth_elapsed_us: u64,
@@ -66,12 +66,12 @@ impl BlockEngineStats {
         self.num_packets_received = self.num_packets_received.saturating_add(num)
     }
 
-    pub fn increment_packet_filter_elapsed(&mut self, num: u64) {
-        self.packet_filter_elapsed = self.packet_filter_elapsed.saturating_add(num)
+    pub fn increment_packet_filter_elapsed_us(&mut self, num: u64) {
+        self.packet_filter_elapsed_us = self.packet_filter_elapsed_us.saturating_add(num)
     }
 
-    pub fn increment_packet_forward_elapsed(&mut self, num: u64) {
-        self.packet_forward_elapsed = self.packet_forward_elapsed.saturating_add(num)
+    pub fn increment_packet_forward_elapsed_us(&mut self, num: u64) {
+        self.packet_forward_elapsed_us = self.packet_forward_elapsed_us.saturating_add(num)
     }
 
     pub fn increment_auth_refresh_count(&mut self, num: u64) {
@@ -112,8 +112,8 @@ impl BlockEngineStats {
             ("poi_update_elapsed_us", self.poi_update_elapsed_us, i64),
             ("poi_accounts_received", self.poi_accounts_received, i64),
             ("num_packets_received", self.num_packets_received, i64),
-            ("packet_filter_elapsed", self.packet_filter_elapsed, i64),
-            ("packet_forward_elapsed", self.packet_forward_elapsed, i64),
+            ("packet_filter_elapsed", self.packet_filter_elapsed_us, i64),
+            ("packet_forward_elapsed", self.packet_forward_elapsed_us, i64),
             ("auth_refresh_count", self.auth_refresh_count, i64),
             ("refresh_auth_elapsed_us", self.refresh_auth_elapsed_us, i64),
             ("packet_forward_count", self.packet_forward_count, i64),

@@ -55,7 +55,8 @@ impl LoadBalancer {
             (ws.clone(), rpc_client)
         }));
 
-        let (slot_sender, slot_receiver) = unbounded(); // tracked in health_manager-channel_stats
+        // sender tracked as health_manager-channel_stats.slot_sender-len
+        let (slot_sender, slot_receiver) = unbounded();
         let subscription_threads = Self::start_subscription_threads(
             servers,
             &server_to_slot,
@@ -103,7 +104,7 @@ impl LoadBalancer {
                 let region = region.clone();
 
                 Builder::new()
-                    .name(format_args!("rpc-thread({websocket_url})").to_string())
+                    .name(format!("load_balance_subscription_thread-{ws_url_no_token}"))
                     .spawn(move || {
                         while !exit.load(Ordering::Relaxed) {
                             info!("running slot_subscribe() with url: {websocket_url}");
@@ -156,7 +157,7 @@ impl LoadBalancer {
                                                 }
                                             }
                                             Err(RecvTimeoutError::Disconnected) => {
-                                                info!("slot subscribe disconnected. url: {websocket_url}");
+                                                info!("slot subscribe disconnected. url: {ws_url_no_token}");
                                                 break;
                                             }
                                         }
@@ -164,7 +165,7 @@ impl LoadBalancer {
                                 }
                                 Err(e) => {
                                     error!(
-                                        "slot subscription error client: {websocket_url}, error: {e:?}"
+                                        "slot subscription error client: {ws_url_no_token}, error: {e:?}"
                                     );
                                 }
                             }

@@ -16,6 +16,8 @@ use solana_metrics::datapoint_info;
 use solana_perf::packet::PacketBatch;
 use tokio::sync::mpsc::error::TrySendError;
 
+pub const BLOCK_ENGINE_QUEUE_CAPACITY: usize = 1000;
+
 /// Forwards packets to the Block Engine handler thread.
 /// Delays transactions for packet_delay_ms before forwarding them to the validator.
 #[allow(clippy::too_many_arguments)]
@@ -141,10 +143,11 @@ pub fn start_forward_and_delay_thread(
                                 .expect("exiting forwarding delayed packets");
                         }
 
-                        forwarder_metrics.update(
+                        forwarder_metrics.update_queue_lengths(
                             buffered_packet_batches.len(),
                             buffered_packet_batches.capacity(),
                             packet_receiver.len(),
+                            BLOCK_ENGINE_QUEUE_CAPACITY - block_engine_sender.capacity(),
                         );
                     }
                 })
@@ -165,17 +168,20 @@ struct ForwarderMetrics {
 
     pub num_relayer_packets_forwarded: u64,
 
+    // high water mark on queue lengths
     pub buffered_packet_batches_max_len: usize,
     pub buffered_packet_batches_max_capacity: usize,
     pub verified_receiver_max_len: usize,
+    pub block_engine_sender_max_len: usize,
 }
 
 impl ForwarderMetrics {
-    pub fn update(
+    pub fn update_queue_lengths(
         &mut self,
         buffered_packet_batches_len: usize,
         buffered_packet_batches_capacity: usize,
         verified_receiver_len: usize,
+        block_engine_sender_len: usize,
     ) {
         self.buffered_packet_batches_max_len = std::cmp::max(
             self.buffered_packet_batches_max_len,
@@ -187,6 +193,9 @@ impl ForwarderMetrics {
         );
         self.verified_receiver_max_len =
             std::cmp::max(self.verified_receiver_max_len, verified_receiver_len);
+
+        self.block_engine_sender_max_len =
+            std::cmp::max(self.block_engine_sender_max_len, block_engine_sender_len);
     }
 
     pub fn report(&self, thread_id: u64, delay: u32, cluster: &str, region: &str) {
@@ -227,6 +236,11 @@ impl ForwarderMetrics {
             (
                 "verified_receiver-len",
                 self.verified_receiver_max_len,
+                i64
+            ),
+            (
+                "block_engine_sender-len",
+                self.block_engine_sender_max_len,
                 i64
             ),
         );

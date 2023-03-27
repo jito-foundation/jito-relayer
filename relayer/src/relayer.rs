@@ -156,12 +156,12 @@ impl RelayerImpl {
     ) -> Self {
         const LEADER_LOOKAHEAD: u64 = 2;
 
-        // tracked in relayer_impl-channel_stats
+        // receiver tracked as relayer_impl-channel_stats.subscription_receiver-len
         let (subscription_sender, subscription_receiver) = unbounded();
         let thread = {
             let health_state = health_state.clone();
             thread::Builder::new()
-                .name("relayer_impl".to_string())
+                .name("relayer_impl-event_loop_thread".to_string())
                 .spawn(move || {
                     let res = Self::run_event_loop(
                         slot_receiver,

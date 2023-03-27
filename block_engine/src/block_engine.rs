@@ -101,49 +101,16 @@ impl BlockEngineRelayerHandler {
     pub fn new(
         block_engine_url: String,
         auth_service_url: String,
-        block_engine_receiver: Receiver<BlockEnginePackets>,
+        mut block_engine_receiver: Receiver<BlockEnginePackets>,
         keypair: Arc<Keypair>,
-        exit: &Arc<AtomicBool>,
+        exit: Arc<AtomicBool>,
         cluster: String,
         region: String,
         aoi_cache_ttl_s: u64,
         address_lookup_table_cache: DashMap<Pubkey, AddressLookupTableAccount>,
     ) -> BlockEngineRelayerHandler {
-        let block_engine_forwarder = Self::start_block_engine_relayer_stream(
-            block_engine_url,
-            auth_service_url,
-            block_engine_receiver,
-            keypair,
-            exit,
-            cluster,
-            region,
-            aoi_cache_ttl_s,
-            address_lookup_table_cache,
-        );
-        BlockEngineRelayerHandler {
-            block_engine_forwarder,
-        }
-    }
-
-    pub fn join(self) -> thread::Result<()> {
-        self.block_engine_forwarder.join()
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn start_block_engine_relayer_stream(
-        block_engine_url: String,
-        auth_service_url: String,
-        mut block_engine_receiver: Receiver<BlockEnginePackets>,
-        keypair: Arc<Keypair>,
-        exit: &Arc<AtomicBool>,
-        cluster: String,
-        region: String,
-        aoi_cache_ttl_s: u64,
-        address_lookup_table_cache: DashMap<Pubkey, AddressLookupTableAccount>,
-    ) -> JoinHandle<()> {
-        let exit = exit.clone();
-        Builder::new()
-            .name("jito_block_engine_relayer_stream".into())
+        let block_engine_forwarder = Builder::new()
+            .name("block_engine_relayer_handler_thread".into())
             .spawn(move || {
                 let rt = Runtime::new().unwrap();
                 rt.block_on(async move {
@@ -154,8 +121,8 @@ impl BlockEngineRelayerHandler {
                             &mut block_engine_receiver,
                             &keypair,
                             &exit,
-                            &cluster,
-                            &region,
+                            cluster.clone(),
+                            region.clone(),
                             aoi_cache_ttl_s,
                             &address_lookup_table_cache,
                         )
@@ -177,7 +144,14 @@ impl BlockEngineRelayerHandler {
                     }
                 });
             })
-            .unwrap()
+            .unwrap();
+        BlockEngineRelayerHandler {
+            block_engine_forwarder,
+        }
+    }
+
+    pub fn join(self) -> thread::Result<()> {
+        self.block_engine_forwarder.join()
     }
 
     /// Relayers are whitelisted in the block engine. In order to auth, a challenge-response handshake
@@ -240,8 +214,8 @@ impl BlockEngineRelayerHandler {
         block_engine_receiver: &mut Receiver<BlockEnginePackets>,
         keypair: &Arc<Keypair>,
         exit: &Arc<AtomicBool>,
-        cluster: &str,
-        region: &str,
+        cluster: String,
+        region: String,
         aoi_cache_ttl_s: u64,
         address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
     ) -> BlockEngineResult<()> {
@@ -307,8 +281,8 @@ impl BlockEngineRelayerHandler {
             &mut refresh_token,
             shared_access_token,
             exit,
-            String::from(cluster),
-            String::from(region),
+            cluster,
+            region,
             aoi_cache_ttl_s,
             address_lookup_table_cache,
         )
@@ -396,14 +370,14 @@ impl BlockEngineRelayerHandler {
 
         let mut block_engine_stats = BlockEngineStats::default();
 
-        let mut heartbeat = interval(Duration::from_millis(500));
-        let mut refresh_interval = interval(Duration::from_secs(60));
+        let mut heartbeat_interval = interval(Duration::from_millis(500));
+        let mut auth_refresh_interval = interval(Duration::from_secs(60));
         let mut metrics_interval = interval(Duration::from_secs(1));
 
         let mut heartbeat_count = 0;
         while !exit.load(Ordering::Relaxed) {
             select! {
-                _ = heartbeat.tick() => {
+                _ = heartbeat_interval.tick() => {
                     trace!("sending heartbeat");
 
                     let now = Instant::now();
@@ -445,16 +419,16 @@ impl BlockEngineRelayerHandler {
                     let now = Instant::now();
                     block_engine_stats.increment_num_packets_received(block_engine_batches.packet_batches.iter().map(|b|b.len() as u64).sum::<u64>());
                     let filtered_packets = Self::filter_packets(block_engine_batches, &mut accounts_of_interest, &mut programs_of_interest, address_lookup_table_cache);
-                    block_engine_stats.increment_packet_filter_elapsed(now.elapsed().as_micros() as u64);
+                    block_engine_stats.increment_packet_filter_elapsed_us(now.elapsed().as_micros() as u64);
 
                     if let Some(filtered_packets) = filtered_packets {
                         let now = Instant::now();
                         let packet_forward_count = Self::forward_packets(&block_engine_packet_sender, filtered_packets).await?;
                         block_engine_stats.increment_packet_forward_count(packet_forward_count as u64);
-                        block_engine_stats.increment_packet_forward_elapsed(now.elapsed().as_micros() as u64);
+                        block_engine_stats.increment_packet_forward_elapsed_us(now.elapsed().as_micros() as u64);
                     }
                 }
-                _ = refresh_interval.tick() => {
+                _ = auth_refresh_interval.tick() => {
                     trace!("refreshing auth interval");
                     let now = Instant::now();
 

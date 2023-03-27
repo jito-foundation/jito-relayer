@@ -62,10 +62,10 @@ impl Tpu {
             staked_nodes.clone(),
         );
 
-        // sender tracked in fetch_stage-channel_stats
+        // sender tracked as fetch_stage-channel_stats.tpu_sender-len
         let (tpu_sender, tpu_receiver) = unbounded();
 
-        // receiver tracked in fetch_stage-channel_stats
+        // receiver tracked as fetch_stage-channel_stats.tpu_forwards_receiver-len
         let (tpu_forwards_sender, tpu_forwards_receiver) = unbounded();
         let stats = Arc::new(StreamStats::default());
 
@@ -108,7 +108,7 @@ impl Tpu {
             "tpu_find_packet_sender_stake-stats",
         );
 
-        // tracked in forwarder_metrics
+        // receiver tracked as forwarder_metrics.verified_receiver-len
         let (verified_sender, verified_receiver) = unbounded();
         let sigverify_stage = {
             let verifier = TransactionSigVerifier::new(verified_sender);
