@@ -292,7 +292,7 @@ impl RelayerImpl {
         for failed in disconnected_pubkeys {
             if let Some(sender) = subscriptions.remove(&failed) {
                 datapoint_info!(
-                    "router-removed-subscription",
+                    "relayer_removed_subscription",
                     "cluster" => cluster,
                     "region" => region,
                     ("pubkey", failed.to_string(), String)
@@ -418,7 +418,7 @@ impl RelayerImpl {
 
                         relayer_metrics.num_added_connections += 1;
                         datapoint_info!(
-                            "router-new-subscription",
+                            "relayer_new_subscription",
                             "cluster" => cluster,
                             "region" => region,
                             ("pubkey", pubkey.to_string(), String)
@@ -426,7 +426,7 @@ impl RelayerImpl {
                     }
                     Entry::Occupied(mut entry) => {
                         datapoint_info!(
-                            "router-duplicate-subscription",
+                            "relayer_duplicate_subscription",
                             "cluster" => cluster,
                             "region" => region,
                             ("pubkey", pubkey.to_string(), String)
