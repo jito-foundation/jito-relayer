@@ -18,6 +18,9 @@ pub struct BlockEngineStats {
     packet_filter_elapsed_us: u64,
     packet_forward_elapsed_us: u64,
 
+    // high water mark of queue length
+    block_engine_packet_sender_len: u64,
+
     auth_refresh_count: u64,
     refresh_auth_elapsed_us: u64,
 
@@ -74,6 +77,11 @@ impl BlockEngineStats {
         self.packet_forward_elapsed_us = self.packet_forward_elapsed_us.saturating_add(num)
     }
 
+    pub fn update_block_engine_packet_sender_len(&mut self, num: u64) {
+        self.block_engine_packet_sender_len =
+            std::cmp::max(self.block_engine_packet_sender_len, num);
+    }
+
     pub fn increment_auth_refresh_count(&mut self, num: u64) {
         self.auth_refresh_count = self.auth_refresh_count.saturating_add(num)
     }
@@ -114,6 +122,7 @@ impl BlockEngineStats {
             ("num_packets_received", self.num_packets_received, i64),
             ("packet_filter_elapsed", self.packet_filter_elapsed_us, i64),
             ("packet_forward_elapsed", self.packet_forward_elapsed_us, i64),
+            ("block_engine_packet_sender_len", self.block_engine_packet_sender_len, i64),
             ("auth_refresh_count", self.auth_refresh_count, i64),
             ("refresh_auth_elapsed_us", self.refresh_auth_elapsed_us, i64),
             ("packet_forward_count", self.packet_forward_count, i64),

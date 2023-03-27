@@ -97,6 +97,8 @@ pub struct BlockEngineRelayerHandler {
 }
 
 impl BlockEngineRelayerHandler {
+    const BLOCK_ENGINE_PACKET_QUEUE_CAPACITY: usize = 1_000;
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         block_engine_url: String,
@@ -316,14 +318,17 @@ impl BlockEngineRelayerHandler {
             .subscribe_programs_of_interest(ProgramsOfInterestRequest {})
             .await
             .map_err(|e| BlockEngineError::BlockEngineFailure(e.to_string()))?;
-        let (packet_msg_sender, packet_msg_receiver) = channel(1_000);
+
+        // sender tracked as block_engine_relayer-loop_stats.block_engine_packet_sender_len
+        let (block_engine_packet_sender, block_engine_packet_receiver) =
+            channel(Self::BLOCK_ENGINE_PACKET_QUEUE_CAPACITY);
         let _response = client
-            .start_expiring_packet_stream(ReceiverStream::new(packet_msg_receiver))
+            .start_expiring_packet_stream(ReceiverStream::new(block_engine_packet_receiver))
             .await
             .map_err(|e| BlockEngineError::BlockEngineFailure(e.to_string()))?;
 
         Self::handle_packet_stream(
-            packet_msg_sender,
+            block_engine_packet_sender,
             block_engine_receiver,
             subscribe_aoi_stream,
             subscribe_poi_stream,
@@ -449,11 +454,15 @@ impl BlockEngineRelayerHandler {
 
                     block_engine_stats.increment_flush_elapsed_us(flush_start.elapsed().as_micros() as u64);
                     block_engine_stats.increment_accounts_of_interest_len(accounts_of_interest.cache_size() as u64);
-
                     block_engine_stats.report(&cluster, &region);
                     block_engine_stats = BlockEngineStats::default();
                 }
             }
+
+            block_engine_stats.update_block_engine_packet_sender_len(
+                (Self::BLOCK_ENGINE_PACKET_QUEUE_CAPACITY - block_engine_packet_sender.capacity())
+                    as u64,
+            );
         }
         Ok(())
     }
