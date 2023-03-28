@@ -29,6 +29,7 @@ pub struct BlockEngineStats {
     metrics_delay_us: u64,
 
     accounts_of_interest_len: u64,
+    programs_of_interest_len: u64,
     flush_elapsed_us: u64,
 }
 
@@ -102,6 +103,10 @@ impl BlockEngineStats {
         self.accounts_of_interest_len = self.accounts_of_interest_len.saturating_add(num)
     }
 
+    pub fn increment_programs_of_interest_len(&mut self, num: u64) {
+        self.programs_of_interest_len = self.programs_of_interest_len.saturating_add(num)
+    }
+
     pub fn increment_flush_elapsed_us(&mut self, num: u64) {
         self.flush_elapsed_us = self.flush_elapsed_us.saturating_add(num)
     }
@@ -130,6 +135,11 @@ impl BlockEngineStats {
             (
                 "accounts_of_interest_len",
                 self.accounts_of_interest_len,
+                i64
+            ),
+            (
+                "programs_of_interest_len",
+                self.programs_of_interest_len,
                 i64
             ),
             ("flush_elapsed_us", self.flush_elapsed_us, i64),

@@ -16,7 +16,7 @@ use solana_metrics::datapoint_info;
 use solana_perf::packet::PacketBatch;
 use tokio::sync::mpsc::error::TrySendError;
 
-pub const BLOCK_ENGINE_QUEUE_CAPACITY: usize = 1000;
+pub const BLOCK_ENGINE_QUEUE_CAPACITY: usize = 5_000;
 
 /// Forwards packets to the Block Engine handler thread.
 /// Delays transactions for packet_delay_ms before forwarding them to the validator.

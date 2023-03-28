@@ -454,6 +454,8 @@ impl BlockEngineRelayerHandler {
 
                     block_engine_stats.increment_flush_elapsed_us(flush_start.elapsed().as_micros() as u64);
                     block_engine_stats.increment_accounts_of_interest_len(accounts_of_interest.cache_size() as u64);
+                    block_engine_stats.increment_programs_of_interest_len(programs_of_interest.cache_size() as u64);
+
                     block_engine_stats.report(&cluster, &region);
                     block_engine_stats = BlockEngineStats::default();
                 }
