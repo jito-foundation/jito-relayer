@@ -304,7 +304,7 @@ fn main() {
     // with packets when the block engine isn't connected
     // tracked as forwarder_metrics.block_engine_sender-len
     let (block_engine_sender, block_engine_receiver) =
-        channel(jito_transaction_relayer::forwarder::BLOCK_ENGINE_QUEUE_CAPACITY);
+        channel(jito_transaction_relayer::forwarder::BLOCK_ENGINE_FORWARDER_QUEUE_CAPACITY);
 
     let forward_and_delay_threads = start_forward_and_delay_thread(
         packet_receiver,

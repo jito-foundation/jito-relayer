@@ -16,7 +16,7 @@ use solana_metrics::datapoint_info;
 use solana_perf::packet::PacketBatch;
 use tokio::sync::mpsc::error::TrySendError;
 
-pub const BLOCK_ENGINE_QUEUE_CAPACITY: usize = 5_000;
+pub const BLOCK_ENGINE_FORWARDER_QUEUE_CAPACITY: usize = 5_000;
 
 /// Forwards packets to the Block Engine handler thread.
 /// Delays transactions for packet_delay_ms before forwarding them to the validator.
@@ -147,7 +147,7 @@ pub fn start_forward_and_delay_thread(
                             buffered_packet_batches.len(),
                             buffered_packet_batches.capacity(),
                             packet_receiver.len(),
-                            BLOCK_ENGINE_QUEUE_CAPACITY - block_engine_sender.capacity(),
+                            BLOCK_ENGINE_FORWARDER_QUEUE_CAPACITY - block_engine_sender.capacity(),
                         );
                     }
                 })
