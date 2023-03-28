@@ -10,8 +10,12 @@ use bincode::serialize;
 use clap::Parser;
 use log::*;
 use solana_client::{
-    connection_cache::ConnectionCacheStats, nonblocking::quic_client::QuicLazyInitializedEndpoint,
-    quic_client::QuicTpuConnection, rpc_client::RpcClient, tpu_connection::TpuConnection,
+    client_error::{ClientError, ClientErrorKind},
+    connection_cache::ConnectionCacheStats,
+    nonblocking::quic_client::QuicLazyInitializedEndpoint,
+    quic_client::QuicTpuConnection,
+    rpc_client::RpcClient,
+    tpu_connection::TpuConnection,
 };
 use solana_sdk::{
     signature::{Keypair, Signature, Signer},
@@ -48,15 +52,10 @@ fn main() {
         .collect();
 
     let pubkeys: Vec<_> = keypairs.iter().map(|kp| kp.pubkey()).collect();
-    let pubkeys_str = pubkeys
-        .iter()
-        .map(|p| p.to_string())
-        .collect::<Vec<String>>()
-        .join(",");
-    info!("using keypairs: {:?}", pubkeys_str);
+    info!("using keypairs: {:?}", pubkeys);
 
     let client = Arc::new(RpcClient::new(&args.rpc_addr));
-    assert!(request_and_confirm_airdrop(&client, &pubkeys));
+    request_and_confirm_airdrop(&client, &pubkeys).expect("Failed to request airdrop");
 
     let threads: Vec<_> = keypairs
         .into_iter()
@@ -109,25 +108,25 @@ fn main() {
     }
 }
 
-fn request_and_confirm_airdrop(client: &RpcClient, pubkeys: &[solana_sdk::pubkey::Pubkey]) -> bool {
-    let sigs: Vec<_> = pubkeys
+fn request_and_confirm_airdrop(
+    client: &RpcClient,
+    pubkeys: &[solana_sdk::pubkey::Pubkey],
+) -> solana_client::client_error::Result<()> {
+    let sigs = pubkeys
         .iter()
         .map(|pubkey| client.request_airdrop(pubkey, 100_000_000_000))
-        .collect();
-
-    if sigs.iter().any(|s| s.is_err()) {
-        return false;
-    }
-    let sigs: Vec<Signature> = sigs.into_iter().map(|s| s.unwrap()).collect();
+        .collect::<solana_client::client_error::Result<Vec<Signature>>>()?;
 
     let now = Instant::now();
     while now.elapsed() < Duration::from_secs(20) {
-        let r = client.get_signature_statuses(&sigs).expect("got statuses");
+        let r = client.get_signature_statuses(&sigs)?;
         if r.value.iter().all(|s| s.is_some()) {
-            return true;
+            return Err(ClientError::from(ClientErrorKind::Custom(
+                "signature error".to_string(),
+            )));
         }
     }
-    false
+    Ok(())
 }
 
 enum TpuSender {
