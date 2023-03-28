@@ -1,8 +1,6 @@
 use std::{
-    fmt::Write,
     io,
     net::{SocketAddr, UdpSocket},
-    str::FromStr,
     sync::Arc,
     thread::Builder,
     time::{Duration, Instant},
@@ -24,19 +22,19 @@ use solana_sdk::{
 #[clap(author, version, about, long_about = None)]
 struct Args {
     /// RPC address
-    #[clap(long, env, value_parser, default_value = "http://127.0.0.1:8899")]
+    #[clap(long, env, default_value = "http://127.0.0.1:8899")]
     rpc_addr: String,
 
     /// Number of keypairs
-    #[clap(long, env, value_parser, default_value_t = 10)]
+    #[clap(long, env, default_value_t = 10)]
     num_keypairs: u64,
 
     /// Socket address for relayer TPU
-    #[clap(long, env, value_parser, default_value = "127.0.0.1:11222")]
-    tpu_addr: String,
+    #[clap(long, env, default_value = "127.0.0.1:11222")]
+    tpu_addr: SocketAddr,
 
     /// Flag to use quic for relayer TPU
-    #[clap(long, env, value_parser, default_value_t = false)]
+    #[clap(long, env, default_value_t = false)]
     use_quic: bool,
 }
 
@@ -50,25 +48,23 @@ fn main() {
         .collect();
 
     let pubkeys: Vec<_> = keypairs.iter().map(|kp| kp.pubkey()).collect();
-    let mut pubkeys_str = pubkeys.iter().fold(String::new(), |mut s, pubkey| {
-        let _ = write!(s, "{pubkey},");
-        s
-    });
-    // remove last comma
-    let _ = pubkeys_str.pop();
+    let pubkeys_str = pubkeys
+        .iter()
+        .map(|p| p.to_string())
+        .collect::<Vec<String>>()
+        .join(",");
     info!("using keypairs: {:?}", pubkeys_str);
 
     let client = Arc::new(RpcClient::new(&args.rpc_addr));
     assert!(request_and_confirm_airdrop(&client, &pubkeys));
 
-    let tpu_addr = SocketAddr::from_str(&args.tpu_addr).unwrap();
     let threads: Vec<_> = keypairs
         .into_iter()
         .map(|keypair| {
             let client = Arc::new(RpcClient::new(&args.rpc_addr));
             Builder::new()
                 .spawn(move || {
-                    let tpu_sender = TpuSender::new(tpu_addr, &args.use_quic);
+                    let tpu_sender = TpuSender::new(args.tpu_addr, &args.use_quic);
                     let mut last_blockhash_refresh = Instant::now();
                     let mut latest_blockhash = client.get_latest_blockhash().unwrap();
                     let mut last_count = 0;
