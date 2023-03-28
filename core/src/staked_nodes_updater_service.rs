@@ -28,7 +28,7 @@ impl StakedNodesUpdaterService {
         shared_staked_nodes: Arc<RwLock<StakedNodes>>,
     ) -> Self {
         let thread_hdl = Builder::new()
-            .name("sol-sn-updater".to_string())
+            .name("staked_nodes_updater_thread".to_string())
             .spawn(move || {
                 let mut last_stakes = Instant::now();
                 while !exit.load(Ordering::Relaxed) {
