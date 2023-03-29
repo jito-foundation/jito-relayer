@@ -106,8 +106,6 @@ impl BlockEngineRelayerHandler {
         mut block_engine_receiver: Receiver<BlockEnginePackets>,
         keypair: Arc<Keypair>,
         exit: Arc<AtomicBool>,
-        cluster: String,
-        region: String,
         aoi_cache_ttl_s: u64,
         address_lookup_table_cache: DashMap<Pubkey, AddressLookupTableAccount>,
     ) -> BlockEngineRelayerHandler {
@@ -123,8 +121,6 @@ impl BlockEngineRelayerHandler {
                             &mut block_engine_receiver,
                             &keypair,
                             &exit,
-                            cluster.clone(),
-                            region.clone(),
                             aoi_cache_ttl_s,
                             &address_lookup_table_cache,
                         )
@@ -136,8 +132,6 @@ impl BlockEngineRelayerHandler {
                                 datapoint_error!("block_engine_relayer-error",
                                     "block_engine_url" => block_engine_url,
                                     "auth_service_url" => auth_service_url,
-                                    "cluster" => &cluster,
-                                    "region" => &region,
                                     ("error", e.to_string(), String)
                                 );
                                 sleep(Duration::from_secs(2)).await;
@@ -216,8 +210,6 @@ impl BlockEngineRelayerHandler {
         block_engine_receiver: &mut Receiver<BlockEnginePackets>,
         keypair: &Arc<Keypair>,
         exit: &Arc<AtomicBool>,
-        cluster: String,
-        region: String,
         aoi_cache_ttl_s: u64,
         address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
     ) -> BlockEngineResult<()> {
@@ -268,8 +260,6 @@ impl BlockEngineRelayerHandler {
         datapoint_info!("block_engine-connection_stats",
             "block_engine_url" => block_engine_url,
             "auth_service_url" => auth_service_url,
-            "cluster" => cluster,
-            "region" => region,
             ("connected", 1, i64)
         );
 
@@ -283,8 +273,6 @@ impl BlockEngineRelayerHandler {
             &mut refresh_token,
             shared_access_token,
             exit,
-            cluster,
-            region,
             aoi_cache_ttl_s,
             address_lookup_table_cache,
         )
@@ -305,8 +293,6 @@ impl BlockEngineRelayerHandler {
         refresh_token: &mut Token,
         shared_access_token: Arc<Mutex<Token>>,
         exit: &Arc<AtomicBool>,
-        cluster: String,
-        region: String,
         aoi_cache_ttl_s: u64,
         address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
     ) -> BlockEngineResult<()> {
@@ -337,8 +323,6 @@ impl BlockEngineRelayerHandler {
             refresh_token,
             shared_access_token,
             exit,
-            cluster,
-            region,
             aoi_cache_ttl_s,
             address_lookup_table_cache,
         )
@@ -356,8 +340,6 @@ impl BlockEngineRelayerHandler {
         refresh_token: &mut Token,
         shared_access_token: Arc<Mutex<Token>>,
         exit: &Arc<AtomicBool>,
-        cluster: String,
-        region: String,
         aoi_cache_ttl_s: u64,
         address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
     ) -> BlockEngineResult<()> {
@@ -456,7 +438,7 @@ impl BlockEngineRelayerHandler {
                     block_engine_stats.increment_accounts_of_interest_len(accounts_of_interest.cache_size() as u64);
                     block_engine_stats.increment_programs_of_interest_len(programs_of_interest.cache_size() as u64);
 
-                    block_engine_stats.report(&cluster, &region);
+                    block_engine_stats.report();
                     block_engine_stats = BlockEngineStats::default();
                 }
             }

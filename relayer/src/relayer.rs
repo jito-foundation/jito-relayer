@@ -52,11 +52,9 @@ struct RelayerMetrics {
 }
 
 impl RelayerMetrics {
-    fn report(&self, cluster: &str, region: &str) {
+    fn report(&self) {
         datapoint_info!(
             "relayer_metrics",
-            "cluster" => cluster,
-            "region" => region,
             ("highest_slot", self.highest_slot, i64),
             ("num_added_connections", self.num_added_connections, i64),
             ("num_removed_connections", self.num_removed_connections, i64),
@@ -151,8 +149,6 @@ impl RelayerImpl {
         tpu_port: u16,
         tpu_fwd_port: u16,
         health_state: Arc<RwLock<HealthState>>,
-        cluster: String,
-        region: String,
     ) -> Self {
         const LEADER_LOOKAHEAD: u64 = 2;
 
@@ -171,8 +167,6 @@ impl RelayerImpl {
                         exit,
                         LEADER_LOOKAHEAD,
                         health_state,
-                        cluster,
-                        region,
                     );
                     warn!("RelayerImpl thread exited with result {res:?}")
                 })
@@ -198,8 +192,6 @@ impl RelayerImpl {
         exit: Arc<AtomicBool>,
         leader_lookahead: u64,
         health_state: Arc<RwLock<HealthState>>,
-        cluster: String,
-        region: String,
     ) -> RelayerResult<()> {
         let mut highest_slot = Slot::default();
         let mut packet_subscriptions: HashMap<
@@ -224,10 +216,10 @@ impl RelayerImpl {
                 },
                 recv(delay_packet_receiver) -> maybe_packet_batches => {
                     let failed_forwards = Self::forward_packets(maybe_packet_batches, &packet_subscriptions, &leader_schedule_cache, &highest_slot, &leader_lookahead, &mut relayer_metrics)?;
-                    Self::drop_connections(failed_forwards, &mut packet_subscriptions, &mut relayer_metrics, &cluster, &region);
+                    Self::drop_connections(failed_forwards, &mut packet_subscriptions, &mut relayer_metrics);
                 },
                 recv(subscription_receiver) -> maybe_subscription => {
-                    Self::handle_subscription(maybe_subscription, &mut packet_subscriptions, &mut relayer_metrics, &region, &cluster)?;
+                    Self::handle_subscription(maybe_subscription, &mut packet_subscriptions, &mut relayer_metrics)?;
                 }
                 recv(heartbeat_tick) -> time_generated => {
                     if let Ok(time_generated) = time_generated {
@@ -241,7 +233,7 @@ impl RelayerImpl {
                         heartbeat_count += 1;
                         Self::handle_heartbeat(&packet_subscriptions, &heartbeat_count, &mut relayer_metrics)
                     };
-                    Self::drop_connections(pubkeys_to_drop, &mut packet_subscriptions, &mut relayer_metrics, &cluster, &region);
+                    Self::drop_connections(pubkeys_to_drop, &mut packet_subscriptions, &mut relayer_metrics);
                 }
                 recv(metrics_tick) -> time_generated => {
                     relayer_metrics.num_current_connections = packet_subscriptions.len() as u64;
@@ -249,7 +241,7 @@ impl RelayerImpl {
                         relayer_metrics.metrics_latency_us = time_generated.elapsed().as_micros() as u64;
                     }
 
-                    relayer_metrics.report(&cluster, &region);
+                    relayer_metrics.report();
                     relayer_metrics = RelayerMetrics::default();
                 }
                 recv(channel_len_tick) -> _ => {
@@ -284,8 +276,6 @@ impl RelayerImpl {
         disconnected_pubkeys: Vec<Pubkey>,
         subscriptions: &mut HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>,
         relayer_metrics: &mut RelayerMetrics,
-        cluster: &str,
-        region: &str,
     ) {
         relayer_metrics.num_removed_connections += disconnected_pubkeys.len() as u64;
 
@@ -293,8 +283,6 @@ impl RelayerImpl {
             if let Some(sender) = subscriptions.remove(&failed) {
                 datapoint_info!(
                     "relayer_removed_subscription",
-                    "cluster" => cluster,
-                    "region" => region,
                     ("pubkey", failed.to_string(), String)
                 );
                 drop(sender);
@@ -407,8 +395,6 @@ impl RelayerImpl {
         maybe_subscription: Result<Subscription, RecvError>,
         subscriptions: &mut HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>,
         relayer_metrics: &mut RelayerMetrics,
-        cluster: &str,
-        region: &str,
     ) -> RelayerResult<()> {
         match maybe_subscription? {
             Subscription::ValidatorPacketSubscription { pubkey, sender } => {
@@ -419,16 +405,12 @@ impl RelayerImpl {
                         relayer_metrics.num_added_connections += 1;
                         datapoint_info!(
                             "relayer_new_subscription",
-                            "cluster" => cluster,
-                            "region" => region,
                             ("pubkey", pubkey.to_string(), String)
                         );
                     }
                     Entry::Occupied(mut entry) => {
                         datapoint_info!(
                             "relayer_duplicate_subscription",
-                            "cluster" => cluster,
-                            "region" => region,
                             ("pubkey", pubkey.to_string(), String)
                         );
                         error!("already connected, dropping old connection: {pubkey:?}");

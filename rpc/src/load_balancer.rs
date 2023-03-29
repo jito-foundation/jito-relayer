@@ -34,8 +34,6 @@ impl LoadBalancer {
     pub fn new(
         servers: &[(String, String)], /* http rpc url, ws url */
         exit: &Arc<AtomicBool>,
-        cluster: String,
-        region: String,
     ) -> (LoadBalancer, Receiver<Slot>) {
         let server_to_slot = DashMap::from_iter(servers.iter().map(|(_, ws)| (ws.clone(), 0)));
 
@@ -63,8 +61,6 @@ impl LoadBalancer {
             &server_to_rpc_client,
             exit,
             slot_sender,
-            cluster,
-            region,
         );
         (
             LoadBalancer {
@@ -82,8 +78,6 @@ impl LoadBalancer {
         _server_to_rpc_client: &DashMap<String, Arc<RpcClient>>,
         exit: &Arc<AtomicBool>,
         slot_sender: Sender<Slot>,
-        cluster: String,
-        region: String,
     ) -> Vec<JoinHandle<()>> {
         let highest_slot = Arc::new(Mutex::new(Slot::default()));
 
@@ -100,8 +94,6 @@ impl LoadBalancer {
                 let server_to_slot = server_to_slot.clone();
                 let slot_sender = slot_sender.clone();
                 let highest_slot = highest_slot.clone();
-                let cluster = cluster.clone();
-                let region = region.clone();
 
                 Builder::new()
                     .name(format!("load_balance_subscription_thread-{ws_url_no_token}"))
@@ -122,8 +114,6 @@ impl LoadBalancer {
                                                     .insert(websocket_url.clone(), slot.slot);
                                                 datapoint_info!(
                                                         "rpc_load_balancer-slot_count",
-                                                        "cluster" => &cluster,
-                                                        "region" => &region,
                                                         "url" => ws_url_no_token,
                                                         ("slot", slot.slot, i64)
                                                 );

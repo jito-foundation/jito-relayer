@@ -1,7 +1,6 @@
 use std::{
     collections::HashSet,
     fs,
-    io::Read,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     str::FromStr,
     sync::{
@@ -268,8 +267,7 @@ fn main() {
         .zip(args.websocket_servers.into_iter())
         .collect();
 
-    let (rpc_load_balancer, health_manager_slot_receiver) =
-        LoadBalancer::new(&servers, &exit, args.cluster.clone(), args.region.clone());
+    let (rpc_load_balancer, health_manager_slot_receiver) = LoadBalancer::new(&servers, &exit);
     let rpc_load_balancer = Arc::new(rpc_load_balancer);
 
     // Lookup table refresher
@@ -279,8 +277,6 @@ fn main() {
         &address_lookup_table_cache,
         args.lookup_table_refresh_s,
         &exit,
-        args.cluster.clone(),
-        args.region.clone(),
     );
 
     let (tpu, packet_receiver) = Tpu::new(
@@ -292,12 +288,7 @@ fn main() {
         &rpc_load_balancer,
     );
 
-    let leader_cache = LeaderScheduleCacheUpdater::new(
-        &rpc_load_balancer,
-        &exit,
-        args.cluster.clone(),
-        args.region.clone(),
-    );
+    let leader_cache = LeaderScheduleCacheUpdater::new(&rpc_load_balancer, &exit);
 
     // receiver tracked as relayer_impl-channel_stats.delay_packet_receiver-len
     let (delay_sender, delay_receiver) = unbounded();
@@ -315,8 +306,6 @@ fn main() {
         block_engine_sender,
         1,
         &exit,
-        args.cluster.clone(),
-        args.region.clone(),
     );
     let block_engine_forwarder = BlockEngineRelayerHandler::new(
         args.block_engine_url,
@@ -324,8 +313,6 @@ fn main() {
         block_engine_receiver,
         keypair,
         exit.clone(),
-        args.cluster.clone(),
-        args.region.clone(),
         args.aoi_cache_ttl_s,
         address_lookup_table_cache,
     );
@@ -337,8 +324,6 @@ fn main() {
         slot_sender,
         Duration::from_secs(args.missing_slot_unhealthy_secs),
         exit.clone(),
-        args.cluster.clone(),
-        args.region.clone(),
     );
 
     let server_addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
@@ -351,8 +336,6 @@ fn main() {
         args.tpu_port,
         args.tpu_fwd_port,
         health_manager.handle(),
-        args.cluster.clone(),
-        args.region.clone(),
     );
 
     let priv_key = fs::read(&args.signing_key_pem_path).unwrap_or_else(|_| {
@@ -471,8 +454,6 @@ fn start_lookup_table_refresher(
     lookup_table: &DashMap<Pubkey, AddressLookupTableAccount>,
     lookup_table_refresh_s: u64,
     exit: &Arc<AtomicBool>,
-    cluster: String,
-    region: String,
 ) -> JoinHandle<()> {
     let rpc_load_balancer = rpc_load_balancer.clone();
     let lookup_table = lookup_table.clone();
@@ -503,18 +484,16 @@ fn start_lookup_table_refresher(
                 let updated_elapsed = now.elapsed().as_micros();
                 match refresh_result {
                     Ok(_) => {
-                        datapoint_info!("lookup_table_refresher-ok",
-                            "cluster" => cluster,
-                            "region" => region,
+                        datapoint_info!(
+                            "lookup_table_refresher-ok",
                             ("count", 1, i64),
                             ("lookup_table_size", lookup_table.len(), i64),
                             ("updated_elapsed_us", updated_elapsed, i64),
                         );
                     }
                     Err(e) => {
-                        datapoint_error!("lookup_table_refresher-error",
-                            "cluster" => cluster,
-                            "region" => region,
+                        datapoint_error!(
+                            "lookup_table_refresher-error",
                             ("count", 1, i64),
                             ("lookup_table_size", lookup_table.len(), i64),
                             ("updated_elapsed_us", updated_elapsed, i64),

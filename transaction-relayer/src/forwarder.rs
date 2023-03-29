@@ -28,8 +28,6 @@ pub fn start_forward_and_delay_thread(
     block_engine_sender: tokio::sync::mpsc::Sender<BlockEnginePackets>,
     num_threads: u64,
     exit: &Arc<AtomicBool>,
-    cluster: String,
-    region: String,
 ) -> Vec<JoinHandle<()>> {
     const SLEEP_DURATION: Duration = Duration::from_millis(5);
     let packet_delay = Duration::from_millis(packet_delay_ms as u64);
@@ -40,8 +38,6 @@ pub fn start_forward_and_delay_thread(
             let delay_sender = delay_sender.clone();
             let block_engine_sender = block_engine_sender.clone();
 
-            let cluster = cluster.clone();
-            let region = region.clone();
             let exit = exit.clone();
             Builder::new()
                 .name(format!("forwarder_thread_{thread_id}"))
@@ -54,7 +50,7 @@ pub fn start_forward_and_delay_thread(
 
                     while !exit.load(Ordering::Relaxed) {
                         if last_metrics_upload.elapsed() >= metrics_interval {
-                            forwarder_metrics.report(thread_id, packet_delay_ms, &cluster, &region);
+                            forwarder_metrics.report(thread_id, packet_delay_ms);
 
                             forwarder_metrics = ForwarderMetrics::default();
                             last_metrics_upload = Instant::now();
@@ -198,11 +194,9 @@ impl ForwarderMetrics {
             std::cmp::max(self.block_engine_sender_max_len, block_engine_sender_len);
     }
 
-    pub fn report(&self, thread_id: u64, delay: u32, cluster: &str, region: &str) {
+    pub fn report(&self, thread_id: u64, delay: u32) {
         datapoint_info!(
             "forwarder_metrics",
-            "cluster" => cluster,
-            "region" => region,
             ("thread_id", thread_id, i64),
             ("delay", delay, i64),
             ("num_batches_received", self.num_batches_received, i64),
@@ -233,11 +227,7 @@ impl ForwarderMetrics {
                 self.buffered_packet_batches_max_capacity,
                 i64
             ),
-            (
-                "verified_receiver-len",
-                self.verified_receiver_max_len,
-                i64
-            ),
+            ("verified_receiver-len", self.verified_receiver_max_len, i64),
             (
                 "block_engine_sender-len",
                 self.block_engine_sender_max_len,

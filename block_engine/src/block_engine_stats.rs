@@ -111,11 +111,9 @@ impl BlockEngineStats {
         self.flush_elapsed_us = self.flush_elapsed_us.saturating_add(num)
     }
 
-    pub fn report(&self, cluster: &str, region: &str) {
+    pub fn report(&self) {
         datapoint_info!(
             "block_engine_relayer-loop_stats",
-            "cluster" => &cluster,
-            "region" => &region,
             ("heartbeat_count", self.heartbeat_count, i64),
             ("heartbeat_elapsed_us", self.heartbeat_elapsed_us, i64),
             ("aoi_update_count", self.aoi_update_count, i64),
@@ -125,9 +123,21 @@ impl BlockEngineStats {
             ("poi_update_elapsed_us", self.poi_update_elapsed_us, i64),
             ("poi_accounts_received", self.poi_accounts_received, i64),
             ("num_packets_received", self.num_packets_received, i64),
-            ("packet_filter_elapsed_us", self.packet_filter_elapsed_us, i64),
-            ("packet_forward_elapsed_us", self.packet_forward_elapsed_us, i64),
-            ("block_engine_packet_sender_len", self.block_engine_packet_sender_len, i64),
+            (
+                "packet_filter_elapsed_us",
+                self.packet_filter_elapsed_us,
+                i64
+            ),
+            (
+                "packet_forward_elapsed_us",
+                self.packet_forward_elapsed_us,
+                i64
+            ),
+            (
+                "block_engine_packet_sender_len",
+                self.block_engine_packet_sender_len,
+                i64
+            ),
             ("auth_refresh_count", self.auth_refresh_count, i64),
             ("refresh_auth_elapsed_us", self.refresh_auth_elapsed_us, i64),
             ("packet_forward_count", self.packet_forward_count, i64),
