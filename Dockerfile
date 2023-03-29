@@ -37,4 +37,5 @@ RUN apt-get -qq update && apt-get -qq -y install ca-certificates libssl1.1 && rm
 
 WORKDIR /app
 COPY --from=builder /home/root/app/jito-transaction-relayer ./
+COPY --from=builder /home/root/app/jito-packet-blaster ./
 ENTRYPOINT ./jito-transaction-relayer

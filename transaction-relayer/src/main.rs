@@ -290,7 +290,7 @@ fn main() {
 
     let leader_cache = LeaderScheduleCacheUpdater::new(&rpc_load_balancer, &exit);
 
-    // receiver tracked as relayer_impl-channel_stats.delay_packet_receiver-len
+    // receiver tracked as relayer_metrics.delay_packet_receiver_len
     let (delay_sender, delay_receiver) = unbounded();
 
     // NOTE: make sure the channel here isn't too big because it will get backed up
@@ -317,7 +317,7 @@ fn main() {
         address_lookup_table_cache,
     );
 
-    // receiver tracked as relayer_impl-channel_stats.slot_receiver-len
+    // receiver tracked as relayer_metrics.slot_receiver_len
     let (slot_sender, slot_receiver) = unbounded();
     let health_manager = HealthManager::new(
         health_manager_slot_receiver,

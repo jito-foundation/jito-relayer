@@ -196,7 +196,7 @@ pub struct RelayerImpl {
 impl RelayerImpl {
     pub const SUBSCRIBER_QUEUE_CAPACITY: usize = 50_000;
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_addrguments)]
     pub fn new(
         slot_receiver: Receiver<Slot>,
         delay_packet_receiver: Receiver<RelayerPacketBatches>,
@@ -209,7 +209,7 @@ impl RelayerImpl {
     ) -> Self {
         const LEADER_LOOKAHEAD: u64 = 2;
 
-        // receiver tracked as relayer_impl-channel_stats.subscription_receiver-len
+        // receiver tracked as relayer_metrics.subscription_receiver_len
         let (subscription_sender, subscription_receiver) = unbounded();
         let thread = {
             let health_state = health_state.clone();
