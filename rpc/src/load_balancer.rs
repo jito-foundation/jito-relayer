@@ -96,7 +96,7 @@ impl LoadBalancer {
                 let highest_slot = highest_slot.clone();
 
                 Builder::new()
-                    .name(format!("load_balance_subscription_thread-{ws_url_no_token}"))
+                    .name(format!("load_balancer_subscription_thread-{ws_url_no_token}"))
                     .spawn(move || {
                         while !exit.load(Ordering::Relaxed) {
                             info!("running slot_subscribe() with url: {websocket_url}");

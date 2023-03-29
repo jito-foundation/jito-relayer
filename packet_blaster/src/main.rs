@@ -48,7 +48,6 @@ struct Args {
 fn read_keypairs(path: PathBuf) -> io::Result<Vec<Keypair>> {
     if path.is_dir() {
         let result = fs::read_dir(path)?
-            .into_iter()
             .filter_map(|entry| solana_sdk::signature::read_keypair_file(entry.ok()?.path()).ok())
             .collect::<Vec<_>>();
         Ok(result)
