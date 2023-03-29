@@ -20,6 +20,7 @@ use solana_client::{
     tpu_connection::TpuConnection,
 };
 use solana_sdk::{
+    pubkey::Pubkey,
     signature::{Keypair, Signature, Signer},
     system_transaction::transfer,
 };
@@ -48,10 +49,7 @@ fn read_keypairs(path: PathBuf) -> io::Result<Vec<Keypair>> {
     if path.is_dir() {
         let result = fs::read_dir(path)?
             .into_iter()
-            .filter_map(|entry| {
-                let buf = fs::read(entry.ok()?.path()).ok()?;
-                Keypair::from_bytes(&buf).ok()
-            })
+            .filter_map(|entry| solana_sdk::signature::read_keypair_file(entry.ok()?.path()).ok())
             .collect::<Vec<_>>();
         Ok(result)
     } else {
@@ -66,12 +64,9 @@ fn main() {
 
     let args: Args = Args::parse();
 
-    let keypairs = read_keypairs(args.keypair_path).expect("Failed to read keypairs");
+    let keypairs = read_keypairs(args.keypair_path).expect("Failed to prepare keypairs");
     let pubkeys: Vec<_> = keypairs.iter().map(|kp| kp.pubkey()).collect();
     info!("using pubkeys: {pubkeys:?}");
-
-    let client = Arc::new(RpcClient::new(&args.rpc_addr));
-    request_and_confirm_airdrop(&client, &pubkeys).expect("Failed to request airdrop");
 
     let threads: Vec<_> = keypairs
         .into_iter()
@@ -124,9 +119,10 @@ fn main() {
     }
 }
 
+#[allow(unused)]
 fn request_and_confirm_airdrop(
     client: &RpcClient,
-    pubkeys: &[solana_sdk::pubkey::Pubkey],
+    pubkeys: &[Pubkey],
 ) -> solana_client::client_error::Result<()> {
     let sigs = pubkeys
         .iter()
