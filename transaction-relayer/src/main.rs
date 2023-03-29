@@ -1,5 +1,6 @@
 use std::{
     collections::HashSet,
+    fs,
     fs::File,
     io::Read,
     net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -353,24 +354,26 @@ fn main() {
         args.region.clone(),
     );
 
-    let mut buf = Vec::new();
-    File::open(args.signing_key_pem_path)
-        .expect("signing key file to be found")
-        .read_to_end(&mut buf)
-        .expect("to read signing key file");
+    let priv_key = fs::read(&args.signing_key_pem_path).unwrap_or_else(|_| {
+        panic!(
+            "Failed to read signing key file: {}",
+            &args.verifying_key_pem_path
+        )
+    });
     let signing_key = PKeyWithDigest {
         digest: MessageDigest::sha256(),
-        key: PKey::private_key_from_pem(&buf[..]).unwrap(),
+        key: PKey::private_key_from_pem(&priv_key).unwrap(),
     };
 
-    let mut buf = Vec::new();
-    File::open(args.verifying_key_pem_path)
-        .expect("verifying key file to be found")
-        .read_to_end(&mut buf)
-        .expect("to read verifying key file");
+    let key = fs::read(&args.verifying_key_pem_path).unwrap_or_else(|_| {
+        panic!(
+            "Failed to read verifying key file: {}",
+            &args.verifying_key_pem_path
+        )
+    });
     let verifying_key = Arc::new(PKeyWithDigest {
         digest: MessageDigest::sha256(),
-        key: PKey::public_key_from_pem(&buf[..]).unwrap(),
+        key: PKey::public_key_from_pem(&key).unwrap(),
     });
 
     let validator_store = match args.allowed_validators {

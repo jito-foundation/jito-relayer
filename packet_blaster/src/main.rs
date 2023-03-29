@@ -1,6 +1,8 @@
 use std::{
-    io,
+    fs, io,
+    io::ErrorKind,
     net::{SocketAddr, UdpSocket},
+    path::PathBuf,
     sync::Arc,
     thread::Builder,
     time::{Duration, Instant},
@@ -29,9 +31,9 @@ struct Args {
     #[clap(long, env, default_value = "http://127.0.0.1:8899")]
     rpc_addr: String,
 
-    /// Number of keypairs
-    #[clap(long, env, default_value_t = 10)]
-    num_keypairs: u64,
+    /// Path to keypairs
+    #[clap(long, env)]
+    keypair_path: PathBuf,
 
     /// Socket address for relayer TPU
     #[clap(long, env, default_value = "127.0.0.1:11222")]
@@ -42,17 +44,31 @@ struct Args {
     use_quic: bool,
 }
 
+fn read_keypairs(path: PathBuf) -> io::Result<Vec<Keypair>> {
+    if path.is_dir() {
+        let result = fs::read_dir(path)?
+            .into_iter()
+            .filter_map(|entry| {
+                let buf = fs::read(entry.ok()?.path()).ok()?;
+                Keypair::from_bytes(&buf).ok()
+            })
+            .collect::<Vec<_>>();
+        Ok(result)
+    } else {
+        Ok(vec![Keypair::from_bytes(&fs::read(path)?).map_err(
+            |e| io::Error::new(ErrorKind::NotFound, e.to_string()),
+        )?])
+    }
+}
+
 fn main() {
     env_logger::init();
 
     let args: Args = Args::parse();
 
-    let keypairs: Vec<_> = (0..args.num_keypairs)
-        .map(|_| Arc::new(Keypair::new()))
-        .collect();
-
+    let keypairs = read_keypairs(args.keypair_path).expect("Failed to read keypairs");
     let pubkeys: Vec<_> = keypairs.iter().map(|kp| kp.pubkey()).collect();
-    info!("using keypairs: {:?}", pubkeys);
+    info!("using pubkeys: {pubkeys:?}");
 
     let client = Arc::new(RpcClient::new(&args.rpc_addr));
     request_and_confirm_airdrop(&client, &pubkeys).expect("Failed to request airdrop");
