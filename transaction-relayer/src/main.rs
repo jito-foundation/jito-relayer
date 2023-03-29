@@ -331,11 +331,11 @@ fn main() {
         slot_receiver,
         delay_receiver,
         leader_cache.handle(),
-        exit.clone(),
         public_ip,
         args.tpu_port,
         args.tpu_fwd_port,
         health_manager.handle(),
+        exit.clone(),
     );
 
     let priv_key = fs::read(&args.signing_key_pem_path).unwrap_or_else(|_| {

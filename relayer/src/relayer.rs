@@ -49,9 +49,46 @@ struct RelayerMetrics {
     pub metrics_latency_us: u64,
     pub num_try_send_channel_full: u64,
     pub packet_latencies_us: Histogram,
+
+    // channel stats
+    pub slot_receiver_max_len: u64,
+    pub subscription_receiver_max_len: u64,
+    pub delay_packet_receiver_max_len: u64,
+    pub packet_subscriptions_total_queued: u64, // sum of all items currently queued
 }
 
 impl RelayerMetrics {
+    fn update_max_len(
+        &mut self,
+        slot_receiver_len: u64,
+        subscription_receiver_len: u64,
+        delay_packet_receiver_len: u64,
+    ) {
+        self.slot_receiver_max_len = std::cmp::max(self.slot_receiver_max_len, slot_receiver_len);
+        self.subscription_receiver_max_len = std::cmp::max(
+            self.subscription_receiver_max_len,
+            subscription_receiver_len,
+        );
+        self.delay_packet_receiver_max_len = std::cmp::max(
+            self.delay_packet_receiver_max_len,
+            delay_packet_receiver_len,
+        );
+    }
+
+    fn update_packet_subscription_total_capacity(
+        &mut self,
+        packet_subscriptions: &HashMap<
+            Pubkey,
+            TokioSender<Result<SubscribePacketsResponse, Status>>,
+        >,
+    ) {
+        let packet_subscriptions_total_queued = packet_subscriptions
+            .values()
+            .map(|x| RelayerImpl::SUBSCRIBER_QUEUE_CAPACITY - x.capacity())
+            .sum::<usize>();
+        self.packet_subscriptions_total_queued = packet_subscriptions_total_queued as u64;
+    }
+
     fn report(&self) {
         datapoint_info!(
             "relayer_metrics",
@@ -73,6 +110,7 @@ impl RelayerMetrics {
                 self.max_heartbeat_tick_latency_us,
                 i64
             ),
+            // packet latencies
             (
                 "packet_latencies_us_min",
                 self.packet_latencies_us.minimum().unwrap_or_default(),
@@ -102,6 +140,23 @@ impl RelayerMetrics {
                 self.packet_latencies_us
                     .percentile(99.0)
                     .unwrap_or_default(),
+                i64
+            ),
+            // channel lengths
+            ("slot_receiver_len", self.slot_receiver_max_len, i64),
+            (
+                "subscription_receiver_len",
+                self.subscription_receiver_max_len,
+                i64
+            ),
+            (
+                "delay_packet_receiver_len",
+                self.delay_packet_receiver_max_len,
+                i64
+            ),
+            (
+                "packet_subscriptions_total_queued",
+                self.packet_subscriptions_total_queued,
                 i64
             ),
         );
@@ -139,16 +194,18 @@ pub struct RelayerImpl {
 }
 
 impl RelayerImpl {
+    pub const SUBSCRIBER_QUEUE_CAPACITY: usize = 50_000;
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         slot_receiver: Receiver<Slot>,
         delay_packet_receiver: Receiver<RelayerPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
-        exit: Arc<AtomicBool>,
         public_ip: IpAddr,
         tpu_port: u16,
         tpu_fwd_port: u16,
         health_state: Arc<RwLock<HealthState>>,
+        exit: Arc<AtomicBool>,
     ) -> Self {
         const LEADER_LOOKAHEAD: u64 = 2;
 
@@ -199,11 +256,6 @@ impl RelayerImpl {
             TokioSender<Result<SubscribePacketsResponse, Status>>,
         > = HashMap::default();
 
-        let mut heartbeat_count = 0;
-        let mut subscription_receiver_max_len = 0usize;
-        let mut delay_packet_receiver_max_len = 0usize;
-
-        let channel_len_tick = crossbeam_channel::tick(Duration::from_secs(1));
         let heartbeat_tick = crossbeam_channel::tick(Duration::from_millis(500));
         let metrics_tick = crossbeam_channel::tick(Duration::from_millis(1000));
 
@@ -227,16 +279,21 @@ impl RelayerImpl {
                     }
 
                     // heartbeat if state is healthy, drop all connections on unhealthy
-                    let pubkeys_to_drop = if *health_state.read().unwrap() != HealthState::Healthy {
-                        packet_subscriptions.keys().cloned().collect()
-                    } else {
-                        heartbeat_count += 1;
-                        Self::handle_heartbeat(&packet_subscriptions, &heartbeat_count, &mut relayer_metrics)
+                    let pubkeys_to_drop = match *health_state.read().unwrap() {
+                        HealthState::Healthy => {
+                            Self::handle_heartbeat(
+                                &packet_subscriptions,
+                                &mut relayer_metrics,
+                            )
+                        },
+                        HealthState::Unhealthy => packet_subscriptions.keys().cloned().collect(),
                     };
                     Self::drop_connections(pubkeys_to_drop, &mut packet_subscriptions, &mut relayer_metrics);
                 }
                 recv(metrics_tick) -> time_generated => {
                     relayer_metrics.num_current_connections = packet_subscriptions.len() as u64;
+                    relayer_metrics.update_packet_subscription_total_capacity(&packet_subscriptions);
+
                     if let Ok(time_generated) = time_generated {
                         relayer_metrics.metrics_latency_us = time_generated.elapsed().as_micros() as u64;
                     }
@@ -244,30 +301,13 @@ impl RelayerImpl {
                     relayer_metrics.report();
                     relayer_metrics = RelayerMetrics::default();
                 }
-                recv(channel_len_tick) -> _ => {
-                    datapoint_info!(
-                        "relayer_impl-channel_stats",
-                        ("slot_receiver-len", slot_receiver.len(), i64),
-                        (
-                            "subscription_receiver-len",
-                            subscription_receiver.len(),
-                            i64
-                        ),
-                        (
-                            "delay_packet_receiver-len",
-                            delay_packet_receiver.len(),
-                            i64
-                        ),
-                    );
-
-                    subscription_receiver_max_len = 0;
-                    delay_packet_receiver_max_len = 0;
-                }
             }
-            subscription_receiver_max_len =
-                std::cmp::max(subscription_receiver_max_len, subscription_receiver.len());
-            delay_packet_receiver_max_len =
-                std::cmp::max(delay_packet_receiver_max_len, delay_packet_receiver.len());
+
+            relayer_metrics.update_max_len(
+                slot_receiver.len() as u64,
+                subscription_receiver.len() as u64,
+                delay_packet_receiver.len() as u64,
+            );
         }
         Ok(())
     }
@@ -292,7 +332,6 @@ impl RelayerImpl {
 
     fn handle_heartbeat(
         subscriptions: &HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>,
-        heartbeat_count: &u64,
         relayer_metrics: &mut RelayerMetrics,
     ) -> Vec<Pubkey> {
         let failed_pubkey_updates = subscriptions
@@ -302,7 +341,7 @@ impl RelayerImpl {
                 match sender.try_send(Ok(SubscribePacketsResponse {
                     header: None,
                     msg: Some(subscribe_packets_response::Msg::Heartbeat(Heartbeat {
-                        count: *heartbeat_count,
+                        count: relayer_metrics.num_heartbeats,
                     })),
                 })) {
                     Ok(_) => {}
@@ -482,7 +521,7 @@ impl Relayer for RelayerImpl {
             .get()
             .ok_or_else(|| Status::internal("internal error fetching public key"))?;
 
-        let (sender, receiver) = channel(50_000);
+        let (sender, receiver) = channel(RelayerImpl::SUBSCRIBER_QUEUE_CAPACITY);
         self.subscription_sender
             .send(Subscription::ValidatorPacketSubscription {
                 pubkey: *pubkey,
