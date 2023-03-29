@@ -153,7 +153,7 @@ struct Args {
     refresh_token_ttl_secs: i64,
 
     /// Specifies how long challenges are valid for, expressed in seconds.
-    #[arg(long, env, default_value_t = 1800)]
+    #[arg(long, env, default_value_t = 1_800)]
     challenge_ttl_secs: i64,
 
     /// The interval at which challenges are checked for expiration.

@@ -41,7 +41,7 @@ struct Args {
     tpu_addr: SocketAddr,
 
     /// Flag to use quic for relayer TPU
-    #[clap(long, env, default_value_t = false)]
+    #[clap(long, env, default_value_t = true)]
     use_quic: bool,
 }
 
@@ -59,6 +59,7 @@ fn read_keypairs(path: PathBuf) -> io::Result<Vec<Keypair>> {
     }
 }
 
+const TXN_BATCH_SIZE: u64 = 10;
 fn main() {
     env_logger::init();
 
@@ -68,7 +69,7 @@ fn main() {
     let keypairs = read_keypairs(args.keypair_path).expect("Failed to prepare keypairs");
     let pubkeys: Vec<_> = keypairs.iter().map(|kp| kp.pubkey()).collect();
     info!(
-        "Packet blaster using {} pubkeys: {pubkeys:?}",
+        "Packet blaster going to send with {} pubkeys: {pubkeys:?}",
         pubkeys.len()
     );
 
@@ -83,36 +84,32 @@ fn main() {
                     let tpu_sender = TpuSender::new(args.tpu_addr, &args.use_quic);
                     let mut last_blockhash_refresh = Instant::now();
                     let mut latest_blockhash = client.get_latest_blockhash().unwrap();
-                    let mut last_count = 0;
+                    let mut cur_txn_count = 0usize;
+                    let mut cum_txn_count = 0;
                     info!("sending packets on thread {thread_id}");
-                    let mut count: u64 = 0;
                     loop {
                         if last_blockhash_refresh.elapsed() > Duration::from_secs(5) {
-                            let packets_per_second = (count - last_count) as f64
+                            let packets_per_second = (cur_txn_count - cum_txn_count) as f64
                                 / last_blockhash_refresh.elapsed().as_secs_f64();
-                            info!(
-                                "packets sent/s: {:.2} ({} total)",
-                                packets_per_second, count
-                            );
+                            info!("packets sent/s: {packets_per_second:.2}, {cum_txn_count} total");
 
                             last_blockhash_refresh = Instant::now();
                             latest_blockhash = client.get_latest_blockhash().unwrap();
-                            last_count = count;
+                            cum_txn_count = cur_txn_count;
                         }
 
-                        let serialized_txs: Vec<Vec<u8>> = (0..10)
-                            .map(|_| {
-                                count += 1;
+                        let serialized_txs: Vec<Vec<u8>> = (0..TXN_BATCH_SIZE)
+                            .filter_map(|i| {
                                 serialize(&transfer(
                                     &keypair,
                                     &keypair.pubkey(),
-                                    count,
+                                    cur_txn_count as u64 + i,
                                     latest_blockhash,
                                 ))
-                                .unwrap()
+                                .ok()
                             })
                             .collect();
-
+                        cur_txn_count += serialized_txs.len();
                         tpu_sender.send(serialized_txs);
                     }
                 })
@@ -123,28 +120,6 @@ fn main() {
     for t in threads {
         t.join().unwrap();
     }
-}
-
-#[allow(unused)]
-fn request_and_confirm_airdrop(
-    client: &RpcClient,
-    pubkeys: &[Pubkey],
-) -> solana_client::client_error::Result<()> {
-    let sigs = pubkeys
-        .iter()
-        .map(|pubkey| client.request_airdrop(pubkey, 100_000_000_000))
-        .collect::<solana_client::client_error::Result<Vec<Signature>>>()?;
-
-    let now = Instant::now();
-    while now.elapsed() < Duration::from_secs(20) {
-        let r = client.get_signature_statuses(&sigs)?;
-        if r.value.iter().all(|s| s.is_some()) {
-            return Err(ClientError::from(ClientErrorKind::Custom(
-                "signature error".to_string(),
-            )));
-        }
-    }
-    Ok(())
 }
 
 enum TpuSender {
@@ -189,4 +164,26 @@ impl TpuSender {
                 .expect("quic send panic"),
         }
     }
+}
+
+#[allow(unused)]
+fn request_and_confirm_airdrop(
+    client: &RpcClient,
+    pubkeys: &[Pubkey],
+) -> solana_client::client_error::Result<()> {
+    let sigs = pubkeys
+        .iter()
+        .map(|pubkey| client.request_airdrop(pubkey, 100_000_000_000))
+        .collect::<solana_client::client_error::Result<Vec<Signature>>>()?;
+
+    let now = Instant::now();
+    while now.elapsed() < Duration::from_secs(20) {
+        let r = client.get_signature_statuses(&sigs)?;
+        if r.value.iter().all(|s| s.is_some()) {
+            return Err(ClientError::from(ClientErrorKind::Custom(
+                "signature error".to_string(),
+            )));
+        }
+    }
+    Ok(())
 }
