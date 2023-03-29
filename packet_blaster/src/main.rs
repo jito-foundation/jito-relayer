@@ -1,7 +1,7 @@
 use std::{
     fs, io,
     io::ErrorKind,
-    net::{SocketAddr, UdpSocket},
+    net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
     path::PathBuf,
     sync::Arc,
     thread::Builder,
@@ -37,7 +37,7 @@ struct Args {
     keypair_path: PathBuf,
 
     /// Socket address for relayer TPU
-    #[clap(long, env, default_value = "127.0.0.1:11222")]
+    #[clap(long, env, default_value = "127.0.0.1:8009")]
     tpu_addr: SocketAddr,
 
     /// Flag to use quic for relayer TPU
@@ -70,15 +70,17 @@ fn main() {
 
     let threads: Vec<_> = keypairs
         .into_iter()
-        .map(|keypair| {
+        .enumerate()
+        .map(|(thread_id, keypair)| {
             let client = Arc::new(RpcClient::new(&args.rpc_addr));
             Builder::new()
+                .name(format!("packet-blaster-thread_{thread_id}"))
                 .spawn(move || {
                     let tpu_sender = TpuSender::new(args.tpu_addr, &args.use_quic);
                     let mut last_blockhash_refresh = Instant::now();
                     let mut latest_blockhash = client.get_latest_blockhash().unwrap();
                     let mut last_count = 0;
-                    info!("sending packets...");
+                    info!("sending packets on thread {thread_id}");
                     let mut count: u64 = 0;
                     loop {
                         if last_blockhash_refresh.elapsed() > Duration::from_secs(5) {
@@ -164,7 +166,8 @@ impl TpuSender {
         } else {
             TpuSender::UdpSender {
                 address: addr,
-                sock: UdpSocket::bind("0.0.0.0:0").unwrap(),
+                sock: UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0u16))
+                    .unwrap(),
             }
         }
     }

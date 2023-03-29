@@ -183,6 +183,7 @@ struct Args {
     lookup_table_refresh_s: u64,
 }
 
+#[derive(Debug)]
 struct Sockets {
     tpu_sockets: TpuSockets,
     tpu_ip: IpAddr,
@@ -243,6 +244,7 @@ fn main() {
     assert!(args.grpc_bind_ip.is_ipv4(), "must bind to IPV4 address");
 
     let sockets = get_sockets(&args);
+    info!("Relayer listening at: {sockets:?}");
 
     let keypair =
         Arc::new(read_keypair_file(args.keypair_path).expect("keypair file does not exist"));
