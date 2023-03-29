@@ -1,7 +1,6 @@
 use std::{
     collections::HashSet,
     fs,
-    fs::File,
     io::Read,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     str::FromStr,

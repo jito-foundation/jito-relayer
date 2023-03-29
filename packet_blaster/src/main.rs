@@ -63,10 +63,14 @@ fn main() {
     env_logger::init();
 
     let args: Args = Args::parse();
+    dbg!(&args);
 
     let keypairs = read_keypairs(args.keypair_path).expect("Failed to prepare keypairs");
     let pubkeys: Vec<_> = keypairs.iter().map(|kp| kp.pubkey()).collect();
-    info!("using pubkeys: {pubkeys:?}");
+    info!(
+        "Packet blaster using {} pubkeys: {pubkeys:?}",
+        pubkeys.len()
+    );
 
     let threads: Vec<_> = keypairs
         .into_iter()
