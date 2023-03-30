@@ -196,7 +196,7 @@ pub struct RelayerImpl {
 impl RelayerImpl {
     pub const SUBSCRIBER_QUEUE_CAPACITY: usize = 50_000;
 
-    #[allow(clippy::too_many_addrguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         slot_receiver: Receiver<Slot>,
         delay_packet_receiver: Receiver<RelayerPacketBatches>,
@@ -360,6 +360,7 @@ impl RelayerImpl {
         failed_pubkey_updates
     }
 
+    /// Returns pubkeys of subscribers that failed to send
     fn forward_packets(
         maybe_packet_batches: Result<RelayerPacketBatches, RecvError>,
         subscriptions: &HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>,
