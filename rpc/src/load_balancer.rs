@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
+use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use dashmap::DashMap;
 use log::{error, info};
 use solana_client::{pubsub_client::PubsubClient, rpc_client::RpcClient};
@@ -54,7 +54,7 @@ impl LoadBalancer {
         }));
 
         // sender tracked as health_manager-channel_stats.slot_sender-len
-        let (slot_sender, slot_receiver) = unbounded();
+        let (slot_sender, slot_receiver) = crossbeam_channel::bounded(100);
         let subscription_threads = Self::start_subscription_threads(
             servers,
             &server_to_slot,

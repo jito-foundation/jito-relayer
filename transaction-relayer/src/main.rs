@@ -13,7 +13,7 @@ use std::{
 };
 
 use clap::Parser;
-use crossbeam_channel::{tick, unbounded};
+use crossbeam_channel::tick;
 use dashmap::DashMap;
 use jito_block_engine::block_engine::BlockEngineRelayerHandler;
 use jito_core::{
@@ -291,7 +291,7 @@ fn main() {
     let leader_cache = LeaderScheduleCacheUpdater::new(&rpc_load_balancer, &exit);
 
     // receiver tracked as relayer_metrics.delay_packet_receiver_len
-    let (delay_sender, delay_receiver) = unbounded();
+    let (delay_packet_sender, delay_packet_receiver) = crossbeam_channel::bounded(50_000);
 
     // NOTE: make sure the channel here isn't too big because it will get backed up
     // with packets when the block engine isn't connected
@@ -301,7 +301,7 @@ fn main() {
 
     let forward_and_delay_threads = start_forward_and_delay_thread(
         packet_receiver,
-        delay_sender,
+        delay_packet_sender,
         args.packet_delay_ms,
         block_engine_sender,
         1,
@@ -318,7 +318,7 @@ fn main() {
     );
 
     // receiver tracked as relayer_metrics.slot_receiver_len
-    let (slot_sender, slot_receiver) = unbounded();
+    let (slot_sender, slot_receiver) = crossbeam_channel::bounded(100);
     let health_manager = HealthManager::new(
         health_manager_slot_receiver,
         slot_sender,
@@ -329,7 +329,7 @@ fn main() {
     let server_addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
     let relayer_svc = RelayerImpl::new(
         slot_receiver,
-        delay_receiver,
+        delay_packet_receiver,
         leader_cache.handle(),
         public_ip,
         args.tpu_port,

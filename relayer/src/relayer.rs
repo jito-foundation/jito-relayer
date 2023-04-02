@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-use crossbeam_channel::{unbounded, Receiver, RecvError, Sender};
+use crossbeam_channel::{bounded, Receiver, RecvError, Sender};
 use histogram::Histogram;
 use jito_protos::{
     convert::packet_to_proto_packet,
@@ -210,7 +210,7 @@ impl RelayerImpl {
         const LEADER_LOOKAHEAD: u64 = 2;
 
         // receiver tracked as relayer_metrics.subscription_receiver_len
-        let (subscription_sender, subscription_receiver) = unbounded();
+        let (subscription_sender, subscription_receiver) = bounded(100);
         let thread = {
             let health_state = health_state.clone();
             thread::Builder::new()

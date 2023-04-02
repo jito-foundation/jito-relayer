@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use crossbeam_channel::{unbounded, Receiver};
+use crossbeam_channel::Receiver;
 use jito_rpc::load_balancer::LoadBalancer;
 use solana_core::{
     banking_stage::BankingPacketBatch, find_packet_sender_stake_stage::FindPacketSenderStakeStage,
@@ -48,6 +48,8 @@ pub struct Tpu {
 }
 
 impl Tpu {
+    const TPU_CHANNEL_CAPACITY: usize = 10_000;
+
     pub fn new(
         sockets: TpuSockets,
         exit: &Arc<AtomicBool>,
@@ -69,10 +71,11 @@ impl Tpu {
         );
 
         // sender tracked as fetch_stage-channel_stats.tpu_sender-len
-        let (tpu_sender, tpu_receiver) = unbounded();
+        let (tpu_sender, tpu_receiver) = crossbeam_channel::bounded(Tpu::TPU_CHANNEL_CAPACITY);
 
         // receiver tracked as fetch_stage-channel_stats.tpu_forwards_receiver-len
-        let (tpu_forwards_sender, tpu_forwards_receiver) = unbounded();
+        let (tpu_forwards_sender, tpu_forwards_receiver) =
+            crossbeam_channel::bounded(Tpu::TPU_CHANNEL_CAPACITY);
         let stats = Arc::new(StreamStats::default());
 
         let tpu_quic_t = spawn_server(
@@ -106,7 +109,8 @@ impl Tpu {
         let fetch_stage = FetchStage::new(tpu_forwards_receiver, tpu_sender, exit.clone());
 
         // receiver tracked in tpu-channel_stats.find_packet_sender_stake_receiver-len
-        let (find_packet_sender_stake_sender, find_packet_sender_stake_receiver) = unbounded();
+        let (find_packet_sender_stake_sender, find_packet_sender_stake_receiver) =
+            crossbeam_channel::bounded(10_000);
         let find_packet_sender_stake_stage = FindPacketSenderStakeStage::new(
             tpu_receiver,
             find_packet_sender_stake_sender,
@@ -118,7 +122,7 @@ impl Tpu {
             Self::start_metrics_thread(exit.clone(), find_packet_sender_stake_receiver.clone());
 
         // receiver tracked as forwarder_metrics.verified_receiver-len
-        let (verified_sender, verified_receiver) = unbounded();
+        let (verified_sender, verified_receiver) = crossbeam_channel::bounded(1_000);
         let sigverify_stage = {
             let verifier = TransactionSigVerifier::new(verified_sender);
             SigVerifyStage::new(find_packet_sender_stake_receiver, verifier, "tpu-verifier")
