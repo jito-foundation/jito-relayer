@@ -2,6 +2,7 @@ use std::{
     fs, io,
     io::ErrorKind,
     net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
+    ops::Sub,
     path::PathBuf,
     sync::Arc,
     thread::Builder,
@@ -81,20 +82,25 @@ fn main() {
                 .name(format!("packet-blaster-thread_{thread_id}"))
                 .spawn(move || {
                     let tpu_sender = TpuSender::new(args.tpu_addr, &args.use_quic);
+                    let metrics_interval = Duration::from_secs(5);
                     let mut last_blockhash_refresh = Instant::now();
                     let mut latest_blockhash = client.get_latest_blockhash().unwrap();
-                    let mut cur_txn_count = 0usize;
-                    let mut cum_txn_count = 0;
+                    let mut curr_txn_count = 0usize;
+                    let mut prev_txn_count = 0usize;
                     info!("sending packets on thread {thread_id}");
                     loop {
-                        if last_blockhash_refresh.elapsed() > Duration::from_secs(5) {
-                            let packets_per_second = (cur_txn_count - cum_txn_count) as f64
-                                / last_blockhash_refresh.elapsed().as_secs_f64();
-                            info!("packets sent/s: {packets_per_second:.2}, {cum_txn_count} total");
+                        let now = Instant::now();
+                        let elapsed = now.sub(last_blockhash_refresh);
+                        if elapsed > metrics_interval {
+                            info!(
+                                "packets sent/s: {:.2}, {curr_txn_count} total",
+                                (curr_txn_count - prev_txn_count) as f64 / elapsed.as_secs_f64()
+                            );
 
-                            last_blockhash_refresh = Instant::now();
+                            last_blockhash_refresh = now;
                             latest_blockhash = client.get_latest_blockhash().unwrap();
-                            cum_txn_count = cur_txn_count;
+                            prev_txn_count = curr_txn_count;
+                            curr_txn_count = 0;
                         }
 
                         let serialized_txs: Vec<Vec<u8>> = (0..TXN_BATCH_SIZE)
@@ -102,13 +108,13 @@ fn main() {
                                 serialize(&transfer(
                                     &keypair,
                                     &keypair.pubkey(),
-                                    cur_txn_count as u64 + i,
+                                    curr_txn_count as u64 + i,
                                     latest_blockhash,
                                 ))
                                 .ok()
                             })
                             .collect();
-                        cur_txn_count += serialized_txs.len();
+                        curr_txn_count += serialized_txs.len();
                         tpu_sender.send(serialized_txs);
                     }
                 })
