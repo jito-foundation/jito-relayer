@@ -18,8 +18,6 @@ use solana_sdk::{
     commitment_config::{CommitmentConfig, CommitmentLevel},
 };
 
-const DISCONNECT_WEBSOCKET_TIMEOUT_S: u64 = 30;
-
 pub struct LoadBalancer {
     /// (ws_url, slot)
     server_to_slot: DashMap<String, Slot>,
@@ -29,8 +27,9 @@ pub struct LoadBalancer {
 }
 
 impl LoadBalancer {
+    const DISCONNECT_WEBSOCKET_TIMEOUT: Duration = Duration::from_secs(30);
     const RPC_TIMEOUT: Duration = Duration::from_secs(15);
-
+    pub const SLOT_QUEUE_CAPACITY: usize = 100;
     pub fn new(
         servers: &[(String, String)], /* http rpc url, ws url */
         exit: &Arc<AtomicBool>,
@@ -41,7 +40,7 @@ impl LoadBalancer {
             // warm up the connection
             let rpc_client = Arc::new(RpcClient::new_with_timeout_and_commitment(
                 rpc_url,
-                LoadBalancer::RPC_TIMEOUT,
+                Self::RPC_TIMEOUT,
                 CommitmentConfig {
                     commitment: CommitmentLevel::Processed,
                 },
@@ -54,7 +53,7 @@ impl LoadBalancer {
         }));
 
         // sender tracked as health_manager-channel_stats.slot_sender-len
-        let (slot_sender, slot_receiver) = crossbeam_channel::bounded(100);
+        let (slot_sender, slot_receiver) = crossbeam_channel::bounded(Self::SLOT_QUEUE_CAPACITY);
         let subscription_threads = Self::start_subscription_threads(
             servers,
             &server_to_slot,
@@ -135,8 +134,7 @@ impl LoadBalancer {
                                             Err(RecvTimeoutError::Timeout) => {
                                                 // RPC servers occasionally stop sending slot updates and never recover.
                                                 // If enough time has passed, attempt to recover by forcing a new connection
-                                                if last_slot_update.elapsed().as_secs()
-                                                    >= DISCONNECT_WEBSOCKET_TIMEOUT_S
+                                                if last_slot_update.elapsed() >= Self::DISCONNECT_WEBSOCKET_TIMEOUT
                                                 {
                                                     datapoint_error!(
                                                         "rpc_load_balancer-force_disconnect",

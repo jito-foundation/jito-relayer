@@ -267,7 +267,7 @@ fn main() {
         .zip(args.websocket_servers.into_iter())
         .collect();
 
-    let (rpc_load_balancer, health_manager_slot_receiver) = LoadBalancer::new(&servers, &exit);
+    let (rpc_load_balancer, slot_receiver) = LoadBalancer::new(&servers, &exit);
     let rpc_load_balancer = Arc::new(rpc_load_balancer);
 
     // Lookup table refresher
@@ -318,17 +318,19 @@ fn main() {
     );
 
     // receiver tracked as relayer_metrics.slot_receiver_len
-    let (slot_sender, slot_receiver) = crossbeam_channel::bounded(100);
+    // downstream channel gets data that was duplicated by HealthManager
+    let (downstream_slot_sender, downstream_slot_receiver) =
+        crossbeam_channel::bounded(LoadBalancer::SLOT_QUEUE_CAPACITY);
     let health_manager = HealthManager::new(
-        health_manager_slot_receiver,
-        slot_sender,
+        slot_receiver,
+        downstream_slot_sender,
         Duration::from_secs(args.missing_slot_unhealthy_secs),
         exit.clone(),
     );
 
     let server_addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
     let relayer_svc = RelayerImpl::new(
-        slot_receiver,
+        downstream_slot_receiver,
         delay_packet_receiver,
         leader_cache.handle(),
         public_ip,

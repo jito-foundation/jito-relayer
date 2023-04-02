@@ -21,6 +21,7 @@ use jito_protos::{
     },
     shared::{Header, Heartbeat, Socket},
 };
+use jito_rpc::load_balancer::LoadBalancer;
 use log::*;
 use prost_types::Timestamp;
 use solana_metrics::datapoint_info;
@@ -210,7 +211,8 @@ impl RelayerImpl {
         const LEADER_LOOKAHEAD: u64 = 2;
 
         // receiver tracked as relayer_metrics.subscription_receiver_len
-        let (subscription_sender, subscription_receiver) = bounded(100);
+        let (subscription_sender, subscription_receiver) =
+            bounded(LoadBalancer::SLOT_QUEUE_CAPACITY);
         let thread = {
             let health_state = health_state.clone();
             thread::Builder::new()
