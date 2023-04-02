@@ -48,7 +48,7 @@ pub struct Tpu {
 }
 
 impl Tpu {
-    const TPU_CHANNEL_CAPACITY: usize = 10_000;
+    pub const TPU_QUEUE_CAPACITY: usize = 10_000;
 
     pub fn new(
         sockets: TpuSockets,
@@ -71,11 +71,11 @@ impl Tpu {
         );
 
         // sender tracked as fetch_stage-channel_stats.tpu_sender-len
-        let (tpu_sender, tpu_receiver) = crossbeam_channel::bounded(Tpu::TPU_CHANNEL_CAPACITY);
+        let (tpu_sender, tpu_receiver) = crossbeam_channel::bounded(Tpu::TPU_QUEUE_CAPACITY);
 
         // receiver tracked as fetch_stage-channel_stats.tpu_forwards_receiver-len
         let (tpu_forwards_sender, tpu_forwards_receiver) =
-            crossbeam_channel::bounded(Tpu::TPU_CHANNEL_CAPACITY);
+            crossbeam_channel::bounded(Tpu::TPU_QUEUE_CAPACITY);
         let stats = Arc::new(StreamStats::default());
 
         let tpu_quic_t = spawn_server(
@@ -110,7 +110,7 @@ impl Tpu {
 
         // receiver tracked in tpu-channel_stats.find_packet_sender_stake_receiver-len
         let (find_packet_sender_stake_sender, find_packet_sender_stake_receiver) =
-            crossbeam_channel::bounded(10_000);
+            crossbeam_channel::bounded(Self::TPU_QUEUE_CAPACITY);
         let find_packet_sender_stake_stage = FindPacketSenderStakeStage::new(
             tpu_receiver,
             find_packet_sender_stake_sender,
@@ -122,11 +122,13 @@ impl Tpu {
             Self::start_metrics_thread(exit.clone(), find_packet_sender_stake_receiver.clone());
 
         // receiver tracked as forwarder_metrics.verified_receiver-len
-        let (verified_sender, verified_receiver) = crossbeam_channel::bounded(1_000);
-        let sigverify_stage = {
-            let verifier = TransactionSigVerifier::new(verified_sender);
-            SigVerifyStage::new(find_packet_sender_stake_receiver, verifier, "tpu-verifier")
-        };
+        let (verified_sender, verified_receiver) =
+            crossbeam_channel::bounded(Self::TPU_QUEUE_CAPACITY);
+        let sigverify_stage = SigVerifyStage::new(
+            find_packet_sender_stake_receiver,
+            TransactionSigVerifier::new(verified_sender),
+            "tpu-verifier",
+        );
 
         (
             Tpu {

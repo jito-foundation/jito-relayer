@@ -291,7 +291,8 @@ fn main() {
     let leader_cache = LeaderScheduleCacheUpdater::new(&rpc_load_balancer, &exit);
 
     // receiver tracked as relayer_metrics.delay_packet_receiver_len
-    let (delay_packet_sender, delay_packet_receiver) = crossbeam_channel::bounded(50_000);
+    let (delay_packet_sender, delay_packet_receiver) =
+        crossbeam_channel::bounded(Tpu::TPU_QUEUE_CAPACITY);
 
     // NOTE: make sure the channel here isn't too big because it will get backed up
     // with packets when the block engine isn't connected
