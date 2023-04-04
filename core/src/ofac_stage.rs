@@ -155,9 +155,11 @@ fn is_ofac_address_in_lookup_table(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::{collections::HashSet, time::Duration};
 
+    use crossbeam_channel::unbounded;
     use dashmap::DashMap;
+    use solana_core::banking_stage::BankingPacketBatch;
     use solana_perf::packet::PacketBatch;
     use solana_sdk::{
         address_lookup_table_account::AddressLookupTableAccount,
@@ -173,6 +175,7 @@ mod tests {
 
     use crate::ofac_stage::{
         discard_ofac_packets, is_ofac_address_in_lookup_table, is_ofac_address_in_static_keys,
+        OfacStage,
     };
 
     #[test]
@@ -390,5 +393,150 @@ mod tests {
         assert_eq!(packet_batch.len(), 2);
         assert!(!packet_batch[0].meta.discard());
         assert!(packet_batch[1].meta.discard());
+    }
+
+    #[test]
+    fn test_ofac_stage_ofac_tx() {
+        let ofac_pubkey = Pubkey::new_unique();
+        let ofac_addresses: HashSet<Pubkey> = HashSet::from_iter([ofac_pubkey.clone()]);
+
+        let address_lookup_table_cache = DashMap::new();
+
+        let payer = Keypair::new();
+
+        let random_tx = Transaction::new_signed_with_payer(
+            &[Instruction::new_with_bytes(
+                Pubkey::new_unique(),
+                &[0],
+                vec![AccountMeta {
+                    pubkey: ofac_pubkey,
+                    is_signer: false,
+                    is_writable: false,
+                }],
+            )],
+            Some(&payer.pubkey()),
+            &[&payer],
+            Hash::default(),
+        );
+        let random_tx = VersionedTransaction::from(random_tx);
+        let random_packet = Packet::from_data(None, &random_tx).expect("can create packet");
+
+        let (tx_sender, tx_receiver) = unbounded();
+        let (ofac_sender, ofac_receiver) = unbounded();
+
+        let ofac_stage = OfacStage::new(
+            tx_receiver,
+            ofac_sender,
+            &ofac_addresses,
+            &address_lookup_table_cache,
+        );
+
+        tx_sender
+            .send((vec![PacketBatch::new(vec![random_packet])], None))
+            .unwrap();
+
+        let packets = ofac_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(packets.0.len(), 1);
+        assert_eq!(packets.0[0].len(), 1);
+        assert!(packets.0[0][0].meta.discard());
+
+        drop(tx_sender);
+        ofac_stage.join().unwrap();
+    }
+
+    #[test]
+    fn test_ofac_stage_non_ofac_tx() {
+        let ofac_pubkey = Pubkey::new_unique();
+        let ofac_addresses: HashSet<Pubkey> = HashSet::from_iter([ofac_pubkey.clone()]);
+
+        let address_lookup_table_cache = DashMap::new();
+
+        let payer = Keypair::new();
+
+        let random_tx = Transaction::new_signed_with_payer(
+            &[Instruction::new_with_bytes(
+                Pubkey::new_unique(),
+                &[0],
+                vec![AccountMeta {
+                    pubkey: Pubkey::new_unique(),
+                    is_signer: false,
+                    is_writable: false,
+                }],
+            )],
+            Some(&payer.pubkey()),
+            &[&payer],
+            Hash::default(),
+        );
+        let random_tx = VersionedTransaction::from(random_tx);
+        let random_packet = Packet::from_data(None, &random_tx).expect("can create packet");
+
+        let (tx_sender, tx_receiver) = unbounded();
+        let (ofac_sender, ofac_receiver) = unbounded();
+
+        let ofac_stage = OfacStage::new(
+            tx_receiver,
+            ofac_sender,
+            &ofac_addresses,
+            &address_lookup_table_cache,
+        );
+
+        tx_sender
+            .send((vec![PacketBatch::new(vec![random_packet])], None))
+            .unwrap();
+
+        let packets = ofac_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(packets.0.len(), 1);
+        assert_eq!(packets.0[0].len(), 1);
+        assert!(!packets.0[0][0].meta.discard());
+
+        drop(tx_sender);
+        ofac_stage.join().unwrap();
+    }
+
+    #[test]
+    fn test_ofac_stage_passthrough() {
+        let ofac_addresses: HashSet<Pubkey> = HashSet::new();
+        let address_lookup_table_cache = DashMap::new();
+
+        let payer = Keypair::new();
+
+        let random_tx = Transaction::new_signed_with_payer(
+            &[Instruction::new_with_bytes(
+                Pubkey::new_unique(),
+                &[0],
+                vec![AccountMeta {
+                    pubkey: Pubkey::new_unique(),
+                    is_signer: false,
+                    is_writable: false,
+                }],
+            )],
+            Some(&payer.pubkey()),
+            &[&payer],
+            Hash::default(),
+        );
+        let random_tx = VersionedTransaction::from(random_tx);
+        let random_packet = Packet::from_data(None, &random_tx).expect("can create packet");
+
+        let (tx_sender, tx_receiver) = unbounded();
+        let (ofac_sender, ofac_receiver) = unbounded();
+
+        let ofac_stage = OfacStage::new(
+            tx_receiver,
+            ofac_sender,
+            &ofac_addresses,
+            &address_lookup_table_cache,
+        );
+
+        tx_sender
+            .send((vec![PacketBatch::new(vec![random_packet])], None))
+            .unwrap();
+
+        let packets = ofac_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(packets.0.len(), 1);
+        assert_eq!(packets.0[0].len(), 1);
+        assert!(!packets.0[0][0].meta.discard());
+
+        drop(tx_sender);
+        ofac_stage.join().unwrap();
     }
 }
