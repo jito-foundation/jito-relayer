@@ -86,8 +86,7 @@ fn main() {
                     let metrics_interval = Duration::from_secs(5);
                     let mut last_blockhash_refresh = Instant::now();
                     let mut latest_blockhash = client.get_latest_blockhash().unwrap();
-                    let mut curr_txn_count = 0usize;
-                    let mut prev_txn_count = 0usize;
+                    let mut curr_txn_count = 0u64;
                     info!("sending packets on thread {thread_id}");
                     loop {
                         let now = Instant::now();
@@ -95,27 +94,30 @@ fn main() {
                         if elapsed > metrics_interval {
                             info!(
                                 "packets sent/s: {:.2}, {curr_txn_count} total",
-                                (curr_txn_count - prev_txn_count) as f64 / elapsed.as_secs_f64()
+                                curr_txn_count as f64 / elapsed.as_secs_f64()
                             );
-
                             last_blockhash_refresh = now;
                             latest_blockhash = client.get_latest_blockhash().unwrap();
-                            prev_txn_count = curr_txn_count;
-                            curr_txn_count = 0;
                         }
 
                         let serialized_txs: Vec<Vec<u8>> = (0..TXN_BATCH_SIZE)
                             .filter_map(|i| {
-                                serialize(&transfer(
+                                let txn = transfer(
                                     &keypair,
                                     &keypair.pubkey(),
-                                    curr_txn_count as u64 + i,
+                                    curr_txn_count + i,
                                     latest_blockhash,
-                                ))
-                                .ok()
+                                );
+                                println!(
+                                    "pubkey: {}, lamports: {}, signature: {:?}",
+                                    &keypair.pubkey(),
+                                    curr_txn_count + i,
+                                    &txn.signatures
+                                );
+                                serialize(&txn).ok()
                             })
                             .collect();
-                        curr_txn_count += serialized_txs.len();
+                        curr_txn_count += serialized_txs.len() as u64;
                         tpu_sender.send(serialized_txs);
                     }
                 })
