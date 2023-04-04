@@ -142,13 +142,8 @@ fn main() {
 }
 
 enum TpuSender {
-    CustomSender {
-        address: SocketAddr,
-        connection: quinn::Connection,
-    },
-    QuicSender {
-        client: QuicTpuConnection,
-    },
+    CustomSender { connection: quinn::Connection },
+    QuicSender { client: QuicTpuConnection },
 }
 
 impl TpuSender {
@@ -165,36 +160,32 @@ impl TpuSender {
                 ),
             }),
             Mode::Custom { send_socket } => {
-                let mut endpoint = quinn::Endpoint::client(client_addr())?;
+                let mut endpoint = quinn::Endpoint::client(send_socket)?;
 
                 // Connect to the server passing in the server name which is supposed to be in the server certificate.
                 let connection = endpoint.connect(dest_addr, SERVER_NAME)?.await?;
-                TpuSender::CustomSender {
-                    address: dest_addr,
-                    connection,
-                }
+                TpuSender::CustomSender { connection }
             }
         }
     }
-}
 
-fn send(&self, serialized_txs: Vec<Vec<u8>>) {
-    match self {
-        TpuSender::CustomSender {
-            address,
-            send_socket,
-        } => {
-            let _: Vec<io::Result<usize>> = serialized_txs
-                .iter()
-                .map(|tx| send_socket.send_to(tx, address))
-                .collect();
+    async fn send(&self, serialized_txs: Vec<Vec<u8>>) {
+        match self {
+            TpuSender::CustomSender {
+                address,
+                send_socket,
+            } => {
+                let _: Vec<io::Result<usize>> = serialized_txs
+                    .iter()
+                    .map(|tx| send_socket.send_to(tx, address))
+                    .collect();
+            }
+            TpuSender::QuicSender { client } => client
+                .send_wire_transaction_batch_async(serialized_txs)
+                .expect("quic send panic"),
         }
-        TpuSender::QuicSender { client } => client
-            .send_wire_transaction_batch_async(serialized_txs)
-            .expect("quic send panic"),
     }
 }
-
 #[allow(unused)]
 fn request_and_confirm_airdrop(
     client: &RpcClient,
