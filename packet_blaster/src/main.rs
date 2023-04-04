@@ -10,8 +10,9 @@ use std::{
 };
 
 use bincode::serialize;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use log::*;
+use once_cell::sync::Lazy;
 use solana_client::{
     client_error::{ClientError, ClientErrorKind},
     connection_cache::ConnectionCacheStats,
@@ -28,23 +29,31 @@ use solana_sdk::{
 };
 
 #[derive(Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = None)]
 struct Args {
     /// RPC address
-    #[clap(long, env, default_value = "http://127.0.0.1:8899")]
+    #[arg(long, env, default_value = "http://127.0.0.1:8899")]
     rpc_addr: String,
 
     /// Path to keypairs
-    #[clap(long, env)]
+    #[arg(long, env)]
     keypair_path: PathBuf,
 
     /// Socket address for relayer TPU
-    #[clap(long, env, default_value = "127.0.0.1:8009")]
+    #[arg(long, env, default_value = "127.0.0.1:8009")]
     tpu_addr: SocketAddr,
 
     /// Flag to use quic for relayer TPU
-    #[clap(long, env, default_value_t = true)]
-    use_quic: bool,
+    #[command(subcommand)]
+    connection_mode: Mode,
+}
+
+#[derive(clap::Subcommand, Debug, Clone)]
+enum Mode {
+    /// Solana Quic
+    Quic,
+    /// Custom Quinn client
+    Custom { send_socket: SocketAddr },
 }
 
 fn read_keypairs(path: PathBuf) -> io::Result<Vec<Keypair>> {
@@ -61,6 +70,7 @@ fn read_keypairs(path: PathBuf) -> io::Result<Vec<Keypair>> {
 }
 
 const TXN_BATCH_SIZE: u64 = 10;
+
 fn main() {
     env_logger::init();
 
@@ -79,10 +89,11 @@ fn main() {
         .enumerate()
         .map(|(thread_id, keypair)| {
             let client = Arc::new(RpcClient::new(&args.rpc_addr));
+            let connection_mode = args.connection_mode.clone();
             Builder::new()
                 .name(format!("packet-blaster-thread_{thread_id}"))
                 .spawn(move || {
-                    let tpu_sender = TpuSender::new(args.tpu_addr, &args.use_quic);
+                    let tpu_sender = TpuSender::new(args.tpu_addr, &connection_mode);
                     let metrics_interval = Duration::from_secs(5);
                     let mut last_blockhash_refresh = Instant::now();
                     let mut latest_blockhash = client.get_latest_blockhash().unwrap();
@@ -131,9 +142,9 @@ fn main() {
 }
 
 enum TpuSender {
-    UdpSender {
+    CustomSender {
         address: SocketAddr,
-        sock: UdpSocket,
+        connection: quinn::Connection,
     },
     QuicSender {
         client: QuicTpuConnection,
@@ -141,36 +152,46 @@ enum TpuSender {
 }
 
 impl TpuSender {
-    fn new(addr: SocketAddr, use_quic: &bool) -> TpuSender {
-        if *use_quic {
-            TpuSender::QuicSender {
+    async fn new(
+        dest_addr: SocketAddr,
+        connection_mode: &Mode,
+    ) -> Result<TpuSender, anyhow::Error> {
+        match connection_mode {
+            Mode::Quic => Ok(TpuSender::QuicSender {
                 client: QuicTpuConnection::new(
                     Arc::new(QuicLazyInitializedEndpoint::default()),
-                    addr,
+                    dest_addr,
                     Arc::new(ConnectionCacheStats::default()),
                 ),
-            }
-        } else {
-            TpuSender::UdpSender {
-                address: addr,
-                sock: UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0u16))
-                    .unwrap(),
+            }),
+            Mode::Custom { send_socket } => {
+                let mut endpoint = quinn::Endpoint::client(client_addr())?;
+
+                // Connect to the server passing in the server name which is supposed to be in the server certificate.
+                let connection = endpoint.connect(dest_addr, SERVER_NAME)?.await?;
+                TpuSender::CustomSender {
+                    address: dest_addr,
+                    connection,
+                }
             }
         }
     }
+}
 
-    fn send(&self, serialized_txs: Vec<Vec<u8>>) {
-        match self {
-            TpuSender::UdpSender { address, sock } => {
-                let _: Vec<io::Result<usize>> = serialized_txs
-                    .iter()
-                    .map(|tx| sock.send_to(tx, address))
-                    .collect();
-            }
-            TpuSender::QuicSender { client } => client
-                .send_wire_transaction_batch_async(serialized_txs)
-                .expect("quic send panic"),
+fn send(&self, serialized_txs: Vec<Vec<u8>>) {
+    match self {
+        TpuSender::CustomSender {
+            address,
+            send_socket,
+        } => {
+            let _: Vec<io::Result<usize>> = serialized_txs
+                .iter()
+                .map(|tx| send_socket.send_to(tx, address))
+                .collect();
         }
+        TpuSender::QuicSender { client } => client
+            .send_wire_transaction_batch_async(serialized_txs)
+            .expect("quic send panic"),
     }
 }
 
