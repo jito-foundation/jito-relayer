@@ -21,6 +21,7 @@ use solana_client::{
     tpu_connection::TpuConnection,
 };
 use solana_sdk::{
+    native_token::LAMPORTS_PER_SOL,
     pubkey::Pubkey,
     signature::{Keypair, Signature, Signer},
     system_transaction::transfer,
@@ -178,7 +179,7 @@ fn request_and_confirm_airdrop(
 ) -> solana_client::client_error::Result<()> {
     let sigs = pubkeys
         .iter()
-        .map(|pubkey| client.request_airdrop(pubkey, 100_000_000_000))
+        .map(|pubkey| client.request_airdrop(pubkey, 100 * LAMPORTS_PER_SOL))
         .collect::<solana_client::client_error::Result<Vec<Signature>>>()?;
 
     let now = Instant::now();
