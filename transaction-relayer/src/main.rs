@@ -186,6 +186,11 @@ struct Args {
     /// How frequently to refresh the address lookup table accounts
     #[arg(long, env, default_value_t = 30)]
     lookup_table_refresh_secs: u64,
+
+    /// Space-separated addresses to drop transactions for (OFAC)
+    /// If any transaction mentions these addresses, the transaction will be dropped.
+    #[arg(long, env)]
+    ofac_addresses: Option<String>,
 }
 
 #[derive(Debug)]
@@ -282,6 +287,16 @@ fn main() {
         .zip(args.websocket_servers.into_iter())
         .collect();
 
+    let ofac_addresses: HashSet<Pubkey> =
+        args.ofac_addresses
+            .map(|pubkeys| {
+                HashSet::from_iter(pubkeys.split(' ').map(|p| {
+                    Pubkey::from_str(p).expect(&format!("address {p} is not a valid pubkey"))
+                }))
+            })
+            .unwrap_or_default();
+    info!("ofac addresses: {:?}", ofac_addresses);
+
     let (rpc_load_balancer, slot_receiver) = LoadBalancer::new(&servers, &exit);
     let rpc_load_balancer = Arc::new(rpc_load_balancer);
 
@@ -302,6 +317,8 @@ fn main() {
         &sockets.tpu_ip,
         &sockets.tpu_fwd_ip,
         &rpc_load_balancer,
+        &ofac_addresses,
+        &address_lookup_table_cache,
     );
 
     let leader_cache = LeaderScheduleCacheUpdater::new(&rpc_load_balancer, &exit);

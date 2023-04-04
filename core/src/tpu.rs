@@ -2,6 +2,7 @@
 //! multi-stage transaction processing pipeline in software.
 
 use std::{
+    collections::HashSet,
     net::{IpAddr, UdpSocket},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -12,7 +13,8 @@ use std::{
     time::Duration,
 };
 
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{unbounded, Receiver};
+use dashmap::DashMap;
 use jito_rpc::load_balancer::LoadBalancer;
 use solana_core::{
     banking_stage::BankingPacketBatch, find_packet_sender_stake_stage::FindPacketSenderStakeStage,
@@ -20,13 +22,18 @@ use solana_core::{
 };
 use solana_metrics::datapoint_info;
 use solana_perf::packet::PacketBatch;
-use solana_sdk::signature::Keypair;
+use solana_sdk::{
+    address_lookup_table_account::AddressLookupTableAccount, pubkey::Pubkey, signature::Keypair,
+};
 use solana_streamer::{
     quic::{spawn_server, StreamStats, MAX_STAKED_CONNECTIONS, MAX_UNSTAKED_CONNECTIONS},
     streamer::StakedNodes,
 };
 
-use crate::{fetch_stage::FetchStage, staked_nodes_updater_service::StakedNodesUpdaterService};
+use crate::{
+    fetch_stage::FetchStage, ofac_stage::OfacStage,
+    staked_nodes_updater_service::StakedNodesUpdaterService,
+};
 
 pub const DEFAULT_TPU_COALESCE_MS: u64 = 5;
 
@@ -45,6 +52,7 @@ pub struct Tpu {
     find_packet_sender_stake_stage: FindPacketSenderStakeStage,
     sigverify_stage: SigVerifyStage,
     thread_handles: Vec<JoinHandle<()>>,
+    ofac_stage: OfacStage,
 }
 
 impl Tpu {
@@ -57,6 +65,8 @@ impl Tpu {
         tpu_ip: &IpAddr,
         tpu_fwd_ip: &IpAddr,
         rpc_load_balancer: &Arc<LoadBalancer>,
+        ofac_addresses: &HashSet<Pubkey>,
+        address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
     ) -> (Self, Receiver<BankingPacketBatch>) {
         let TpuSockets {
             transactions_quic_sockets,
@@ -130,6 +140,14 @@ impl Tpu {
             "tpu-verifier",
         );
 
+        let (ofac_sender, ofac_receiver) = unbounded();
+        let ofac_stage = OfacStage::new(
+            verified_receiver,
+            ofac_sender,
+            ofac_addresses,
+            address_lookup_table_cache,
+        );
+
         (
             Tpu {
                 fetch_stage,
@@ -137,8 +155,9 @@ impl Tpu {
                 find_packet_sender_stake_stage,
                 sigverify_stage,
                 thread_handles: vec![tpu_quic_t, tpu_forwards_quic_t, metrics_t],
+                ofac_stage,
             },
-            verified_receiver,
+            ofac_receiver,
         )
     }
 
@@ -179,6 +198,7 @@ impl Tpu {
         for t in self.thread_handles {
             t.join()?
         }
+        self.ofac_stage.join()?;
         Ok(())
     }
 }
