@@ -71,6 +71,41 @@ fn read_keypairs(path: PathBuf) -> io::Result<Vec<Keypair>> {
 
 const TXN_BATCH_SIZE: u64 = 10;
 
+// binds many localhost sockets
+pub fn multi_bind_local(
+    num: usize,
+) -> io::Result<Vec<UdpSocket>> {
+    let mut sockets = Vec::with_capacity(num);
+
+    const NUM_TRIES: usize = 100;
+    let mut port = 0;
+    let mut error = None;
+    for _ in 0..NUM_TRIES {
+        port = {
+            let (port, _) = solana_net_utils::bind_in_range(ip_addr, range)?;
+            port
+        }; // drop the probe, port should be available... briefly.
+
+        for _ in 0..num {
+            let sock = solana_net_utils::bind_to(ip_addr, port, true);
+            if let Ok(sock) = sock {
+                sockets.push(sock);
+            } else {
+                error = Some(sock);
+                break;
+            }
+        }
+        if sockets.len() == num {
+            break;
+        } else {
+            sockets.clear();
+        }
+    }
+    if sockets.len() != num {
+        error.unwrap()?;
+    }
+    Ok( sockets)
+}
 fn main() {
     env_logger::init();
 
@@ -83,7 +118,10 @@ fn main() {
         "Packet blaster going to send with {} pubkeys: {pubkeys:?}",
         pubkeys.len()
     );
-
+    let (_, client_socket) = solana_net_utils::multi_bind_in_range(
+        IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+        VALIDATOR_PORT_RANGE,
+    )
     let threads: Vec<_> = keypairs
         .into_iter()
         .enumerate()

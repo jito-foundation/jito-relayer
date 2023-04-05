@@ -12,5 +12,6 @@ log = "0.4.17"
 quinn = "0.9"
 solana-client = "=1.14.13"
 solana-perf = "=1.14.13"
+solana-net-utils = "=1.14.13"
 solana-sdk = "=1.14.13"
 tokio = { version = "~1.14.1", features = ["rt-multi-thread"] }
