@@ -10,9 +10,10 @@ use std::{
 };
 
 use bincode::serialize;
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use log::*;
 use once_cell::sync::Lazy;
+use quinn::WriteError;
 use solana_client::{
     client_error::{ClientError, ClientErrorKind},
     connection_cache::ConnectionCacheStats,
@@ -53,7 +54,7 @@ enum Mode {
     /// Solana Quic
     Quic,
     /// Custom Quinn client
-    Custom { send_socket: SocketAddr },
+    Custom,
 }
 
 fn read_keypairs(path: PathBuf) -> io::Result<Vec<Keypair>> {
@@ -72,40 +73,40 @@ fn read_keypairs(path: PathBuf) -> io::Result<Vec<Keypair>> {
 const TXN_BATCH_SIZE: u64 = 10;
 
 // binds many localhost sockets
-pub fn multi_bind_local(
-    num: usize,
-) -> io::Result<Vec<UdpSocket>> {
-    let mut sockets = Vec::with_capacity(num);
-
+pub fn multi_bind_local(num: u32, port: u16) -> io::Result<Vec<UdpSocket>> {
     const NUM_TRIES: usize = 100;
-    let mut port = 0;
-    let mut error = None;
     for _ in 0..NUM_TRIES {
-        port = {
-            let (port, _) = solana_net_utils::bind_in_range(ip_addr, range)?;
-            port
-        }; // drop the probe, port should be available... briefly.
-
-        for _ in 0..num {
-            let sock = solana_net_utils::bind_to(ip_addr, port, true);
-            if let Ok(sock) = sock {
-                sockets.push(sock);
-            } else {
-                error = Some(sock);
-                break;
-            }
-        }
-        if sockets.len() == num {
-            break;
-        } else {
-            sockets.clear();
+        let sockets = (1..=num)
+            .filter_map(|i| {
+                let ip: [u8; 4] = i.to_be_bytes();
+                let socket_addr = (IpAddr::V4(Ipv4Addr::new(127, ip[1], ip[2], ip[3])), port);
+                UdpSocket::bind(socket_addr).ok()
+            })
+            .collect::<Vec<UdpSocket>>();
+        if sockets.len() as u32 == num {
+            return Ok(sockets);
         }
     }
-    if sockets.len() != num {
-        error.unwrap()?;
-    }
-    Ok( sockets)
+    Err(io::Error::from(io::ErrorKind::AddrNotAvailable))
 }
+
+// binds many localhost sockets
+pub fn multi_local_socket_addr(num: u32, port: u16) -> Vec<SocketAddr> {
+    (1..=num)
+        .map(|i| {
+            let ip: [u8; 4] = i.to_be_bytes();
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, ip[1], ip[2], ip[3])), port)
+        })
+        .collect::<Vec<SocketAddr>>()
+}
+
+static RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+});
+
 fn main() {
     env_logger::init();
 
@@ -118,20 +119,20 @@ fn main() {
         "Packet blaster going to send with {} pubkeys: {pubkeys:?}",
         pubkeys.len()
     );
-    let (_, client_socket) = solana_net_utils::multi_bind_in_range(
-        IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-        VALIDATOR_PORT_RANGE,
-    )
+    let send_socket_addrs = multi_local_socket_addr(keypairs.len() as u32, 60000);
     let threads: Vec<_> = keypairs
         .into_iter()
+        .zip(send_socket_addrs)
         .enumerate()
-        .map(|(thread_id, keypair)| {
+        .map(|(thread_id, (keypair, socket_addr))| {
             let client = Arc::new(RpcClient::new(&args.rpc_addr));
             let connection_mode = args.connection_mode.clone();
             Builder::new()
                 .name(format!("packet-blaster-thread_{thread_id}"))
                 .spawn(move || {
-                    let tpu_sender = TpuSender::new(args.tpu_addr, &connection_mode);
+                    let tpu_sender = RUNTIME
+                        .block_on(TpuSender::new(socket_addr, args.tpu_addr, &connection_mode))
+                        .unwrap();
                     let metrics_interval = Duration::from_secs(5);
                     let mut last_blockhash_refresh = Instant::now();
                     let mut latest_blockhash = client.get_latest_blockhash().unwrap();
@@ -167,7 +168,7 @@ fn main() {
                             })
                             .collect();
                         curr_txn_count += serialized_txs.len() as u64;
-                        tpu_sender.send(serialized_txs);
+                        RUNTIME.block_on(tpu_sender.send(serialized_txs)).unwrap();
                     }
                 })
                 .unwrap()
@@ -186,6 +187,7 @@ enum TpuSender {
 
 impl TpuSender {
     async fn new(
+        send_addr: SocketAddr,
         dest_addr: SocketAddr,
         connection_mode: &Mode,
     ) -> Result<TpuSender, anyhow::Error> {
@@ -197,33 +199,46 @@ impl TpuSender {
                     Arc::new(ConnectionCacheStats::default()),
                 ),
             }),
-            Mode::Custom { send_socket } => {
-                let mut endpoint = quinn::Endpoint::client(send_socket)?;
+            Mode::Custom => {
+                let endpoint = quinn::Endpoint::client(send_addr)?;
 
                 // Connect to the server passing in the server name which is supposed to be in the server certificate.
-                let connection = endpoint.connect(dest_addr, SERVER_NAME)?.await?;
-                TpuSender::CustomSender { connection }
+                let connection = endpoint.connect(dest_addr, "connect")?.await?;
+                Ok(TpuSender::CustomSender { connection })
             }
         }
     }
 
-    async fn send(&self, serialized_txs: Vec<Vec<u8>>) {
+    async fn send(&self, serialized_txs: Vec<Vec<u8>>) -> Result<(), anyhow::Error> {
         match self {
-            TpuSender::CustomSender {
-                address,
-                send_socket,
-            } => {
-                let _: Vec<io::Result<usize>> = serialized_txs
-                    .iter()
-                    .map(|tx| send_socket.send_to(tx, address))
-                    .collect();
+            TpuSender::CustomSender { connection } => {
+                let futures = serialized_txs
+                    .into_iter()
+                    .map(|buf| async move {
+                        let mut send_stream = connection.open_uni().await?;
+                        send_stream.write_all(&buf).await?;
+                        send_stream.finish().await?;
+                        Ok::<(), WriteError>(())
+                    })
+                    .collect::<Vec<_>>();
+
+                let results: Vec<Result<(), WriteError>> =
+                    futures_util::future::join_all(futures).await;
+                for result in results {
+                    if let Err(e) = result {
+                        return Err(e.into());
+                    }
+                }
+                Ok(())
             }
-            TpuSender::QuicSender { client } => client
-                .send_wire_transaction_batch_async(serialized_txs)
-                .expect("quic send panic"),
+            TpuSender::QuicSender { client } => {
+                client.send_wire_transaction_batch_async(serialized_txs)?;
+                Ok(())
+            }
         }
     }
 }
+
 #[allow(unused)]
 fn request_and_confirm_airdrop(
     client: &RpcClient,
