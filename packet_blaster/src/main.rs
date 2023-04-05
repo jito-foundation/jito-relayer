@@ -35,7 +35,7 @@ struct Args {
     #[arg(long, env, default_value = "http://127.0.0.1:8899")]
     rpc_addr: String,
 
-    /// Path to keypairs
+    /// Path to signer+payer keypairs
     #[arg(long, env)]
     keypair_path: PathBuf,
 
@@ -43,7 +43,7 @@ struct Args {
     #[arg(long, env, default_value = "127.0.0.1:8009")]
     tpu_addr: SocketAddr,
 
-    /// Flag to use quic for relayer TPU
+    /// Method of connecting to solana TPU
     #[command(subcommand)]
     connection_mode: Mode,
 }
@@ -52,10 +52,12 @@ struct Args {
 enum Mode {
     /// Solana Quic
     Quic,
+
     /// Custom Quinn client
     Custom {
         /// Only works from localhost relative to relayer.
         /// Creates many 127.x.x.x addresses to overwhelm relayer.
+        #[arg(long, env)]
         spam_from_localhost: bool,
     },
 }
