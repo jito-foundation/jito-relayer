@@ -2262,10 +2262,12 @@ dependencies = [
  "log",
  "once_cell",
  "quinn 0.9.3",
+ "rustls 0.20.8",
  "solana-client",
  "solana-net-utils",
  "solana-perf",
  "solana-sdk",
+ "solana-streamer",
  "tokio",
 ]
 

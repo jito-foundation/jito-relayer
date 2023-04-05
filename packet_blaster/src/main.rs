@@ -13,7 +13,6 @@ use bincode::serialize;
 use clap::Parser;
 use log::*;
 use once_cell::sync::Lazy;
-use quinn::WriteError;
 use solana_client::{
     client_error::{ClientError, ClientErrorKind},
     connection_cache::ConnectionCacheStats,
@@ -54,7 +53,11 @@ enum Mode {
     /// Solana Quic
     Quic,
     /// Custom Quinn client
-    Custom,
+    Custom {
+        /// Only works from localhost relative to relayer.
+        /// Creates many 127.x.x.x addresses to overwhelm relayer.
+        spam_from_localhost: bool,
+    },
 }
 
 fn read_keypairs(path: PathBuf) -> io::Result<Vec<Keypair>> {
@@ -90,14 +93,13 @@ pub fn multi_bind_local(num: u32, port: u16) -> io::Result<Vec<UdpSocket>> {
     Err(io::Error::from(io::ErrorKind::AddrNotAvailable))
 }
 
-// binds many localhost sockets
-pub fn multi_local_socket_addr(num: u32, port: u16) -> Vec<SocketAddr> {
-    (1..=num)
-        .map(|i| {
-            let ip: [u8; 4] = i.to_be_bytes();
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, ip[1], ip[2], ip[3])), port)
-        })
-        .collect::<Vec<SocketAddr>>()
+/// Generates many localhost sockets
+pub fn local_socket_addr(thread_id: usize, port: u16, spam_from_localhost: bool) -> SocketAddr {
+    let ip: [u8; 4] = (thread_id as u32).to_be_bytes();
+    match spam_from_localhost {
+        true => SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, ip[1], ip[2], ip[3])), port),
+        false => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port + thread_id as u16), /* for sending from remote machine */
+    }
 }
 
 static RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
@@ -119,19 +121,17 @@ fn main() {
         "Packet blaster going to send with {} pubkeys: {pubkeys:?}",
         pubkeys.len()
     );
-    let send_socket_addrs = multi_local_socket_addr(keypairs.len() as u32, 60000);
     let threads: Vec<_> = keypairs
         .into_iter()
-        .zip(send_socket_addrs)
         .enumerate()
-        .map(|(thread_id, (keypair, socket_addr))| {
+        .map(|(thread_id, keypair)| {
             let client = Arc::new(RpcClient::new(&args.rpc_addr));
             let connection_mode = args.connection_mode.clone();
             Builder::new()
                 .name(format!("packet-blaster-thread_{thread_id}"))
                 .spawn(move || {
                     let tpu_sender = RUNTIME
-                        .block_on(TpuSender::new(socket_addr, args.tpu_addr, &connection_mode))
+                        .block_on(TpuSender::new(args.tpu_addr, &connection_mode, thread_id))
                         .unwrap();
                     let metrics_interval = Duration::from_secs(5);
                     let mut last_blockhash_refresh = Instant::now();
@@ -185,11 +185,67 @@ enum TpuSender {
     QuicSender { client: QuicTpuConnection },
 }
 
+// taken from https://github.com/solana-labs/solana/blob/527e2d4f59c6429a4a959d279738c872b97e56b5/client/src/nonblocking/quic_client.rs#L42
+struct SkipServerVerification;
+impl SkipServerVerification {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self)
+    }
+}
+impl rustls::client::ServerCertVerifier for SkipServerVerification {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::Certificate,
+        _intermediates: &[rustls::Certificate],
+        _server_name: &rustls::ServerName,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
+        _ocsp_response: &[u8],
+        _now: std::time::SystemTime,
+    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::ServerCertVerified::assertion())
+    }
+}
+
 impl TpuSender {
+    // source taken from https://github.com/solana-labs/solana/blob/527e2d4f59c6429a4a959d279738c872b97e56b5/client/src/nonblocking/quic_client.rs#L93
+    // original code doesn't allow specifying source socket
+    fn create_endpoint(send_addr: SocketAddr) -> quinn::Endpoint {
+        let (certs, priv_key) =
+            solana_streamer::tls_certificates::new_self_signed_tls_certificate_chain(
+                &Keypair::new(),
+                send_addr.ip(),
+            )
+            .expect("Failed to create QUIC client certificate");
+        let mut crypto = rustls::ClientConfig::builder()
+            .with_safe_defaults()
+            .with_custom_certificate_verifier(SkipServerVerification::new())
+            .with_single_cert(certs, priv_key)
+            .expect("Failed to set QUIC client certificates");
+        crypto.enable_early_data = true;
+        crypto.alpn_protocols =
+            vec![solana_streamer::nonblocking::quic::ALPN_TPU_PROTOCOL_ID.to_vec()];
+
+        let mut endpoint = quinn::Endpoint::client(send_addr).unwrap();
+        let mut config = quinn::ClientConfig::new(Arc::new(crypto));
+
+        let mut transport_config = quinn::TransportConfig::default();
+        let timeout = quinn::IdleTimeout::from(quinn::VarInt::from_u32(
+            solana_sdk::quic::QUIC_MAX_TIMEOUT_MS,
+        ));
+        transport_config.max_idle_timeout(Some(timeout));
+        transport_config.keep_alive_interval(Some(Duration::from_millis(
+            solana_sdk::quic::QUIC_KEEP_ALIVE_MS,
+        )));
+        config.transport_config(Arc::new(transport_config));
+
+        endpoint.set_default_client_config(config);
+        endpoint
+    }
+
     async fn new(
-        send_addr: SocketAddr,
         dest_addr: SocketAddr,
         connection_mode: &Mode,
+        thread_id: usize,
     ) -> Result<TpuSender, anyhow::Error> {
         match connection_mode {
             Mode::Quic => Ok(TpuSender::QuicSender {
@@ -199,9 +255,11 @@ impl TpuSender {
                     Arc::new(ConnectionCacheStats::default()),
                 ),
             }),
-            Mode::Custom => {
-                let endpoint = quinn::Endpoint::client(send_addr)?;
-
+            Mode::Custom {
+                spam_from_localhost,
+            } => {
+                let send_socket_addr = local_socket_addr(thread_id, 60000, *spam_from_localhost);
+                let endpoint = Self::create_endpoint(send_socket_addr);
                 // Connect to the server passing in the server name which is supposed to be in the server certificate.
                 let connection = endpoint.connect(dest_addr, "connect")?.await?;
                 Ok(TpuSender::CustomSender { connection })
@@ -218,11 +276,11 @@ impl TpuSender {
                         let mut send_stream = connection.open_uni().await?;
                         send_stream.write_all(&buf).await?;
                         send_stream.finish().await?;
-                        Ok::<(), WriteError>(())
+                        Ok::<(), quinn::WriteError>(())
                     })
                     .collect::<Vec<_>>();
 
-                let results: Vec<Result<(), WriteError>> =
+                let results: Vec<Result<(), quinn::WriteError>> =
                     futures_util::future::join_all(futures).await;
                 for result in results {
                     if let Err(e) = result {
