@@ -171,7 +171,7 @@ fn main() {
                             latest_blockhash = client.get_latest_blockhash().unwrap();
                         }
 
-                        let serialized_txs: Vec<Vec<u8>> = (0..TXN_BATCH_SIZE)
+                        let serialized_txns: Vec<Vec<u8>> = (0..TXN_BATCH_SIZE)
                             .filter_map(|i| {
                                 let txn = transfer(
                                     &keypair,
@@ -188,8 +188,10 @@ fn main() {
                                 serialize(&txn).ok()
                             })
                             .collect();
-                        curr_txn_count += serialized_txs.len() as u64;
-                        RUNTIME.block_on(tpu_sender.send(serialized_txs)).unwrap();
+                        curr_txn_count += serialized_txns.len() as u64;
+                        if let Err(e) = RUNTIME.block_on(tpu_sender.send(serialized_txns)) {
+                            warn!("Failed to send, err: {e}")
+                        }
                         thread::sleep(Duration::from_micros(args.loop_sleep_micros))
                     }
                 })
@@ -308,10 +310,10 @@ impl TpuSender {
         }
     }
 
-    async fn send(&self, serialized_txs: Vec<Vec<u8>>) -> Result<(), PacketBlasterError> {
+    async fn send(&self, serialized_txns: Vec<Vec<u8>>) -> Result<(), PacketBlasterError> {
         match self {
             TpuSender::CustomSender { connection } => {
-                let futures = serialized_txs
+                let futures = serialized_txns
                     .into_iter()
                     .map(|buf| async move {
                         let mut send_stream = connection.open_uni().await?;
@@ -331,7 +333,7 @@ impl TpuSender {
                 Ok(())
             }
             TpuSender::QuicSender { client } => {
-                client.send_wire_transaction_batch_async(serialized_txs)?;
+                client.send_wire_transaction_batch_async(serialized_txns)?;
                 Ok(())
             }
         }
