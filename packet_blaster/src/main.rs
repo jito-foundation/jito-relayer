@@ -164,7 +164,7 @@ fn main() {
                         let elapsed = now.sub(last_blockhash_refresh);
                         if elapsed > metrics_interval {
                             info!(
-                                "packets sent/s: {:.2}, {curr_txn_count} total",
+                                "thread {thread_id} packets/sec: {:.2}, {curr_txn_count} total",
                                 curr_txn_count as f64 / elapsed.as_secs_f64()
                             );
                             last_blockhash_refresh = now;
