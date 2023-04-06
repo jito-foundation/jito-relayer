@@ -104,9 +104,10 @@ pub fn multi_bind_local(num: u32, port: u16) -> io::Result<Vec<UdpSocket>> {
 /// Generates many localhost sockets
 pub fn local_socket_addr(thread_id: usize, port: u16, spam_from_localhost: bool) -> SocketAddr {
     let ip: [u8; 4] = (thread_id as u32).to_be_bytes();
+    let port = port + thread_id as u16;
     match spam_from_localhost {
         true => SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, ip[1], ip[2], ip[3])), port),
-        false => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port + thread_id as u16), /* for sending from remote machine */
+        false => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port), /* for sending from remote machine */
     }
 }
 
