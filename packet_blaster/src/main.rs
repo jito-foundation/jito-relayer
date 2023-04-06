@@ -158,6 +158,7 @@ fn main() {
                     let metrics_interval = Duration::from_secs(5);
                     let mut last_blockhash_refresh = Instant::now();
                     let mut latest_blockhash = client.get_latest_blockhash().unwrap();
+                    let mut cumm_txn_count = 0u64;
                     let mut curr_txn_count = 0u64;
                     let mut curr_fail_send_count = 0u64;
                     loop {
@@ -165,33 +166,38 @@ fn main() {
                         let elapsed = now.sub(last_blockhash_refresh);
                         if elapsed > metrics_interval {
                             info!(
-                                "thread {thread_id} packets/sec: {:.2}, failed: {curr_fail_send_count}, total: {curr_txn_count}",
-                                curr_txn_count as f64 / elapsed.as_secs_f64()
+                                "thread {thread_id} packets/sec: {:.2}, failed: {curr_fail_send_count}, total: {}",
+                                (curr_txn_count) as f64 / elapsed.as_secs_f64(),
+                                curr_txn_count + cumm_txn_count
                             );
                             last_blockhash_refresh = now;
+
+                            cumm_txn_count += curr_txn_count;
+                            curr_txn_count = 0;
                             curr_fail_send_count = 0;
                             latest_blockhash = client.get_latest_blockhash().unwrap();
                         }
 
                         let serialized_txns: Vec<Vec<u8>> = (0..TXN_BATCH_SIZE)
                             .filter_map(|i| {
+                                let lamports = cumm_txn_count + curr_txn_count + i;
                                 let txn = transfer(
                                     &keypair,
                                     &keypair.pubkey(),
-                                    curr_txn_count + i,
+                                    lamports,
                                     latest_blockhash,
                                 );
                                 debug!(
                                     "pubkey: {}, lamports: {}, signature: {:?}",
                                     &keypair.pubkey(),
-                                    curr_txn_count + i,
+                                    lamports,
                                     &txn.signatures
                                 );
                                 serialize(&txn).ok()
                             })
                             .collect();
                         curr_txn_count += serialized_txns.len() as u64;
-                        if let Err(e) = RUNTIME.block_on(tpu_sender.send(serialized_txns)) {
+                        if let Err(_e) = RUNTIME.block_on(tpu_sender.send(serialized_txns)) {
                             curr_fail_send_count += 1;
                         }
 
@@ -273,7 +279,7 @@ impl TpuSender {
 
         let mut transport_config = quinn::TransportConfig::default();
         let timeout = quinn::IdleTimeout::from(quinn::VarInt::from_u32(
-            solana_sdk::quic::QUIC_MAX_TIMEOUT_MS,
+            solana_sdk::quic::QUIC_MAX_TIMEOUT_MS * 100, /* Hack for when relayer is backed up and not accepting connections */
         ));
         transport_config.max_idle_timeout(Some(timeout));
         transport_config.keep_alive_interval(Some(Duration::from_millis(
