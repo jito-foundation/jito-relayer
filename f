@@ -18,6 +18,6 @@ DOCKER_BUILDKIT=1 docker build -t jitolabs/jito-transaction-relayer . --progress
 docker rm temp || true
 docker container create --name temp jitolabs/jito-transaction-relayer
 mkdir -p "$SCRIPT_DIR"/docker-output
-# Outputs the solana-validator binary to $SOLANA/docker-output/solana-validator
-docker container cp temp:/home/root/app/ "$SCRIPT_DIR"
+# Outputs the binaries
+docker container cp temp:/app "$SCRIPT_DIR"
 docker rm temp
