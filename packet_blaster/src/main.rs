@@ -159,15 +159,17 @@ fn main() {
                     let mut last_blockhash_refresh = Instant::now();
                     let mut latest_blockhash = client.get_latest_blockhash().unwrap();
                     let mut curr_txn_count = 0u64;
+                    let mut curr_fail_send_count = 0u64;
                     loop {
                         let now = Instant::now();
                         let elapsed = now.sub(last_blockhash_refresh);
                         if elapsed > metrics_interval {
                             info!(
-                                "thread {thread_id} packets/sec: {:.2}, {curr_txn_count} total",
+                                "thread {thread_id} packets/sec: {:.2}, failed: {curr_fail_send_count}, total: {curr_txn_count}",
                                 curr_txn_count as f64 / elapsed.as_secs_f64()
                             );
                             last_blockhash_refresh = now;
+                            curr_fail_send_count = 0;
                             latest_blockhash = client.get_latest_blockhash().unwrap();
                         }
 
@@ -190,7 +192,7 @@ fn main() {
                             .collect();
                         curr_txn_count += serialized_txns.len() as u64;
                         if let Err(e) = RUNTIME.block_on(tpu_sender.send(serialized_txns)) {
-                            warn!("Failed to send on thread {thread_id}, err: {e}")
+                            curr_fail_send_count += 1;
                         }
 
                         if let Some(dur) = args.loop_sleep_micros {
