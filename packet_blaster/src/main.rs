@@ -190,7 +190,7 @@ fn main() {
                             .collect();
                         curr_txn_count += serialized_txns.len() as u64;
                         if let Err(e) = RUNTIME.block_on(tpu_sender.send(serialized_txns)) {
-                            warn!("Failed to send, err: {e}")
+                            warn!("Failed to send on thread {thread_id}, err: {e}")
                         }
                         thread::sleep(Duration::from_micros(args.loop_sleep_micros))
                     }
