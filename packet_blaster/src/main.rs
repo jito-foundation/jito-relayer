@@ -47,7 +47,7 @@ struct Args {
 
     /// Interval between sending packets on a given thread
     #[arg(long, env, default_value_t = 0)]
-    packet_send_delay_micros: u64,
+    loop_sleep_micros: u64,
 
     /// Method of connecting to Solana TPU
     #[command(subcommand)]
@@ -190,7 +190,7 @@ fn main() {
                             .collect();
                         curr_txn_count += serialized_txs.len() as u64;
                         RUNTIME.block_on(tpu_sender.send(serialized_txs)).unwrap();
-                        thread::sleep(Duration::from_micros(args.packet_send_delay_micros))
+                        thread::sleep(Duration::from_micros(args.loop_sleep_micros))
                     }
                 })
                 .unwrap()
