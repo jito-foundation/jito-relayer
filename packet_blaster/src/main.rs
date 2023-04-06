@@ -179,7 +179,7 @@ fn main() {
                                     curr_txn_count + i,
                                     latest_blockhash,
                                 );
-                                println!(
+                                debug!(
                                     "pubkey: {}, lamports: {}, signature: {:?}",
                                     &keypair.pubkey(),
                                     curr_txn_count + i,
