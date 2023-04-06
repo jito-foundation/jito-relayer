@@ -5,6 +5,7 @@ use std::{
     ops::Sub,
     path::PathBuf,
     sync::Arc,
+    thread,
     thread::Builder,
     time::{Duration, Instant},
 };
@@ -13,6 +14,7 @@ use bincode::serialize;
 use clap::Parser;
 use log::*;
 use once_cell::sync::Lazy;
+use rand::Rng;
 use solana_client::{
     client_error::{ClientError, ClientErrorKind},
     connection_cache::ConnectionCacheStats,
@@ -43,7 +45,11 @@ struct Args {
     #[arg(long, env, default_value = "127.0.0.1:8009")]
     tpu_addr: SocketAddr,
 
-    /// Method of connecting to solana TPU
+    /// Interval between sending packets on a given thread
+    #[arg(long, env, default_value_t = 0)]
+    packet_send_delay_micros: u64,
+
+    /// Method of connecting to Solana TPU
     #[command(subcommand)]
     connection_mode: Mode,
 }
@@ -81,7 +87,7 @@ const TXN_BATCH_SIZE: u64 = 10;
 pub fn multi_bind_local(num: u32, port: u16) -> io::Result<Vec<UdpSocket>> {
     const NUM_TRIES: usize = 100;
     for _ in 0..NUM_TRIES {
-        let sockets = (1..=num)
+        let sockets = (2..=num + 1)
             .filter_map(|i| {
                 let ip: [u8; 4] = i.to_be_bytes();
                 let socket_addr = (IpAddr::V4(Ipv4Addr::new(127, ip[1], ip[2], ip[3])), port);
@@ -118,11 +124,19 @@ fn main() {
     dbg!(&args);
 
     let keypairs = read_keypairs(args.keypair_path).expect("Failed to prepare keypairs");
-    let pubkeys: Vec<_> = keypairs.iter().map(|kp| kp.pubkey()).collect();
+    let pubkeys = keypairs
+        .iter()
+        .map(|kp| kp.pubkey())
+        .collect::<Vec<Pubkey>>();
+    let mut rng = rand::thread_rng();
+    let starting_port = rng.gen_range(1024..65535) as u16;
     info!(
-        "Packet blaster going to send with {} pubkeys: {pubkeys:?}",
+        "Packet blaster will send on port {}..={} with {} pubkeys: {pubkeys:?}",
+        starting_port,
+        starting_port - 1 + pubkeys.len() as u16,
         pubkeys.len()
     );
+
     let threads: Vec<_> = keypairs
         .into_iter()
         .enumerate()
@@ -130,10 +144,15 @@ fn main() {
             let client = Arc::new(RpcClient::new(&args.rpc_addr));
             let connection_mode = args.connection_mode.clone();
             Builder::new()
-                .name(format!("packet-blaster-thread_{thread_id}"))
+                .name(format!("packet_blaster-thread_{thread_id}"))
                 .spawn(move || {
                     let tpu_sender = RUNTIME
-                        .block_on(TpuSender::new(args.tpu_addr, &connection_mode, thread_id))
+                        .block_on(TpuSender::new(
+                            args.tpu_addr,
+                            starting_port,
+                            &connection_mode,
+                            thread_id,
+                        ))
                         .unwrap();
                     let metrics_interval = Duration::from_secs(5);
                     let mut last_blockhash_refresh = Instant::now();
@@ -171,6 +190,7 @@ fn main() {
                             .collect();
                         curr_txn_count += serialized_txs.len() as u64;
                         RUNTIME.block_on(tpu_sender.send(serialized_txs)).unwrap();
+                        thread::sleep(Duration::from_micros(args.packet_send_delay_micros))
                     }
                 })
                 .unwrap()
@@ -246,6 +266,7 @@ impl TpuSender {
 
     async fn new(
         dest_addr: SocketAddr,
+        port: u16,
         connection_mode: &Mode,
         thread_id: usize,
     ) -> Result<TpuSender, anyhow::Error> {
@@ -260,7 +281,7 @@ impl TpuSender {
             Mode::Custom {
                 spam_from_localhost,
             } => {
-                let send_socket_addr = local_socket_addr(thread_id, 60000, *spam_from_localhost);
+                let send_socket_addr = local_socket_addr(thread_id, port, *spam_from_localhost);
                 let endpoint = Self::create_endpoint(send_socket_addr);
                 // Connect to the server passing in the server name which is supposed to be in the server certificate.
                 let connection = endpoint.connect(dest_addr, "connect")?.await?;
