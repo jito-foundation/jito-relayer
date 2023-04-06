@@ -301,7 +301,8 @@ impl TpuSender {
                 let connection = endpoint
                     .connect(dest_addr, "connect")?
                     .await
-                    .map_err(|x| PacketBlasterError::ConnectionError(x))?;
+                    .map_err(PacketBlasterError::ConnectionError)?;
+                info!("Listening on {send_socket_addr:?}");
                 Ok(TpuSender::CustomSender { connection })
             }
         }
