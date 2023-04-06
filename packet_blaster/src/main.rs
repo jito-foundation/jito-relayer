@@ -158,7 +158,6 @@ fn main() {
                     let mut last_blockhash_refresh = Instant::now();
                     let mut latest_blockhash = client.get_latest_blockhash().unwrap();
                     let mut curr_txn_count = 0u64;
-                    info!("sending packets on thread {thread_id}");
                     loop {
                         let now = Instant::now();
                         let elapsed = now.sub(last_blockhash_refresh);
@@ -302,7 +301,7 @@ impl TpuSender {
                     .connect(dest_addr, "connect")?
                     .await
                     .map_err(PacketBlasterError::ConnectionError)?;
-                info!("Listening on {send_socket_addr:?}");
+                info!("Sending thread {thread_id} on {send_socket_addr:?}");
                 Ok(TpuSender::CustomSender { connection })
             }
         }
