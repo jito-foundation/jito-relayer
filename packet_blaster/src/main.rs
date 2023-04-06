@@ -46,8 +46,8 @@ struct Args {
     tpu_addr: SocketAddr,
 
     /// Interval between sending packets on a given thread
-    #[arg(long, env, default_value_t = 0)]
-    loop_sleep_micros: u64,
+    #[arg(long, env)]
+    loop_sleep_micros: Option<u64>,
 
     /// Method of connecting to Solana TPU
     #[command(subcommand)]
@@ -192,7 +192,10 @@ fn main() {
                         if let Err(e) = RUNTIME.block_on(tpu_sender.send(serialized_txns)) {
                             warn!("Failed to send on thread {thread_id}, err: {e}")
                         }
-                        thread::sleep(Duration::from_micros(args.loop_sleep_micros))
+
+                        if let Some(dur) = args.loop_sleep_micros {
+                            thread::sleep(Duration::from_micros(dur))
+                        }
                     }
                 })
                 .unwrap()
