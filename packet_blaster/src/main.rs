@@ -209,11 +209,13 @@ enum TpuSender {
 
 // taken from https://github.com/solana-labs/solana/blob/527e2d4f59c6429a4a959d279738c872b97e56b5/client/src/nonblocking/quic_client.rs#L42
 struct SkipServerVerification;
+
 impl SkipServerVerification {
     pub fn new() -> Arc<Self> {
         Arc::new(Self)
     }
 }
+
 impl rustls::client::ServerCertVerifier for SkipServerVerification {
     fn verify_server_cert(
         &self,
@@ -226,6 +228,18 @@ impl rustls::client::ServerCertVerifier for SkipServerVerification {
     ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
         Ok(rustls::client::ServerCertVerified::assertion())
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PacketBlasterError {
+    #[error("connect error: {0}")]
+    ConnectError(#[from] quinn::ConnectError),
+    #[error("connection error: {0}")]
+    ConnectionError(#[from] quinn::ConnectionError),
+    #[error("write error: {0}")]
+    WriteError(#[from] quinn::WriteError),
+    #[error("transport error: {0}")]
+    TransportError(#[from] solana_sdk::transport::TransportError),
 }
 
 impl TpuSender {
@@ -269,7 +283,7 @@ impl TpuSender {
         port: u16,
         connection_mode: &Mode,
         thread_id: usize,
-    ) -> Result<TpuSender, anyhow::Error> {
+    ) -> Result<TpuSender, PacketBlasterError> {
         match connection_mode {
             Mode::Quic => Ok(TpuSender::QuicSender {
                 client: QuicTpuConnection::new(
@@ -284,13 +298,16 @@ impl TpuSender {
                 let send_socket_addr = local_socket_addr(thread_id, port, *spam_from_localhost);
                 let endpoint = Self::create_endpoint(send_socket_addr);
                 // Connect to the server passing in the server name which is supposed to be in the server certificate.
-                let connection = endpoint.connect(dest_addr, "connect")?.await?;
+                let connection = endpoint
+                    .connect(dest_addr, "connect")?
+                    .await
+                    .map_err(|x| PacketBlasterError::ConnectionError(x))?;
                 Ok(TpuSender::CustomSender { connection })
             }
         }
     }
 
-    async fn send(&self, serialized_txs: Vec<Vec<u8>>) -> Result<(), anyhow::Error> {
+    async fn send(&self, serialized_txs: Vec<Vec<u8>>) -> Result<(), PacketBlasterError> {
         match self {
             TpuSender::CustomSender { connection } => {
                 let futures = serialized_txs
@@ -307,7 +324,7 @@ impl TpuSender {
                     futures_util::future::join_all(futures).await;
                 for result in results {
                     if let Err(e) = result {
-                        return Err(e.into());
+                        return Err(PacketBlasterError::WriteError(e));
                     }
                 }
                 Ok(())
