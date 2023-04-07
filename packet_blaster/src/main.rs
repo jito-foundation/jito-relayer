@@ -1,7 +1,7 @@
 use std::{
     fs, io,
     io::ErrorKind,
-    net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     ops::Sub,
     path::PathBuf,
     sync::Arc,
@@ -14,7 +14,6 @@ use bincode::serialize;
 use clap::Parser;
 use log::*;
 use once_cell::sync::Lazy;
-use rand::Rng;
 use solana_client::{
     client_error::{ClientError, ClientErrorKind},
     connection_cache::ConnectionCacheStats,
@@ -44,6 +43,10 @@ struct Args {
     /// Socket address for relayer TPU
     #[arg(long, env, default_value = "127.0.0.1:8009")]
     tpu_addr: SocketAddr,
+
+    /// Offset starting ip and port to allow more instances of packet blaster to run on the same machine
+    #[arg(long, env, default_value_t = 0)]
+    ip_port_offset: u16,
 
     /// Interval between sending packets on a given thread
     #[arg(long, env)]
@@ -83,28 +86,15 @@ fn read_keypairs(path: PathBuf) -> io::Result<Vec<Keypair>> {
 
 const TXN_BATCH_SIZE: u64 = 10;
 
-// binds many localhost sockets
-pub fn multi_bind_local(num: u32, port: u16) -> io::Result<Vec<UdpSocket>> {
-    const NUM_TRIES: usize = 100;
-    for _ in 0..NUM_TRIES {
-        let sockets = (2..=num + 1)
-            .filter_map(|i| {
-                let ip: [u8; 4] = i.to_be_bytes();
-                let socket_addr = (IpAddr::V4(Ipv4Addr::new(127, ip[1], ip[2], ip[3])), port);
-                UdpSocket::bind(socket_addr).ok()
-            })
-            .collect::<Vec<UdpSocket>>();
-        if sockets.len() as u32 == num {
-            return Ok(sockets);
-        }
-    }
-    Err(io::Error::from(io::ErrorKind::AddrNotAvailable))
-}
-
-/// Generates many localhost sockets
-pub fn local_socket_addr(thread_id: usize, port: u16, spam_from_localhost: bool) -> SocketAddr {
-    let ip: [u8; 4] = (thread_id as u32).to_be_bytes();
-    let port = port + thread_id as u16;
+/// Generates sequential localhost sockets on different IPs
+pub fn local_socket_addr(
+    ip_port_offset: u16,
+    thread_id: usize,
+    spam_from_localhost: bool,
+) -> SocketAddr {
+    let offset = ip_port_offset as u32 + thread_id as u32;
+    let ip: [u8; 4] = offset.to_be_bytes();
+    let port = 1024 + offset as u16;
     match spam_from_localhost {
         true => SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, ip[1], ip[2], ip[3])), port),
         false => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port), /* for sending from remote machine */
@@ -124,17 +114,17 @@ fn main() {
     let args: Args = Args::parse();
     dbg!(&args);
 
-    let keypairs = read_keypairs(args.keypair_path).expect("Failed to prepare keypairs");
+    let keypairs = read_keypairs(args.keypair_path).expect("Failed to read keypairs");
     let pubkeys = keypairs
         .iter()
         .map(|kp| kp.pubkey())
         .collect::<Vec<Pubkey>>();
-    let mut rng = rand::thread_rng();
-    let starting_port = rng.gen_range(1024..65535) as u16;
+
+    let starting_port = 1024 + args.ip_port_offset;
     info!(
-        "Packet blaster will send on port {}..={} with {} pubkeys: {pubkeys:?}",
+        "Packet blaster will send on ports {}..={} with {} pubkeys: {pubkeys:?}",
         starting_port,
-        starting_port - 1 + pubkeys.len() as u16,
+        starting_port + pubkeys.len() as u16,
         pubkeys.len()
     );
 
@@ -147,14 +137,16 @@ fn main() {
             Builder::new()
                 .name(format!("packet_blaster-thread_{thread_id}"))
                 .spawn(move || {
-                    let tpu_sender = RUNTIME
+                    let tpu_sender = match RUNTIME
                         .block_on(TpuSender::new(
                             args.tpu_addr,
-                            starting_port,
+                            args.ip_port_offset,
                             &connection_mode,
                             thread_id,
-                        ))
-                        .unwrap();
+                        )) {
+                        Ok(x) => x,
+                        Err(e) => panic!("Failed to connect, err: {e}")
+                    };
                     let metrics_interval = Duration::from_secs(5);
                     let mut last_blockhash_refresh = Instant::now();
                     let mut latest_blockhash = client.get_latest_blockhash().unwrap();
@@ -248,8 +240,6 @@ impl rustls::client::ServerCertVerifier for SkipServerVerification {
 pub enum PacketBlasterError {
     #[error("connect error: {0}")]
     ConnectError(#[from] quinn::ConnectError),
-    #[error("connection error: {0}")]
-    ConnectionError(#[from] quinn::ConnectionError),
     #[error("write error: {0}")]
     WriteError(#[from] quinn::WriteError),
     #[error("transport error: {0}")]
@@ -294,7 +284,7 @@ impl TpuSender {
 
     async fn new(
         dest_addr: SocketAddr,
-        port: u16,
+        ip_port_offset: u16,
         connection_mode: &Mode,
         thread_id: usize,
     ) -> Result<TpuSender, PacketBlasterError> {
@@ -309,14 +299,17 @@ impl TpuSender {
             Mode::Custom {
                 spam_from_localhost,
             } => {
-                let send_socket_addr = local_socket_addr(thread_id, port, *spam_from_localhost);
+                let send_socket_addr =
+                    local_socket_addr(ip_port_offset, thread_id, *spam_from_localhost);
                 let endpoint = Self::create_endpoint(send_socket_addr);
                 // Connect to the server passing in the server name which is supposed to be in the server certificate.
                 let connection = endpoint
                     .connect(dest_addr, "connect")?
                     .await
-                    .map_err(PacketBlasterError::ConnectionError)?;
-                info!("Sending thread {thread_id} on {send_socket_addr:?}");
+                    .unwrap_or_else(|_| {
+                        panic!("Failed to bind thread_{thread_id} to {send_socket_addr:?}")
+                    });
+                info!("Sending thread_{thread_id} packets on {send_socket_addr:?}");
                 Ok(TpuSender::CustomSender { connection })
             }
         }
