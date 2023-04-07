@@ -20,7 +20,6 @@ pub const BLOCK_ENGINE_FORWARDER_QUEUE_CAPACITY: usize = 5_000;
 
 /// Forwards packets to the Block Engine handler thread.
 /// Delays transactions for packet_delay_ms before forwarding them to the validator.
-#[allow(clippy::too_many_arguments)]
 pub fn start_forward_and_delay_thread(
     packet_receiver: Receiver<BankingPacketBatch>,
     delay_sender: Sender<RelayerPacketBatches>,

@@ -132,7 +132,7 @@ struct Args {
 
     /// Validators allowed to authenticate and connect to the relayer, comma separated.
     /// If null then all validators on the leader schedule shall be permitted.
-    #[arg(long, env, value_delimiter = ',', value_parser = Pubkey::from_str)]
+    #[arg(long, env, value_delimiter = ',')]
     allowed_validators: Option<Vec<Pubkey>>,
 
     /// The private key used to sign tokens by this server.
@@ -145,19 +145,19 @@ struct Args {
 
     /// Specifies how long access_tokens are valid for, expressed in seconds.
     #[arg(long, env, default_value_t = 1_800)]
-    access_token_ttl_secs: i64,
+    access_token_ttl_secs: u64,
 
     /// Specifies how long access_tokens are valid for, expressed in seconds.
     #[arg(long, env, default_value_t = 180_000)]
-    refresh_token_ttl_secs: i64,
+    refresh_token_ttl_secs: u64,
 
     /// Specifies how long challenges are valid for, expressed in seconds.
     #[arg(long, env, default_value_t = 1_800)]
-    challenge_ttl_secs: i64,
+    challenge_ttl_secs: u64,
 
     /// The interval at which challenges are checked for expiration.
     #[arg(long, env, default_value_t = 180)]
-    challenge_expiration_sleep_interval: i64,
+    challenge_expiration_sleep_interval_secs: u64,
 
     /// How long it takes to miss a slot for the system to be considered unhealthy
     #[arg(long, env, default_value_t = 10)]
@@ -174,11 +174,11 @@ struct Args {
     /// Accounts of interest cache TTL. Note this must play nicely with the refresh period that
     /// block engine uses to send full updates.
     #[arg(long, env, default_value_t = 300)]
-    aoi_cache_ttl_s: u64,
+    aoi_cache_ttl_secs: u64,
 
     /// How frequently to refresh the address lookup table accounts
     #[arg(long, env, default_value_t = 30)]
-    lookup_table_refresh_s: u64,
+    lookup_table_refresh_secs: u64,
 }
 
 #[derive(Debug)]
@@ -275,7 +275,7 @@ fn main() {
     let lookup_table_refresher = start_lookup_table_refresher(
         &rpc_load_balancer,
         &address_lookup_table_cache,
-        args.lookup_table_refresh_s,
+        args.lookup_table_refresh_secs,
         &exit,
     );
 
@@ -314,7 +314,7 @@ fn main() {
         block_engine_receiver,
         keypair,
         exit.clone(),
-        args.aoi_cache_ttl_s,
+        args.aoi_cache_ttl_secs,
         address_lookup_table_cache,
     );
 
@@ -376,10 +376,10 @@ fn main() {
             },
             signing_key,
             verifying_key.clone(),
-            Duration::from_secs(args.access_token_ttl_secs as u64),
-            Duration::from_secs(args.refresh_token_ttl_secs as u64),
-            Duration::from_secs(args.challenge_ttl_secs as u64),
-            Duration::from_secs(args.challenge_expiration_sleep_interval as u64),
+            Duration::from_secs(args.access_token_ttl_secs),
+            Duration::from_secs(args.refresh_token_ttl_secs),
+            Duration::from_secs(args.challenge_ttl_secs),
+            Duration::from_secs(args.challenge_expiration_sleep_interval_secs),
             &exit,
             health_manager.handle(),
         );
