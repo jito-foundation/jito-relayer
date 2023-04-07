@@ -166,7 +166,7 @@ fn main() {
                         let elapsed = now.sub(last_blockhash_refresh);
                         if elapsed > metrics_interval {
                             info!(
-                                "thread {thread_id} packets/sec: {:.0}, success: {}, failed: {curr_fail_send_count}, total: {}",
+                                "thread_{thread_id} packets/sec: {:.0}, success: {}, fail: {curr_fail_send_count}, total: {}",
                                 (curr_txn_count) as f64 / elapsed.as_secs_f64(),
                                 curr_txn_count - curr_fail_send_count,
                                 curr_txn_count + cumm_txn_count
@@ -325,15 +325,12 @@ impl TpuSender {
     async fn send(&self, serialized_txns: Vec<Vec<u8>>) -> Result<(), PacketBlasterError> {
         match self {
             TpuSender::CustomSender { connection } => {
-                let futures = serialized_txns
-                    .into_iter()
-                    .map(|buf| async move {
-                        let mut send_stream = connection.open_uni().await?;
-                        send_stream.write_all(&buf).await?;
-                        send_stream.finish().await?;
-                        Ok::<(), quinn::WriteError>(())
-                    })
-                    .collect::<Vec<_>>();
+                let futures = serialized_txns.into_iter().map(|buf| async move {
+                    let mut send_stream = connection.open_uni().await?;
+                    send_stream.write_all(&buf).await?;
+                    send_stream.finish().await?;
+                    Ok::<(), quinn::WriteError>(())
+                });
 
                 let results: Vec<Result<(), quinn::WriteError>> =
                     futures_util::future::join_all(futures).await;
