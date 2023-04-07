@@ -4,7 +4,7 @@ use std::{
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex, RwLock,
+        Arc, RwLock,
     },
     thread::{self, sleep, Builder, JoinHandle},
     time::{Duration, Instant},
@@ -24,11 +24,11 @@ pub struct StakedNodesUpdaterService {
 impl StakedNodesUpdaterService {
     pub fn new(
         exit: Arc<AtomicBool>,
-        rpc_load_balancer: Arc<Mutex<LoadBalancer>>,
+        rpc_load_balancer: Arc<LoadBalancer>,
         shared_staked_nodes: Arc<RwLock<StakedNodes>>,
     ) -> Self {
         let thread_hdl = Builder::new()
-            .name("sol-sn-updater".to_string())
+            .name("staked_nodes_updater_thread".to_string())
             .spawn(move || {
                 let mut last_stakes = Instant::now();
                 while !exit.load(Ordering::Relaxed) {
@@ -59,10 +59,10 @@ impl StakedNodesUpdaterService {
         ip_to_stake: &mut HashMap<IpAddr, u64>,
         pubkey_stake_map: &mut HashMap<Pubkey, u64>,
         total_stake: &mut u64,
-        rpc_load_balancer: &Arc<Mutex<LoadBalancer>>,
+        rpc_load_balancer: &Arc<LoadBalancer>,
     ) -> client_error::Result<bool> {
         if last_stakes.elapsed() > IP_TO_STAKE_REFRESH_DURATION {
-            let client = rpc_load_balancer.lock().unwrap().rpc_client();
+            let client = rpc_load_balancer.rpc_client();
             let vote_accounts = client.get_vote_accounts()?;
             let cluster_info: HashMap<String, RpcContactInfo> = client
                 .get_cluster_nodes()?

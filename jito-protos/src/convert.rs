@@ -7,7 +7,7 @@ use crate::packet::{Meta as ProtoMeta, Packet as ProtoPacket, PacketFlags as Pro
 
 pub fn packet_to_proto_packet(p: &Packet) -> Option<ProtoPacket> {
     Some(ProtoPacket {
-        data: p.data(0..p.meta.size)?.to_vec(),
+        data: p.data(..)?.to_vec(),
         meta: Some(ProtoMeta {
             size: p.meta.size as u64,
             addr: p.meta.addr.to_string(),
