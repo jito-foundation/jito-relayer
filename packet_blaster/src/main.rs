@@ -189,9 +189,10 @@ fn main() {
                                 serialize(&txn).ok()
                             })
                             .collect();
-                        curr_txn_count += serialized_txns.len() as u64;
+                        let txn_count = serialized_txns.len() as u64;
+                        curr_txn_count += txn_count;
                         if let Err(_e) = RUNTIME.block_on(tpu_sender.send(serialized_txns)) {
-                            curr_fail_send_count += 1;
+                            curr_fail_send_count += txn_count;
                         }
 
                         if let Some(dur) = args.loop_sleep_micros {
