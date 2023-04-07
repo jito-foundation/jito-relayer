@@ -391,7 +391,7 @@ fn main() {
                 AuthInterceptor::new(verifying_key.clone(), AlgorithmType::Rs256),
             ))
             .add_service(AuthServiceServer::new(auth_svc))
-            .serve_with_shutdown(server_addr, shutdown_signal())
+            .serve_with_shutdown(server_addr, shutdown_signal(exit.clone()))
             .await
             .expect("serve relayer");
     });
@@ -408,7 +408,7 @@ fn main() {
     block_engine_forwarder.join().unwrap();
 }
 
-pub async fn shutdown_signal() {
+pub async fn shutdown_signal(exit: Arc<AtomicBool>) {
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -430,7 +430,7 @@ pub async fn shutdown_signal() {
         _ = ctrl_c => {},
         _ = terminate => {},
     }
-
+    exit.store(true, Ordering::Relaxed);
     warn!("signal received, starting graceful shutdown");
 }
 
