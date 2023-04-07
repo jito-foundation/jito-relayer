@@ -158,7 +158,7 @@ fn main() {
                         let elapsed = now.sub(last_blockhash_refresh);
                         if elapsed > metrics_interval {
                             info!(
-                                "thread_{thread_id} packets/sec: {:.0}, success: {}, fail: {curr_fail_send_count}, total: {}",
+                                "thread_{thread_id} packets/sec: {:.0}, success: {}, fail: {curr_fail_send_count}, total sent: {}",
                                 (curr_txn_count) as f64 / elapsed.as_secs_f64(),
                                 curr_txn_count - curr_fail_send_count,
                                 curr_txn_count + cumm_txn_count
