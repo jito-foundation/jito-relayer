@@ -1,7 +1,7 @@
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc,
     },
     thread,
     thread::{sleep, Builder, JoinHandle},
@@ -20,7 +20,7 @@ use solana_sdk::{
 
 pub struct LoadBalancer {
     /// (ws_url, slot)
-    server_to_slot: DashMap<String, Slot>,
+    server_to_slot: Arc<DashMap<String, Slot>>,
     /// (rpc_url, client)
     server_to_rpc_client: DashMap<String, Arc<RpcClient>>,
     subscription_threads: Vec<JoinHandle<()>>,
@@ -34,7 +34,9 @@ impl LoadBalancer {
         servers: &[(String, String)], /* http rpc url, ws url */
         exit: &Arc<AtomicBool>,
     ) -> (LoadBalancer, Receiver<Slot>) {
-        let server_to_slot = DashMap::from_iter(servers.iter().map(|(_, ws)| (ws.clone(), 0)));
+        let server_to_slot = Arc::new(DashMap::from_iter(
+            servers.iter().map(|(_, ws)| (ws.clone(), 0)),
+        ));
 
         let server_to_rpc_client = DashMap::from_iter(servers.iter().map(|(rpc_url, ws)| {
             // warm up the connection
@@ -54,13 +56,8 @@ impl LoadBalancer {
 
         // sender tracked as health_manager-channel_stats.slot_sender-len
         let (slot_sender, slot_receiver) = crossbeam_channel::bounded(Self::SLOT_QUEUE_CAPACITY);
-        let subscription_threads = Self::start_subscription_threads(
-            servers,
-            &server_to_slot,
-            &server_to_rpc_client,
-            exit,
-            slot_sender,
-        );
+        let subscription_threads =
+            Self::start_subscription_threads(servers, server_to_slot.clone(), slot_sender, exit);
         (
             LoadBalancer {
                 server_to_slot,
@@ -73,12 +70,11 @@ impl LoadBalancer {
 
     fn start_subscription_threads(
         servers: &[(String, String)],
-        server_to_slot: &DashMap<String, Slot>,
-        _server_to_rpc_client: &DashMap<String, Arc<RpcClient>>,
-        exit: &Arc<AtomicBool>,
+        server_to_slot: Arc<DashMap<String, Slot>>,
         slot_sender: Sender<Slot>,
+        exit: &Arc<AtomicBool>,
     ) -> Vec<JoinHandle<()>> {
-        let highest_slot = Arc::new(Mutex::new(Slot::default()));
+        let highest_slot = Arc::new(AtomicU64::default());
 
         servers
             .iter()
@@ -118,11 +114,8 @@ impl LoadBalancer {
                                                 );
 
                                                 {
-                                                    let mut highest_slot_l =
-                                                        highest_slot.lock().unwrap();
-
-                                                    if slot.slot > *highest_slot_l {
-                                                        *highest_slot_l = slot.slot;
+                                                    let old_slot = highest_slot.fetch_max(slot.slot, Ordering::Relaxed);
+                                                    if slot.slot > old_slot {
                                                         if let Err(e) = slot_sender.send(slot.slot)
                                                         {
                                                             error!("error sending slot: {e}");
