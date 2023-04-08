@@ -1,5 +1,4 @@
 use std::{
-    env,
     net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
     sync::Arc,
     time::Duration,
@@ -123,7 +122,7 @@ async fn run_connection_dos(
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Target address
-    #[arg(long, env, default_value = "127.0.0.1")]
+    #[arg(long, env, default_value = "127.0.0.1:8009")]
     target_address: SocketAddr,
 
     /// Number of connections
