@@ -76,7 +76,7 @@ pub async fn make_client_connection(
         client_keypair.unwrap_or(&default_keypair),
     ));
     endpoint
-        .connect(*addr, "localhost")
+        .connect(*addr, "connect")
         .expect("Failed in connecting")
         .await
         .expect("Failed in waiting")
