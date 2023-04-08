@@ -107,7 +107,7 @@ impl BlockEngineRelayerHandler {
         keypair: Arc<Keypair>,
         exit: Arc<AtomicBool>,
         aoi_cache_ttl_s: u64,
-        address_lookup_table_cache: DashMap<Pubkey, AddressLookupTableAccount>,
+        address_lookup_table_cache: Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
     ) -> BlockEngineRelayerHandler {
         let block_engine_forwarder = Builder::new()
             .name("block_engine_relayer_handler_thread".into())
