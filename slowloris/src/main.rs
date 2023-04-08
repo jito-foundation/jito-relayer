@@ -68,7 +68,8 @@ pub async fn make_client_connection(
     addr: &SocketAddr,
     client_keypair: Option<&Keypair>,
 ) -> Connection {
-    let client_socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let client_socket =
+        UdpSocket::bind(SocketAddr::from((IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))).unwrap();
     let mut endpoint =
         quinn::Endpoint::new(EndpointConfig::default(), None, client_socket, TokioRuntime).unwrap();
     let default_keypair = Keypair::new();
@@ -126,7 +127,7 @@ struct Args {
     target_address: SocketAddr,
 
     /// Number of connections
-    #[arg(long, env, default_value_t = 20)]
+    #[arg(long, env, default_value_t = 8)]
     num_connections: u64,
 
     /// Number of streams per connection
