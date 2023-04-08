@@ -1,27 +1,21 @@
-#![allow(clippy::integer_arithmetic)]
-
-use std::time::Duration;
+use std::{
+    env,
+    net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
+    sync::Arc,
+    time::Duration,
+};
 
 use clap::Parser;
-use {
-    futures_util::future::join_all,
-    quinn::{ClientConfig, Connection, EndpointConfig, IdleTimeout, TokioRuntime, TransportConfig},
-    //rayon::prelude::*,
-    //solana_measure::measure::Measure,
-    solana_sdk::{
-        packet::PACKET_DATA_SIZE,
-        quic::{QUIC_KEEP_ALIVE_MS, QUIC_MAX_TIMEOUT_MS},
-        signer::keypair::Keypair,
-    },
-    solana_streamer::{
-        nonblocking::quic::ALPN_TPU_PROTOCOL_ID,
-        tls_certificates::new_self_signed_tls_certificate_chain,
-    },
-    std::{
-        env,
-        net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
-        sync::Arc,
-    },
+use futures_util::future::join_all;
+use quinn::{ClientConfig, Connection, EndpointConfig, IdleTimeout, TokioRuntime, TransportConfig};
+use solana_sdk::{
+    packet::PACKET_DATA_SIZE,
+    quic::{QUIC_KEEP_ALIVE_MS, QUIC_MAX_TIMEOUT_MS},
+    signer::keypair::Keypair,
+};
+use solana_streamer::{
+    nonblocking::quic::ALPN_TPU_PROTOCOL_ID,
+    tls_certificates::new_self_signed_tls_certificate_chain,
 };
 
 struct SkipServerVerification;
@@ -155,6 +149,7 @@ fn main() {
 #[cfg(test)]
 pub mod test {
     use {
+        //solana_client::thin_client::ThinClient,
         super::*,
         log::warn,
         solana_core::validator::ValidatorConfig,
@@ -166,7 +161,6 @@ pub mod test {
             validator_configs::make_identical_validator_configs,
         },
         solana_rpc::rpc::JsonRpcConfig,
-        //solana_client::thin_client::ThinClient,
         solana_streamer::socket::SocketAddrSpace,
     };
 
