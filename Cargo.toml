@@ -6,5 +6,6 @@ members = [
     "packet_blaster",
     "relayer",
     "rpc",
+    "slowloris",
     "transaction-relayer"
 ]

@@ -2325,6 +2325,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "jito-slowloris"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "clap 4.2.1",
+ "env_logger",
+ "futures-util",
+ "log",
+ "once_cell",
+ "quinn 0.9.3",
+ "rustls 0.20.8",
+ "solana-client",
+ "solana-net-utils",
+ "solana-perf",
+ "solana-sdk",
+ "solana-streamer",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "jito-transaction-relayer"
 version = "0.1.0"
 dependencies = [
