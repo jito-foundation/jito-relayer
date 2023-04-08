@@ -271,11 +271,12 @@ fn main() {
     let rpc_load_balancer = Arc::new(rpc_load_balancer);
 
     // Lookup table refresher
-    let address_lookup_table_cache: DashMap<Pubkey, AddressLookupTableAccount> = DashMap::new();
+    let address_lookup_table_cache: Arc<DashMap<Pubkey, AddressLookupTableAccount>> =
+        Arc::new(DashMap::new());
     let lookup_table_refresher = start_lookup_table_refresher(
         &rpc_load_balancer,
-        &address_lookup_table_cache,
-        args.lookup_table_refresh_secs,
+        address_lookup_table_cache.clone(),
+        Duration::from_secs(args.lookup_table_refresh_secs),
         &exit,
     );
 
@@ -454,19 +455,16 @@ impl ValidatorAuther for ValidatorAutherImpl {
 
 fn start_lookup_table_refresher(
     rpc_load_balancer: &Arc<LoadBalancer>,
-    lookup_table: &DashMap<Pubkey, AddressLookupTableAccount>,
-    lookup_table_refresh_s: u64,
+    lookup_table: Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
+    refresh_duration: Duration,
     exit: &Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     let rpc_load_balancer = rpc_load_balancer.clone();
-    let lookup_table = lookup_table.clone();
     let exit = exit.clone();
 
     thread::Builder::new()
         .name("lookup_table_refresher".to_string())
         .spawn(move || {
-            let refresh_duration = Duration::from_secs(lookup_table_refresh_s);
-
             // seed lookup table
             if let Err(e) = refresh_address_lookup_table(&rpc_load_balancer, &lookup_table) {
                 error!("error refreshing address lookup table: {e:?}");
