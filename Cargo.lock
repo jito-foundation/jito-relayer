@@ -2332,6 +2332,7 @@ dependencies = [
  "clap 4.2.1",
  "env_logger",
  "futures-util",
+ "itertools",
  "log",
  "once_cell",
  "quinn 0.9.3",

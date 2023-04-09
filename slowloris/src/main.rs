@@ -5,11 +5,12 @@ use std::{
 };
 
 use clap::Parser;
-use futures_util::future::join_all;
+use itertools::Itertools;
+use log::info;
 use quinn::{ClientConfig, Connection, EndpointConfig, IdleTimeout, TokioRuntime, TransportConfig};
 use solana_sdk::{
     packet::PACKET_DATA_SIZE,
-    quic::{QUIC_KEEP_ALIVE_MS, QUIC_MAX_TIMEOUT_MS},
+    quic::{QUIC_KEEP_ALIVE_MS, QUIC_MAX_TIMEOUT_MS, QUIC_MAX_UNSTAKED_CONCURRENT_STREAMS},
     signer::keypair::Keypair,
 };
 use solana_streamer::{
@@ -83,19 +84,43 @@ pub async fn make_client_connection(
         .expect("Failed in waiting")
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum PacketBlasterError {
+    #[error("connect error: {0}")]
+    ConnectError(#[from] quinn::ConnectError),
+    #[error("connection error: {0}")]
+    ConnectionError(#[from] quinn::ConnectionError),
+    #[error("write error: {0}")]
+    WriteError(#[from] quinn::WriteError),
+    #[error("transport error: {0}")]
+    TransportError(#[from] solana_sdk::transport::TransportError),
+}
 // Opens a slow stream and tries to send PACKET_DATA_SIZE bytes of junk
 // in as many chunks as possible. We don't allow the number of chunks
 // to be configurable as client-side writes don't correspond to
 // quic-level packets/writes (but by doing multiple writes we are generally able
 // to get multiple writes on the quic level despite the spec not guaranteeing this)
-pub async fn check_multiple_writes(conn: Arc<Connection>) {
+pub async fn check_multiple_writes(
+    conn: Arc<Connection>,
+    stream_id: u64,
+) -> Result<(), PacketBlasterError> {
+    const WAIT_FOR_STREAM_TIMEOUT_MS: u64 = 100; //taken from https://github.com/solana-labs/solana/blob/cd6ba30cb0f990079a3d22e62d4f7f315ede4ce4/streamer/src/nonblocking/quic.rs#L42
+    let sleep_interval = Duration::from_millis(WAIT_FOR_STREAM_TIMEOUT_MS / 2);
     // Send a full size packet with single byte writes.
     let num_bytes = PACKET_DATA_SIZE;
-    let mut s1 = conn.open_uni().await.unwrap();
-    for _ in 0..num_bytes {
-        s1.write_all(&[0u8]).await.unwrap();
+    let mut send_stream = conn
+        .open_uni()
+        .await
+        .map_err(PacketBlasterError::ConnectionError)?;
+
+    // this is supposed to be sequential
+    for i in 0..num_bytes {
+        info!("sending {i} for stream_{stream_id}");
+        send_stream.write_all(&[0u8]).await?;
+        tokio::time::sleep(sleep_interval).await;
     }
-    s1.finish().await.unwrap();
+    send_stream.finish().await.unwrap();
+    Ok(())
 }
 
 async fn run_connection_dos(
@@ -103,20 +128,17 @@ async fn run_connection_dos(
     num_connections: u64,
     num_streams_per_conn: u64,
 ) {
-    let mut connections = vec![];
-    for _ in 0..num_connections {
-        connections.push(make_client_connection(&server_address, None).await);
-    }
+    let connections = (0..num_connections)
+        .map(|_| async { Arc::new(make_client_connection(&server_address, None).await) });
+    let connections = futures_util::future::join_all(connections).await;
 
-    let futures: Vec<_> = connections
+    let futures = connections
         .into_iter()
-        .map(|conn| {
-            let conn = Arc::new(conn);
-            join_all((0..num_streams_per_conn).map(|_| check_multiple_writes(conn.clone())))
-        })
-        .collect();
+        .cartesian_product(0..num_streams_per_conn)
+        .map(|(conn, stream_id)| check_multiple_writes(conn, stream_id))
+        .collect::<Vec<_>>();
 
-    join_all(futures).await;
+    futures_util::future::join_all(futures).await;
 }
 
 #[derive(Parser, Debug)]
@@ -131,7 +153,7 @@ struct Args {
     num_connections: u64,
 
     /// Number of streams per connection
-    #[arg(long, env, default_value_t = 20)]
+    #[arg(long, env, default_value_t = QUIC_MAX_UNSTAKED_CONCURRENT_STREAMS as u64)]
     num_streams_per_conn: u64,
 }
 
