@@ -33,7 +33,7 @@ use solana_sdk::{
 #[derive(Parser, Clone, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// RPC address
+    /// RPC address to get recent blockhash
     #[arg(long, env, default_value = "http://127.0.0.1:8899")]
     rpc_addr: String,
 
@@ -45,7 +45,7 @@ struct Args {
     #[arg(long, env, default_value = "127.0.0.1:8009")]
     tpu_addr: SocketAddr,
 
-    /// Offset starting ip and port to allow more instances of packet blaster to run on the same machine
+    /// Offset starting ip and port to allow multiple instances of packet blaster to run on the same machine
     #[arg(long, env, default_value_t = 0)]
     ip_port_offset: u16,
 
@@ -82,24 +82,22 @@ enum Mode {
         #[arg(long, env, default_value_t = 4)]
         chunk_size: usize,
 
-        /// Slow loris, sleep delay between bytes.
-        /// taken from https://github.com/solana-labs/solana/blob/cd6ba30cb0f990079a3d22e62d4f7f315ede4ce4/streamer/src/nonblocking/quic.rs#L42
+        /// Sleep delay between bytes to execute slow loris attack
+        /// Must send in less than 100ms: https://github.com/solana-labs/solana/blob/cd6ba30cb0f990079a3d22e62d4f7f315ede4ce4/streamer/src/nonblocking/quic.rs#L42
         #[arg(long, env, default_value_t = 50)]
         sleep_interval_ms: u64,
 
-        /// Number of connections per IP. //FIXME not hooked up
+        /// Number of connections per IP.
+        /// Default relayer limit is 8.
+        // FIXME not hooked up
         #[arg(long, env, default_value_t = 8)]
         num_connections: u64,
 
-        /// Number of streams per connection
+        /// Number of streams per connection.
         #[arg(long, env, default_value_t = solana_sdk::quic::QUIC_MAX_UNSTAKED_CONCURRENT_STREAMS as u64)]
         num_streams_per_conn: u64,
     },
 }
-/// Doc comment
-// #[derive(clap::Args, Debug, Clone)]
-// #[group(requires_all = true)]
-// struct SlowLoris {}
 
 fn read_keypairs(path: PathBuf) -> io::Result<Vec<Keypair>> {
     if path.is_dir() {
