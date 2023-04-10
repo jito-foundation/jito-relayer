@@ -65,16 +65,16 @@ enum Mode {
 
     /// Quinn client
     Quinn {
+        /// Creates as many 127.x.x.x addresses as pubkeys provided.
         /// Only works from localhost relative to relayer.
-        /// Creates many 127.x.x.x addresses to overwhelm relayer.
         #[arg(long, env)]
         spam_from_localhost: bool,
     },
 
     /// Quinn client sending packets slowly
     SlowLoris {
+        /// Creates as many 127.x.x.x addresses as pubkeys provided.
         /// Only works from localhost relative to relayer.
-        /// Creates many 127.x.x.x addresses to overwhelm relayer.
         #[arg(long, env)]
         spam_from_localhost: bool,
 
