@@ -449,28 +449,6 @@ impl TpuSender {
             }
         }
     }
-
-    /// Breaks up a txn into 1 byte sized writes over a quic stream. fails when used in send(), not sure why
-    async fn stream_txn_slowly(
-        connection: Arc<quinn::Connection>,
-        txn: Vec<u8>,
-        sleep_interval: Duration,
-        stream_id: u64,
-    ) -> Result<(), PacketBlasterError> {
-        let mut send_stream = connection
-            .open_uni()
-            .await
-            .map_err(PacketBlasterError::ConnectionError)?;
-
-        // Send a full size packet with single byte writes sequentially
-        // chunk size 1 gets rejected
-        for chunk in txn.chunks(2) {
-            send_stream.write_all(chunk).await?;
-            tokio::time::sleep(sleep_interval).await;
-        }
-        send_stream.finish().await?;
-        Ok(())
-    }
 }
 
 #[allow(unused)]
