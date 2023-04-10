@@ -30,7 +30,7 @@ use solana_sdk::{
     system_transaction::transfer,
 };
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Clone, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// RPC address
@@ -70,12 +70,17 @@ enum Mode {
         #[arg(long, env)]
         spam_from_localhost: bool,
     },
-    /// Slow loris
+
+    /// Quinn client sending packets slowly
     SlowLoris {
         /// Only works from localhost relative to relayer.
         /// Creates many 127.x.x.x addresses to overwhelm relayer.
         #[arg(long, env)]
         spam_from_localhost: bool,
+
+        /// Number of bytes to write each time. Less than 4 bytes tends to drop connections after a few mins.
+        #[arg(long, env, default_value_t = 4)]
+        chunk_size: usize,
 
         /// Slow loris, sleep delay between bytes.
         /// taken from https://github.com/solana-labs/solana/blob/cd6ba30cb0f990079a3d22e62d4f7f315ede4ce4/streamer/src/nonblocking/quic.rs#L42
@@ -139,7 +144,7 @@ fn main() {
     let args: Args = Args::parse();
     dbg!(&args);
 
-    let keypairs = read_keypairs(args.keypair_path).expect("Failed to read keypairs");
+    let keypairs = read_keypairs(args.keypair_path.clone()).expect("Failed to read keypairs");
     let pubkeys = keypairs
         .iter()
         .map(|kp| kp.pubkey())
@@ -158,16 +163,11 @@ fn main() {
         .enumerate()
         .map(|(thread_id, keypair)| {
             let client = Arc::new(RpcClient::new(&args.rpc_addr));
-            let connection_mode = args.connection_mode.clone();
+            let args = args.clone();
             Builder::new()
                 .name(format!("packet_blaster-thread_{thread_id}"))
                 .spawn(move || {
-                    let tpu_sender = match RUNTIME.block_on(TpuSender::new(
-                        &connection_mode,
-                        args.tpu_addr,
-                        args.ip_port_offset,
-                        thread_id,
-                    )) {
+                    let tpu_sender = match RUNTIME.block_on(TpuSender::new(&args, thread_id)) {
                         Ok(x) => x,
                         Err(e) => panic!("Failed to connect, err: {e}"),
                     };
@@ -252,6 +252,7 @@ enum TpuSender {
     },
     SlowLoris {
         connection: Arc<quinn::Connection>,
+        chunk_size: usize,
         num_streams_per_conn: u64,
         sleep_interval: Duration,
     },
@@ -331,19 +332,14 @@ impl TpuSender {
         endpoint
     }
 
-    async fn new(
-        connection_mode: &Mode,
-        dest_addr: SocketAddr,
-        ip_port_offset: u16,
-        thread_id: usize,
-    ) -> Result<TpuSender, PacketBlasterError> {
-        match connection_mode {
+    async fn new(args: &Args, thread_id: usize) -> Result<TpuSender, PacketBlasterError> {
+        match args.connection_mode {
             Mode::Quinn {
                 spam_from_localhost,
             } => {
                 let connection = Self::setup_quinn_sender(
-                    dest_addr,
-                    ip_port_offset,
+                    args.tpu_addr,
+                    args.ip_port_offset,
                     thread_id,
                     spam_from_localhost,
                 )
@@ -352,27 +348,29 @@ impl TpuSender {
             }
             Mode::SlowLoris {
                 spam_from_localhost,
+                chunk_size,
                 sleep_interval_ms,
                 num_streams_per_conn,
                 num_connections: _num_connections,
             } => {
                 let connection = Self::setup_quinn_sender(
-                    dest_addr,
-                    ip_port_offset,
+                    args.tpu_addr,
+                    args.ip_port_offset,
                     thread_id,
                     spam_from_localhost,
                 )
                 .await;
                 Ok(TpuSender::SlowLoris {
                     connection: Arc::new(connection),
-                    num_streams_per_conn: *num_streams_per_conn,
-                    sleep_interval: Duration::from_millis(*sleep_interval_ms),
+                    chunk_size,
+                    num_streams_per_conn,
+                    sleep_interval: Duration::from_millis(sleep_interval_ms),
                 })
             }
             Mode::Quic => Ok(TpuSender::Quic {
                 client: QuicTpuConnection::new(
                     Arc::new(QuicLazyInitializedEndpoint::default()),
-                    dest_addr,
+                    args.tpu_addr,
                     Arc::new(ConnectionCacheStats::default()),
                 ),
             }),
@@ -383,9 +381,9 @@ impl TpuSender {
         dest_addr: SocketAddr,
         ip_port_offset: u16,
         thread_id: usize,
-        spam_from_localhost: &bool,
+        spam_from_localhost: bool,
     ) -> quinn::Connection {
-        let send_socket_addr = local_socket_addr(ip_port_offset, thread_id, *spam_from_localhost);
+        let send_socket_addr = local_socket_addr(ip_port_offset, thread_id, spam_from_localhost);
         let endpoint = Self::create_endpoint(send_socket_addr);
         // Connect to the server passing in the server name which is supposed to be in the server certificate.
         let connection = endpoint
@@ -417,6 +415,7 @@ impl TpuSender {
             }
             TpuSender::SlowLoris {
                 connection,
+                chunk_size,
                 sleep_interval,
                 num_streams_per_conn,
             } => {
@@ -428,8 +427,8 @@ impl TpuSender {
                             .open_uni()
                             .await
                             .map_err(PacketBlasterError::ConnectionError)?;
-                        // less than 4 bytes fails a fter a few mins
-                        for chunk in txn.chunks(4) {
+                        // less than 4 bytes fails after a few mins
+                        for chunk in txn.chunks(*chunk_size) {
                             // info!("sending byte[{i}] for stream_{stream_id}");
                             send_stream.write_all(chunk).await?;
                             tokio::time::sleep(*sleep_interval).await;
