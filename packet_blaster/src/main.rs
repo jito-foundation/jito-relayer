@@ -12,6 +12,7 @@ use std::{
 
 use bincode::serialize;
 use clap::Parser;
+use itertools::Itertools;
 use log::*;
 use once_cell::sync::Lazy;
 use solana_client::{
@@ -209,20 +210,23 @@ fn main() {
                                     lamports,
                                     latest_blockhash,
                                 );
-                                debug!(
-                                    "pubkey: {}, lamports: {}, signature: {:?}",
-                                    &keypair.pubkey(),
-                                    lamports,
-                                    &txn.signatures
-                                );
+                                // debug!(
+                                //     "pubkey: {}, lamports: {}, signature: {:?}",
+                                //     &keypair.pubkey(),
+                                //     lamports,
+                                //     &txn.signatures
+                                // );
                                 serialize(&txn).ok()
                             })
                             .collect();
                         let txn_count = serialized_txns.len() as u64;
                         curr_txn_count += txn_count;
-                        if let Err(_e) = RUNTIME.block_on(tpu_sender.send(serialized_txns)) {
-                            curr_fail_count += txn_count;
-                        }
+                        let (_successes, fails): (Vec<()>, Vec<PacketBlasterError>) = RUNTIME
+                            .block_on(tpu_sender.send(serialized_txns))
+                            .into_iter()
+                            .partition_result();
+
+                        curr_fail_count += fails.len() as u64;
 
                         if let Some(dur) = args.loop_sleep_micros {
                             thread::sleep(Duration::from_micros(dur))
@@ -392,24 +396,20 @@ impl TpuSender {
         connection
     }
 
-    async fn send(&self, serialized_txns: Vec<Vec<u8>>) -> Result<(), PacketBlasterError> {
+    async fn send(&self, serialized_txns: Vec<Vec<u8>>) -> Vec<Result<(), PacketBlasterError>> {
         match self {
             TpuSender::Quinn { connection } => {
                 let futures = serialized_txns.into_iter().map(|buf| async move {
                     let mut send_stream = connection.open_uni().await?;
                     send_stream.write_all(&buf).await?;
                     send_stream.finish().await?;
-                    Ok::<(), quinn::WriteError>(())
+                    Ok::<(), PacketBlasterError>(())
                 });
 
-                let results: Vec<Result<(), quinn::WriteError>> =
+                let results: Vec<Result<(), PacketBlasterError>> =
                     futures_util::future::join_all(futures).await;
-                for result in results {
-                    if let Err(e) = result {
-                        return Err(PacketBlasterError::WriteError(e));
-                    }
-                }
-                Ok(())
+
+                results
             }
             TpuSender::SlowLoris {
                 connection,
@@ -418,27 +418,30 @@ impl TpuSender {
             } => {
                 let futures = serialized_txns.into_iter().map(|txn| async move {
                     //TODO: use all args.num_stream_count
-                    if let Err(_e) =
-                        Self::stream_txn_slowly(connection.to_owned(), txn, *sleep_interval, 0)
-                            .await
-                    {
-                        warn!("Failed sending stream {_e}");
+                    let mut send_stream = connection
+                        .open_uni()
+                        .await
+                        .map_err(PacketBlasterError::ConnectionError)?;
+                    let stream_id = 0;
+                    // Send a full size packet with single byte writes sequentially
+                    for chunk in txn.chunks(2) {
+                        // info!("sending byte[{i}] for stream_{stream_id}");
+                        send_stream.write_all(chunk).await?;
+                        tokio::time::sleep(*sleep_interval).await;
                     }
-                    Ok::<(), quinn::WriteError>(())
+                    send_stream.finish().await?;
+
+                    Ok::<(), PacketBlasterError>(())
                 });
 
-                let results: Vec<Result<(), quinn::WriteError>> =
+                let results: Vec<Result<(), PacketBlasterError>> =
                     futures_util::future::join_all(futures).await;
-                for result in results {
-                    if let Err(e) = result {
-                        return Err(PacketBlasterError::WriteError(e));
-                    }
-                }
-                Ok(())
+                results
             }
             TpuSender::Quic { client } => {
-                client.send_wire_transaction_batch_async(serialized_txns)?;
-                Ok(())
+                vec![client
+                    .send_wire_transaction_batch_async(serialized_txns)
+                    .map_err(PacketBlasterError::TransportError)]
             }
         }
     }
@@ -456,9 +459,9 @@ impl TpuSender {
             .map_err(PacketBlasterError::ConnectionError)?;
 
         // Send a full size packet with single byte writes sequentially
-        for (i, byte) in txn.iter().enumerate() {
-            info!("sending {i} for stream_{stream_id}");
-            send_stream.write_all(&[*byte]).await?;
+        // chunk size 1 gets rejected
+        for chunk in txn.chunks(2) {
+            send_stream.write_all(chunk).await?;
             tokio::time::sleep(sleep_interval).await;
         }
         send_stream.finish().await?;
