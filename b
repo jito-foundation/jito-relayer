@@ -4,6 +4,11 @@ set -euxo pipefail
 TAG=$(git describe --match=NeVeRmAtCh --always --abbrev=8 --dirty)
 ORG="jitolabs"
 
+if [[ ! $(uname) =~ ^(Linux|Darwin)$ ]]; then
+    echo "unsupported os found"
+    exit 1
+fi
+
 export DOCKER_LOCALHOST=172.17.0.1
 if [[ $(uname) == "Darwin" ]]; then
   DOCKER_LOCALHOST=docker.for.mac.localhost
