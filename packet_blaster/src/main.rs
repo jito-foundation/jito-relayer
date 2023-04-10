@@ -12,6 +12,7 @@ use std::{
 
 use bincode::serialize;
 use clap::Parser;
+use itertools::Itertools;
 use log::*;
 use once_cell::sync::Lazy;
 use solana_client::{
@@ -62,14 +63,38 @@ enum Mode {
     /// Solana Quic
     Quic,
 
-    /// Custom Quinn client
-    Custom {
+    /// Quinn client
+    Quinn {
         /// Only works from localhost relative to relayer.
         /// Creates many 127.x.x.x addresses to overwhelm relayer.
         #[arg(long, env)]
         spam_from_localhost: bool,
     },
+    /// Slow loris
+    SlowLoris {
+        /// Only works from localhost relative to relayer.
+        /// Creates many 127.x.x.x addresses to overwhelm relayer.
+        #[arg(long, env)]
+        spam_from_localhost: bool,
+
+        /// Slow loris, sleep delay between bytes.
+        /// taken from https://github.com/solana-labs/solana/blob/cd6ba30cb0f990079a3d22e62d4f7f315ede4ce4/streamer/src/nonblocking/quic.rs#L42
+        #[arg(long, env, default_value_t = 50)]
+        sleep_interval_ms: u64,
+
+        /// Number of connections per IP. //FIXME not hooked up
+        #[arg(long, env, default_value_t = 8)]
+        num_connections: u64,
+
+        /// Number of streams per connection
+        #[arg(long, env, default_value_t = solana_sdk::quic::QUIC_MAX_UNSTAKED_CONCURRENT_STREAMS as u64)]
+        num_streams_per_conn: u64,
+    },
 }
+/// Doc comment
+// #[derive(clap::Args, Debug, Clone)]
+// #[group(requires_all = true)]
+// struct SlowLoris {}
 
 fn read_keypairs(path: PathBuf) -> io::Result<Vec<Keypair>> {
     if path.is_dir() {
@@ -137,63 +162,75 @@ fn main() {
             Builder::new()
                 .name(format!("packet_blaster-thread_{thread_id}"))
                 .spawn(move || {
-                    let tpu_sender = match RUNTIME
-                        .block_on(TpuSender::new(
-                            args.tpu_addr,
-                            args.ip_port_offset,
-                            &connection_mode,
-                            thread_id,
-                        )) {
+                    let tpu_sender = match RUNTIME.block_on(TpuSender::new(
+                        &connection_mode,
+                        args.tpu_addr,
+                        args.ip_port_offset,
+                        thread_id,
+                    )) {
                         Ok(x) => x,
-                        Err(e) => panic!("Failed to connect, err: {e}")
+                        Err(e) => panic!("Failed to connect, err: {e}"),
                     };
                     let metrics_interval = Duration::from_secs(5);
                     let mut last_blockhash_refresh = Instant::now();
                     let mut latest_blockhash = client.get_latest_blockhash().unwrap();
-                    let mut cumm_txn_count = 0u64;
-                    let mut curr_txn_count = 0u64;
-                    let mut curr_fail_send_count = 0u64;
+                    let mut curr_success_count = 0u64;
+                    let mut curr_fail_count = 0u64;
+                    let mut cumm_success_count = 0u64;
+                    let mut cumm_fail_count = 0u64;
                     loop {
                         let now = Instant::now();
                         let elapsed = now.sub(last_blockhash_refresh);
                         if elapsed > metrics_interval {
+                            cumm_success_count += curr_success_count;
+                            cumm_fail_count += curr_fail_count;
+                            let curr_txn_count = curr_success_count + curr_fail_count;
+                            let total_txn_count = cumm_success_count + cumm_fail_count;
                             info!(
-                                "thread_{thread_id} packets/sec: {:.0}, success: {}, fail: {curr_fail_send_count}, total sent: {}",
+                                "thread_{thread_id} msgs/sec: {:.0}, \
+                                success: {curr_success_count}, \
+                                fail: {curr_fail_count}, \
+                                total txn: {total_txn_count}, \
+                                overall success %: {:.1}",
                                 (curr_txn_count) as f64 / elapsed.as_secs_f64(),
-                                curr_txn_count - curr_fail_send_count,
-                                curr_txn_count + cumm_txn_count
+                                (cumm_success_count as f64 / total_txn_count as f64) * 100.0
                             );
                             last_blockhash_refresh = now;
 
-                            cumm_txn_count += curr_txn_count;
-                            curr_txn_count = 0;
-                            curr_fail_send_count = 0;
+                            curr_success_count = 0;
+                            curr_fail_count = 0;
                             latest_blockhash = client.get_latest_blockhash().unwrap();
                         }
 
+                        let count = cumm_success_count
+                            + cumm_fail_count
+                            + curr_success_count
+                            + curr_fail_count;
                         let serialized_txns: Vec<Vec<u8>> = (0..TXN_BATCH_SIZE)
                             .filter_map(|i| {
-                                let lamports = cumm_txn_count + curr_txn_count + i;
+                                let lamports = count + i;
                                 let txn = transfer(
                                     &keypair,
                                     &keypair.pubkey(),
                                     lamports,
                                     latest_blockhash,
                                 );
-                                debug!(
-                                    "pubkey: {}, lamports: {}, signature: {:?}",
-                                    &keypair.pubkey(),
-                                    lamports,
-                                    &txn.signatures
-                                );
+                                // debug!(
+                                //     "pubkey: {}, lamports: {}, signature: {:?}",
+                                //     &keypair.pubkey(),
+                                //     lamports,
+                                //     &txn.signatures
+                                // );
                                 serialize(&txn).ok()
                             })
                             .collect();
-                        let txn_count = serialized_txns.len() as u64;
-                        curr_txn_count += txn_count;
-                        if let Err(_e) = RUNTIME.block_on(tpu_sender.send(serialized_txns)) {
-                            curr_fail_send_count += txn_count;
-                        }
+                        let (_successes, fails): (Vec<()>, Vec<PacketBlasterError>) = RUNTIME
+                            .block_on(tpu_sender.send(serialized_txns))
+                            .into_iter()
+                            .partition_result();
+                        curr_success_count += _successes.len() as u64;
+
+                        curr_fail_count += fails.len() as u64;
 
                         if let Some(dur) = args.loop_sleep_micros {
                             thread::sleep(Duration::from_micros(dur))
@@ -210,8 +247,17 @@ fn main() {
 }
 
 enum TpuSender {
-    CustomSender { connection: quinn::Connection },
-    QuicSender { client: QuicTpuConnection },
+    Quinn {
+        connection: quinn::Connection,
+    },
+    SlowLoris {
+        connection: Arc<quinn::Connection>,
+        num_streams_per_conn: u64,
+        sleep_interval: Duration,
+    },
+    Quic {
+        client: QuicTpuConnection,
+    },
 }
 
 // taken from https://github.com/solana-labs/solana/blob/527e2d4f59c6429a4a959d279738c872b97e56b5/client/src/nonblocking/quic_client.rs#L42
@@ -241,6 +287,8 @@ impl rustls::client::ServerCertVerifier for SkipServerVerification {
 pub enum PacketBlasterError {
     #[error("connect error: {0}")]
     ConnectError(#[from] quinn::ConnectError),
+    #[error("connection error: {0}")]
+    ConnectionError(#[from] quinn::ConnectionError),
     #[error("write error: {0}")]
     WriteError(#[from] quinn::WriteError),
     #[error("transport error: {0}")]
@@ -284,62 +332,145 @@ impl TpuSender {
     }
 
     async fn new(
+        connection_mode: &Mode,
         dest_addr: SocketAddr,
         ip_port_offset: u16,
-        connection_mode: &Mode,
         thread_id: usize,
     ) -> Result<TpuSender, PacketBlasterError> {
         match connection_mode {
-            Mode::Quic => Ok(TpuSender::QuicSender {
+            Mode::Quinn {
+                spam_from_localhost,
+            } => {
+                let connection = Self::setup_quinn_sender(
+                    dest_addr,
+                    ip_port_offset,
+                    thread_id,
+                    spam_from_localhost,
+                )
+                .await;
+                Ok(TpuSender::Quinn { connection })
+            }
+            Mode::SlowLoris {
+                spam_from_localhost,
+                sleep_interval_ms,
+                num_streams_per_conn,
+                num_connections: _num_connections,
+            } => {
+                let connection = Self::setup_quinn_sender(
+                    dest_addr,
+                    ip_port_offset,
+                    thread_id,
+                    spam_from_localhost,
+                )
+                .await;
+                Ok(TpuSender::SlowLoris {
+                    connection: Arc::new(connection),
+                    num_streams_per_conn: *num_streams_per_conn,
+                    sleep_interval: Duration::from_millis(*sleep_interval_ms),
+                })
+            }
+            Mode::Quic => Ok(TpuSender::Quic {
                 client: QuicTpuConnection::new(
                     Arc::new(QuicLazyInitializedEndpoint::default()),
                     dest_addr,
                     Arc::new(ConnectionCacheStats::default()),
                 ),
             }),
-            Mode::Custom {
-                spam_from_localhost,
-            } => {
-                let send_socket_addr =
-                    local_socket_addr(ip_port_offset, thread_id, *spam_from_localhost);
-                let endpoint = Self::create_endpoint(send_socket_addr);
-                // Connect to the server passing in the server name which is supposed to be in the server certificate.
-                let connection = endpoint
-                    .connect(dest_addr, "connect")?
-                    .await
-                    .unwrap_or_else(|_| {
-                        panic!("Failed to bind thread_{thread_id} to {send_socket_addr:?}")
-                    });
-                info!("Sending thread_{thread_id} packets on {send_socket_addr:?}");
-                Ok(TpuSender::CustomSender { connection })
-            }
         }
     }
 
-    async fn send(&self, serialized_txns: Vec<Vec<u8>>) -> Result<(), PacketBlasterError> {
+    async fn setup_quinn_sender(
+        dest_addr: SocketAddr,
+        ip_port_offset: u16,
+        thread_id: usize,
+        spam_from_localhost: &bool,
+    ) -> quinn::Connection {
+        let send_socket_addr = local_socket_addr(ip_port_offset, thread_id, *spam_from_localhost);
+        let endpoint = Self::create_endpoint(send_socket_addr);
+        // Connect to the server passing in the server name which is supposed to be in the server certificate.
+        let connection = endpoint
+            .connect(dest_addr, "connect")
+            .unwrap()
+            .await
+            .unwrap_or_else(|_| {
+                panic!("Failed to bind thread_{thread_id} to {send_socket_addr:?}")
+            });
+        info!("Sending thread_{thread_id} packets on {send_socket_addr:?}");
+
+        connection
+    }
+
+    async fn send(&self, serialized_txns: Vec<Vec<u8>>) -> Vec<Result<(), PacketBlasterError>> {
         match self {
-            TpuSender::CustomSender { connection } => {
+            TpuSender::Quinn { connection } => {
                 let futures = serialized_txns.into_iter().map(|buf| async move {
                     let mut send_stream = connection.open_uni().await?;
                     send_stream.write_all(&buf).await?;
                     send_stream.finish().await?;
-                    Ok::<(), quinn::WriteError>(())
+                    Ok::<(), PacketBlasterError>(())
                 });
 
-                let results: Vec<Result<(), quinn::WriteError>> =
+                let results: Vec<Result<(), PacketBlasterError>> =
                     futures_util::future::join_all(futures).await;
-                for result in results {
-                    if let Err(e) = result {
-                        return Err(PacketBlasterError::WriteError(e));
-                    }
-                }
-                Ok(())
+
+                results
             }
-            TpuSender::QuicSender { client } => {
-                client.send_wire_transaction_batch_async(serialized_txns)?;
-                Ok(())
+            TpuSender::SlowLoris {
+                connection,
+                sleep_interval,
+                num_streams_per_conn,
+            } => {
+                let futures = serialized_txns
+                    .into_iter()
+                    .cartesian_product(0..*num_streams_per_conn)
+                    .map(|(txn, _stream_id)| async move {
+                        let mut send_stream = connection
+                            .open_uni()
+                            .await
+                            .map_err(PacketBlasterError::ConnectionError)?;
+                        // less than 4 bytes fails a fter a few mins
+                        for chunk in txn.chunks(4) {
+                            // info!("sending byte[{i}] for stream_{stream_id}");
+                            send_stream.write_all(chunk).await?;
+                            tokio::time::sleep(*sleep_interval).await;
+                        }
+                        send_stream.finish().await?;
+
+                        Ok::<(), PacketBlasterError>(())
+                    });
+
+                let results: Vec<Result<(), PacketBlasterError>> =
+                    futures_util::future::join_all(futures).await;
+                results
+            }
+            TpuSender::Quic { client } => {
+                vec![client
+                    .send_wire_transaction_batch_async(serialized_txns)
+                    .map_err(PacketBlasterError::TransportError)]
             }
         }
+    }
+
+    /// Breaks up a txn into 1 byte sized writes over a quic stream. fails when used in send(), not sure why
+    async fn stream_txn_slowly(
+        connection: Arc<quinn::Connection>,
+        txn: Vec<u8>,
+        sleep_interval: Duration,
+        stream_id: u64,
+    ) -> Result<(), PacketBlasterError> {
+        let mut send_stream = connection
+            .open_uni()
+            .await
+            .map_err(PacketBlasterError::ConnectionError)?;
+
+        // Send a full size packet with single byte writes sequentially
+        // chunk size 1 gets rejected
+        for chunk in txn.chunks(2) {
+            send_stream.write_all(chunk).await?;
+            tokio::time::sleep(sleep_interval).await;
+        }
+        send_stream.finish().await?;
+        Ok(())
     }
 }
 
