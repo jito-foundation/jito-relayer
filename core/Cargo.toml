@@ -8,11 +8,11 @@ edition = "2021"
 publish = false
 
 [dependencies]
-crossbeam-channel = "0.5.4"
+crossbeam-channel = "0.5.7"
 jito-rpc = { path = "../rpc" }
 lazy_static = "1.4.0"
 log = "0.4.17"
-rayon = "1.5.3"
+rayon = "1.7.0"
 solana-client = "=1.14.13"
 solana-core = "=1.14.13"
 solana-gossip = "=1.14.13"
@@ -23,6 +23,6 @@ solana-rayon-threadlimit = "=1.14.13"
 solana-runtime = "=1.14.13"
 solana-sdk = "=1.14.13"
 solana-streamer = "=1.14.13"
-thiserror = "1.0.31"
-tokio = { version = "1.14.1", features = ["rt-multi-thread"] }
-tokio-stream = "0.1.9"
+thiserror = "1.0.40"
+tokio = { version = "~1.14.1", features = ["rt-multi-thread"] }
+tokio-stream = "0.1.12"

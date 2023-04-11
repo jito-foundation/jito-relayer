@@ -33,7 +33,8 @@ impl From<&DeSerClaims> for Claims {
         Self {
             client_ip: IpAddr::from_str(&de_ser_claims.client_ip).unwrap(),
             client_pubkey: Pubkey::from_str(&de_ser_claims.client_pubkey).unwrap(),
-            expires_at_utc: NaiveDateTime::from_timestamp(de_ser_claims.expires_at_unix_ts, 0),
+            expires_at_utc: NaiveDateTime::from_timestamp_opt(de_ser_claims.expires_at_unix_ts, 0)
+                .unwrap(),
         }
     }
 }

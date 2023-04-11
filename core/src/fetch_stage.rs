@@ -6,53 +6,105 @@ use std::{
         Arc,
     },
     thread::{self, Builder, JoinHandle},
+    time::{Duration, Instant},
 };
 
-use crossbeam_channel::{RecvError, RecvTimeoutError};
+use crossbeam_channel::{RecvError, RecvTimeoutError, SendError};
+use solana_metrics::{datapoint_error, datapoint_info};
+use solana_perf::packet::PacketBatch;
 use solana_sdk::packet::{Packet, PacketFlags};
 use solana_streamer::streamer::{PacketBatchReceiver, PacketBatchSender};
 
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("send error")]
-    Send,
-    #[error("recv timeout")]
+pub enum FetchStageError {
+    #[error("send error: {0}")]
+    Send(#[from] SendError<PacketBatch>),
+    #[error("recv timeout: {0}")]
     RecvTimeout(#[from] RecvTimeoutError),
-    #[error("recv error")]
+    #[error("recv error: {0}")]
     Recv(#[from] RecvError),
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub type FetchStageResult<T> = Result<T, FetchStageError>;
 
 pub struct FetchStage {
     thread_hdls: Vec<JoinHandle<()>>,
 }
 
 impl FetchStage {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_with_sender(
-        exit: &Arc<AtomicBool>,
-        forward_sender: &PacketBatchSender,
-        forward_receiver: PacketBatchReceiver,
+    pub fn new(
+        tpu_forwards_receiver: PacketBatchReceiver,
+        tpu_sender: PacketBatchSender,
+        exit: Arc<AtomicBool>,
     ) -> Self {
-        Self::new_fwd_thread(exit, forward_sender, forward_receiver)
+        let fwd_thread_hdl = Builder::new()
+            .name("fetch_stage-forwarder_thread".to_string())
+            .spawn(move || {
+                let metrics_interval = Duration::from_secs(1);
+                let mut start = Instant::now();
+                let mut tpu_forwards_receiver_max_len = 0usize;
+                let mut tpu_sender_max_len = 0usize;
+                while !exit.load(Ordering::Relaxed) {
+                    match Self::handle_forwarded_packets(&tpu_forwards_receiver, &tpu_sender) {
+                        Ok(()) | Err(FetchStageError::RecvTimeout(RecvTimeoutError::Timeout)) => {}
+                        Err(e) => {
+                            datapoint_error!(
+                                "fetch_stage-handle_forwarded_packets_error",
+                                ("error", e.to_string(), String)
+                            );
+                            panic!("Failed to handle forwarded packets. Error: {e}")
+                        }
+                    };
+
+                    if start.elapsed() >= metrics_interval {
+                        datapoint_info!(
+                            "fetch_stage-channel_stats",
+                            ("tpu_sender_len", tpu_sender_max_len, i64),
+                            ("tpu_sender_capacity", tpu_sender.capacity().unwrap(), i64),
+                            (
+                                "tpu_forwards_receiver_len",
+                                tpu_forwards_receiver_max_len,
+                                i64
+                            ),
+                            (
+                                "tpu_forwards_receiver_capacity",
+                                tpu_forwards_receiver.capacity().unwrap(),
+                                i64
+                            ),
+                        );
+                        start = Instant::now();
+                        tpu_forwards_receiver_max_len = 0;
+                        tpu_sender_max_len = 0;
+                    }
+                    tpu_forwards_receiver_max_len =
+                        std::cmp::max(tpu_forwards_receiver_max_len, tpu_forwards_receiver.len());
+                    tpu_sender_max_len = std::cmp::max(tpu_sender_max_len, tpu_sender.len());
+                }
+            })
+            .unwrap();
+
+        Self {
+            thread_hdls: vec![fwd_thread_hdl],
+        }
     }
 
+    /// Copies tpu_forward packets to tpu channel. marks as forwarded
     fn handle_forwarded_packets(
-        recvr: &PacketBatchReceiver,
-        sendr: &PacketBatchSender,
-    ) -> Result<()> {
+        tpu_forwards_receiver: &PacketBatchReceiver,
+        tpu_sender: &PacketBatchSender,
+    ) -> FetchStageResult<()> {
         let mark_forwarded = |packet: &mut Packet| {
             packet.meta.flags |= PacketFlags::FORWARDED;
         };
 
-        let mut packet_batch = recvr.recv()?;
+        let mut packet_batch = tpu_forwards_receiver.recv()?;
         let mut num_packets = packet_batch.len();
         packet_batch.iter_mut().for_each(mark_forwarded);
+
         let mut packet_batches = vec![packet_batch];
-        while let Ok(mut packet_batch) = recvr.try_recv() {
-            packet_batch.iter_mut().for_each(mark_forwarded);
+        while let Ok(mut packet_batch) = tpu_forwards_receiver.try_recv() {
             num_packets += packet_batch.len();
+            packet_batch.iter_mut().for_each(mark_forwarded);
             packet_batches.push(packet_batch);
             // Read at most 1K transactions in a loop
             if num_packets > 1024 {
@@ -61,45 +113,12 @@ impl FetchStage {
         }
 
         for packet_batch in packet_batches {
-            #[allow(clippy::question_mark)]
-            if sendr.send(packet_batch).is_err() {
-                return Err(Error::Send);
+            if let Err(e) = tpu_sender.send(packet_batch) {
+                return Err(FetchStageError::Send(e));
             }
         }
 
         Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn new_fwd_thread(
-        exit: &Arc<AtomicBool>,
-        sender: &PacketBatchSender,
-        forward_receiver: PacketBatchReceiver,
-    ) -> Self {
-        let sender = sender.clone();
-
-        let fwd_thread_hdl = {
-            let exit = exit.clone();
-            Builder::new()
-                .name("solana-fetch-stage-fwd-rcvr".to_string())
-                .spawn(move || {
-                    while !exit.load(Ordering::Relaxed) {
-                        if let Err(e) = Self::handle_forwarded_packets(&forward_receiver, &sender) {
-                            match e {
-                                Error::RecvTimeout(RecvTimeoutError::Disconnected) => break,
-                                Error::RecvTimeout(RecvTimeoutError::Timeout) => (),
-                                Error::Recv(_) => break,
-                                Error::Send => break,
-                            }
-                        }
-                    }
-                })
-                .unwrap()
-        };
-
-        Self {
-            thread_hdls: vec![fwd_thread_hdl],
-        }
     }
 
     pub fn join(self) -> thread::Result<()> {

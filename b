@@ -1,40 +1,28 @@
-#!/usr/bin/env sh
-set -e
+#!/usr/bin/env bash
+set -euxo pipefail
 
 TAG=$(git describe --match=NeVeRmAtCh --always --abbrev=8 --dirty)
 ORG="jitolabs"
 
-if [ "$(uname)" = "Darwin" ]; then
-    RPC_SERVERS=http://docker.for.mac.localhost:8899
-    WEBSOCKET_SERVERS=ws://docker.for.mac.localhost:8900
-    BLOCK_ENGINE_AUTH_SERVICE_URL=http://docker.for.mac.localhost:1005
-    BLOCK_ENGINE_URL=http://docker.for.mac.localhost:1000
-  elif [ "$(expr substr $(uname -s) 1 5)" = "Linux" ]; then
-    RPC_SERVERS=http://172.17.0.1:8899
-    WEBSOCKET_SERVERS=ws://172.17.0.1:8900
-    BLOCK_ENGINE_AUTH_SERVICE_URL=http://172.17.0.1:1005
-    BLOCK_ENGINE_URL=http://172.17.0.1:1000
-  else
-    echo "unsupported testing platform, exiting"
+if [[ ! $(uname) =~ ^(Linux|Darwin)$ ]]; then
+    echo "unsupported os found"
     exit 1
-  fi
+fi
 
-COMPOSE_DOCKER_CLI_BUILD=1 \
-  DOCKER_BUILDKIT=1 \
-  RPC_SERVERS="${RPC_SERVERS}" \
-  WEBSOCKET_SERVERS="${WEBSOCKET_SERVERS}" \
-  BLOCK_ENGINE_URL="${BLOCK_ENGINE_URL}" \
-  BLOCK_ENGINE_AUTH_SERVICE_URL="${BLOCK_ENGINE_AUTH_SERVICE_URL}" \
+export DOCKER_LOCALHOST=172.17.0.1
+if [[ $(uname) == "Darwin" ]]; then
+  DOCKER_LOCALHOST=docker.for.mac.localhost
+fi
+
+# Build and run
+DOCKER_BUILDKIT=1 \
+  BUILDKIT_PROGRESS=plain \
   TAG="${TAG}" \
   ORG="${ORG}" \
-  docker compose --env-file "${ENV_FILE}" build --progress=plain
-
-COMPOSE_DOCKER_CLI_BUILD=1 \
-  DOCKER_BUILDKIT=1 \
-  RPC_SERVERS="${RPC_SERVERS}" \
-  WEBSOCKET_SERVERS="${WEBSOCKET_SERVERS}" \
-  BLOCK_ENGINE_URL="${BLOCK_ENGINE_URL}" \
-  BLOCK_ENGINE_AUTH_SERVICE_URL="${BLOCK_ENGINE_AUTH_SERVICE_URL}" \
-  TAG="${TAG}" \
-  ORG="${ORG}" \
-  docker compose --env-file "${ENV_FILE}" up --remove-orphans
+  RPC_SERVERS=http://${DOCKER_LOCALHOST}:8899 \
+  WEBSOCKET_SERVERS=ws://${DOCKER_LOCALHOST}:8900 \
+  BLOCK_ENGINE_AUTH_SERVICE_URL=http://${DOCKER_LOCALHOST}:1005 \
+  BLOCK_ENGINE_URL=http://${DOCKER_LOCALHOST}:1000 \
+  CLUSTER=devnet \
+  REGION=local \
+  docker compose up --build --pull=always --remove-orphans --renew-anon-volumes

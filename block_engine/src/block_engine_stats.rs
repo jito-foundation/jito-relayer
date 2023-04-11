@@ -15,8 +15,11 @@ pub struct BlockEngineStats {
 
     num_packets_received: u64,
 
-    packet_filter_elapsed: u64,
-    packet_forward_elapsed: u64,
+    packet_filter_elapsed_us: u64,
+    packet_forward_elapsed_us: u64,
+
+    // high water mark of queue length
+    block_engine_packet_sender_len: u64,
 
     auth_refresh_count: u64,
     refresh_auth_elapsed_us: u64,
@@ -26,6 +29,7 @@ pub struct BlockEngineStats {
     metrics_delay_us: u64,
 
     accounts_of_interest_len: u64,
+    programs_of_interest_len: u64,
     flush_elapsed_us: u64,
 }
 
@@ -66,12 +70,17 @@ impl BlockEngineStats {
         self.num_packets_received = self.num_packets_received.saturating_add(num)
     }
 
-    pub fn increment_packet_filter_elapsed(&mut self, num: u64) {
-        self.packet_filter_elapsed = self.packet_filter_elapsed.saturating_add(num)
+    pub fn increment_packet_filter_elapsed_us(&mut self, num: u64) {
+        self.packet_filter_elapsed_us = self.packet_filter_elapsed_us.saturating_add(num)
     }
 
-    pub fn increment_packet_forward_elapsed(&mut self, num: u64) {
-        self.packet_forward_elapsed = self.packet_forward_elapsed.saturating_add(num)
+    pub fn increment_packet_forward_elapsed_us(&mut self, num: u64) {
+        self.packet_forward_elapsed_us = self.packet_forward_elapsed_us.saturating_add(num)
+    }
+
+    pub fn update_block_engine_packet_sender_len(&mut self, num: u64) {
+        self.block_engine_packet_sender_len =
+            std::cmp::max(self.block_engine_packet_sender_len, num);
     }
 
     pub fn increment_auth_refresh_count(&mut self, num: u64) {
@@ -94,15 +103,17 @@ impl BlockEngineStats {
         self.accounts_of_interest_len = self.accounts_of_interest_len.saturating_add(num)
     }
 
+    pub fn increment_programs_of_interest_len(&mut self, num: u64) {
+        self.programs_of_interest_len = self.programs_of_interest_len.saturating_add(num)
+    }
+
     pub fn increment_flush_elapsed_us(&mut self, num: u64) {
         self.flush_elapsed_us = self.flush_elapsed_us.saturating_add(num)
     }
 
-    pub fn report(&self, cluster: &str, region: &str) {
+    pub fn report(&self) {
         datapoint_info!(
             "block_engine_relayer-loop_stats",
-            "cluster" => &cluster,
-            "region" => &region,
             ("heartbeat_count", self.heartbeat_count, i64),
             ("heartbeat_elapsed_us", self.heartbeat_elapsed_us, i64),
             ("aoi_update_count", self.aoi_update_count, i64),
@@ -112,8 +123,21 @@ impl BlockEngineStats {
             ("poi_update_elapsed_us", self.poi_update_elapsed_us, i64),
             ("poi_accounts_received", self.poi_accounts_received, i64),
             ("num_packets_received", self.num_packets_received, i64),
-            ("packet_filter_elapsed", self.packet_filter_elapsed, i64),
-            ("packet_forward_elapsed", self.packet_forward_elapsed, i64),
+            (
+                "packet_filter_elapsed_us",
+                self.packet_filter_elapsed_us,
+                i64
+            ),
+            (
+                "packet_forward_elapsed_us",
+                self.packet_forward_elapsed_us,
+                i64
+            ),
+            (
+                "block_engine_packet_sender_len",
+                self.block_engine_packet_sender_len,
+                i64
+            ),
             ("auth_refresh_count", self.auth_refresh_count, i64),
             ("refresh_auth_elapsed_us", self.refresh_auth_elapsed_us, i64),
             ("packet_forward_count", self.packet_forward_count, i64),
@@ -121,6 +145,11 @@ impl BlockEngineStats {
             (
                 "accounts_of_interest_len",
                 self.accounts_of_interest_len,
+                i64
+            ),
+            (
+                "programs_of_interest_len",
+                self.programs_of_interest_len,
                 i64
             ),
             ("flush_elapsed_us", self.flush_elapsed_us, i64),

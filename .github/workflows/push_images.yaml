@@ -27,7 +27,7 @@ jobs:
           ORG: jitolabs
           TAG: ${{ inputs.TAG }}
       - name: Login to DockerHub
-        uses: docker/login-action@v1
+        uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_PWD }}
