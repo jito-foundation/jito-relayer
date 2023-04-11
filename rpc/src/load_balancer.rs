@@ -54,7 +54,7 @@ impl LoadBalancer {
             (ws.clone(), rpc_client)
         }));
 
-        // sender tracked as health_manager-channel_stats.slot_sender-len
+        // sender tracked as health_manager-channel_stats.slot_sender_len
         let (slot_sender, slot_receiver) = crossbeam_channel::bounded(Self::SLOT_QUEUE_CAPACITY);
         let subscription_threads =
             Self::start_subscription_threads(servers, server_to_slot.clone(), slot_sender, exit);

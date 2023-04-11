@@ -280,7 +280,7 @@ fn main() {
         &exit,
     );
 
-    let (tpu, packet_receiver) = Tpu::new(
+    let (tpu, verified_receiver) = Tpu::new(
         sockets.tpu_sockets,
         &exit,
         &keypair,
@@ -297,12 +297,12 @@ fn main() {
 
     // NOTE: make sure the channel here isn't too big because it will get backed up
     // with packets when the block engine isn't connected
-    // tracked as forwarder_metrics.block_engine_sender-len
+    // tracked as forwarder_metrics.block_engine_sender_len
     let (block_engine_sender, block_engine_receiver) =
         channel(jito_transaction_relayer::forwarder::BLOCK_ENGINE_FORWARDER_QUEUE_CAPACITY);
 
     let forward_and_delay_threads = start_forward_and_delay_thread(
-        packet_receiver,
+        verified_receiver,
         delay_packet_sender,
         args.packet_delay_ms,
         block_engine_sender,

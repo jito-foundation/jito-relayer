@@ -70,10 +70,10 @@ impl Tpu {
             staked_nodes.clone(),
         );
 
-        // sender tracked as fetch_stage-channel_stats.tpu_sender-len
+        // sender tracked as fetch_stage-channel_stats.tpu_sender_len
         let (tpu_sender, tpu_receiver) = crossbeam_channel::bounded(Tpu::TPU_QUEUE_CAPACITY);
 
-        // receiver tracked as fetch_stage-channel_stats.tpu_forwards_receiver-len
+        // receiver tracked as fetch_stage-channel_stats.tpu_forwards_receiver_len
         let (tpu_forwards_sender, tpu_forwards_receiver) =
             crossbeam_channel::bounded(Tpu::TPU_QUEUE_CAPACITY);
         let stats = Arc::new(StreamStats::default());
@@ -108,7 +108,7 @@ impl Tpu {
 
         let fetch_stage = FetchStage::new(tpu_forwards_receiver, tpu_sender, exit.clone());
 
-        // receiver tracked in tpu-channel_stats.find_packet_sender_stake_receiver-len
+        // receiver tracked in tpu-channel_stats.find_packet_sender_stake_receiver_len
         let (find_packet_sender_stake_sender, find_packet_sender_stake_receiver) =
             crossbeam_channel::bounded(Self::TPU_QUEUE_CAPACITY);
         let find_packet_sender_stake_stage = FindPacketSenderStakeStage::new(
@@ -121,7 +121,7 @@ impl Tpu {
         let metrics_t =
             Self::start_metrics_thread(exit.clone(), find_packet_sender_stake_receiver.clone());
 
-        // receiver tracked as forwarder_metrics.verified_receiver-len
+        // receiver tracked as forwarder_metrics.verified_receiver_len
         let (verified_sender, verified_receiver) =
             crossbeam_channel::bounded(Self::TPU_QUEUE_CAPACITY);
         let sigverify_stage = SigVerifyStage::new(
@@ -142,7 +142,7 @@ impl Tpu {
         )
     }
 
-    // channel consumed by solana code, receiver tracked in tpu-channel_stats.find_packet_sender_stake_receiver-len
+    // channel consumed by solana code, receiver tracked in tpu-channel_stats.find_packet_sender_stake_receiver_len
     fn start_metrics_thread(
         exit: Arc<AtomicBool>,
         find_packet_sender_stake_receiver: Receiver<Vec<PacketBatch>>,
@@ -155,8 +155,13 @@ impl Tpu {
                     datapoint_info!(
                         "tpu-channel_stats",
                         (
-                            "find_packet_sender_stake_receiver-len",
+                            "find_packet_sender_stake_receiver_len",
                             find_packet_sender_stake_receiver.len(),
+                            i64
+                        ),
+                        (
+                            "find_packet_sender_stake_receiver_capacity",
+                            find_packet_sender_stake_receiver.capacity().unwrap(),
                             i64
                         ),
                     );

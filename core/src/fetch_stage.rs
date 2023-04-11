@@ -59,12 +59,18 @@ impl FetchStage {
                     if start.elapsed() >= metrics_interval {
                         datapoint_info!(
                             "fetch_stage-channel_stats",
+                            ("tpu_sender_len", tpu_sender_max_len, i64),
+                            ("tpu_sender_capacity", tpu_sender.capacity().unwrap(), i64),
                             (
-                                "tpu_forwards_receiver-len",
+                                "tpu_forwards_receiver_len",
                                 tpu_forwards_receiver_max_len,
                                 i64
                             ),
-                            ("tpu_sender-len", tpu_sender_max_len, i64),
+                            (
+                                "tpu_forwards_receiver_capacity",
+                                tpu_forwards_receiver.capacity().unwrap(),
+                                i64
+                            ),
                         );
                         start = Instant::now();
                         tpu_forwards_receiver_max_len = 0;

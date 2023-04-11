@@ -37,7 +37,6 @@ use tonic::{Request, Response, Status};
 
 use crate::{health_manager::HealthState, schedule_cache::LeaderScheduleUpdatingHandle};
 
-#[derive(Default)]
 struct RelayerMetrics {
     pub highest_slot: u64,
     pub num_added_connections: u64,
@@ -52,18 +51,48 @@ struct RelayerMetrics {
     pub packet_latencies_us: Histogram,
 
     // channel stats
-    pub slot_receiver_max_len: u64,
-    pub subscription_receiver_max_len: u64,
-    pub delay_packet_receiver_max_len: u64,
-    pub packet_subscriptions_total_queued: u64, // sum of all items currently queued
+    pub slot_receiver_max_len: usize,
+    pub slot_receiver_capacity: usize,
+    pub subscription_receiver_max_len: usize,
+    pub subscription_receiver_capacity: usize,
+    pub delay_packet_receiver_max_len: usize,
+    pub delay_packet_receiver_capacity: usize,
+    pub packet_subscriptions_total_queued: usize, // sum of all items currently queued
 }
 
 impl RelayerMetrics {
+    fn new(
+        slot_receiver_capacity: usize,
+        subscription_receiver_capacity: usize,
+        delay_packet_receiver_capacity: usize,
+    ) -> Self {
+        RelayerMetrics {
+            highest_slot: 0,
+            num_added_connections: 0,
+            num_removed_connections: 0,
+            num_current_connections: 0,
+            num_heartbeats: 0,
+            num_batches_forwarded: 0,
+            num_packets_forwarded: 0,
+            max_heartbeat_tick_latency_us: 0,
+            metrics_latency_us: 0,
+            num_try_send_channel_full: 0,
+            packet_latencies_us: Default::default(),
+            slot_receiver_max_len: 0,
+            slot_receiver_capacity,
+            subscription_receiver_max_len: 0,
+            subscription_receiver_capacity,
+            delay_packet_receiver_max_len: 0,
+            delay_packet_receiver_capacity,
+            packet_subscriptions_total_queued: 0,
+        }
+    }
+
     fn update_max_len(
         &mut self,
-        slot_receiver_len: u64,
-        subscription_receiver_len: u64,
-        delay_packet_receiver_len: u64,
+        slot_receiver_len: usize,
+        subscription_receiver_len: usize,
+        delay_packet_receiver_len: usize,
     ) {
         self.slot_receiver_max_len = std::cmp::max(self.slot_receiver_max_len, slot_receiver_len);
         self.subscription_receiver_max_len = std::cmp::max(
@@ -87,7 +116,7 @@ impl RelayerMetrics {
             .values()
             .map(|x| RelayerImpl::SUBSCRIBER_QUEUE_CAPACITY - x.capacity())
             .sum::<usize>();
-        self.packet_subscriptions_total_queued = packet_subscriptions_total_queued as u64;
+        self.packet_subscriptions_total_queued = packet_subscriptions_total_queued;
     }
 
     fn report(&self) {
@@ -145,14 +174,25 @@ impl RelayerMetrics {
             ),
             // channel lengths
             ("slot_receiver_len", self.slot_receiver_max_len, i64),
+            ("slot_receiver_capacity", self.slot_receiver_capacity, i64),
             (
                 "subscription_receiver_len",
                 self.subscription_receiver_max_len,
                 i64
             ),
             (
+                "subscription_receiver_capacity",
+                self.subscription_receiver_capacity,
+                i64
+            ),
+            (
                 "delay_packet_receiver_len",
                 self.delay_packet_receiver_max_len,
+                i64
+            ),
+            (
+                "delay_packet_receiver_capacity",
+                self.delay_packet_receiver_capacity,
                 i64
             ),
             (
@@ -223,9 +263,9 @@ impl RelayerImpl {
                         subscription_receiver,
                         delay_packet_receiver,
                         leader_schedule_cache,
-                        exit,
                         LEADER_LOOKAHEAD,
                         health_state,
+                        exit,
                     );
                     warn!("RelayerImpl thread exited with result {res:?}")
                 })
@@ -248,9 +288,9 @@ impl RelayerImpl {
         subscription_receiver: Receiver<Subscription>,
         delay_packet_receiver: Receiver<RelayerPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
-        exit: Arc<AtomicBool>,
         leader_lookahead: u64,
         health_state: Arc<RwLock<HealthState>>,
+        exit: Arc<AtomicBool>,
     ) -> RelayerResult<()> {
         let mut highest_slot = Slot::default();
         let mut packet_subscriptions: HashMap<
@@ -261,7 +301,11 @@ impl RelayerImpl {
         let heartbeat_tick = crossbeam_channel::tick(Duration::from_millis(500));
         let metrics_tick = crossbeam_channel::tick(Duration::from_millis(1000));
 
-        let mut relayer_metrics = RelayerMetrics::default();
+        let mut relayer_metrics = RelayerMetrics::new(
+            slot_receiver.capacity().unwrap(),
+            subscription_receiver.capacity().unwrap(),
+            delay_packet_receiver.capacity().unwrap(),
+        );
 
         while !exit.load(Ordering::Relaxed) {
             crossbeam_channel::select! {
@@ -301,14 +345,18 @@ impl RelayerImpl {
                     }
 
                     relayer_metrics.report();
-                    relayer_metrics = RelayerMetrics::default();
+                    relayer_metrics = RelayerMetrics::new(
+                        slot_receiver.capacity().unwrap(),
+                        subscription_receiver.capacity().unwrap(),
+                        delay_packet_receiver.capacity().unwrap(),
+                    );
                 }
             }
 
             relayer_metrics.update_max_len(
-                slot_receiver.len() as u64,
-                subscription_receiver.len() as u64,
-                delay_packet_receiver.len() as u64,
+                slot_receiver.len(),
+                subscription_receiver.len(),
+                delay_packet_receiver.len(),
             );
         }
         Ok(())
@@ -321,11 +369,11 @@ impl RelayerImpl {
     ) {
         relayer_metrics.num_removed_connections += disconnected_pubkeys.len() as u64;
 
-        for failed in disconnected_pubkeys {
-            if let Some(sender) = subscriptions.remove(&failed) {
+        for disconnected in disconnected_pubkeys {
+            if let Some(sender) = subscriptions.remove(&disconnected) {
                 datapoint_info!(
                     "relayer_removed_subscription",
-                    ("pubkey", failed.to_string(), String)
+                    ("pubkey", disconnected.to_string(), String)
                 );
                 drop(sender);
             }

@@ -21,8 +21,8 @@ pub const BLOCK_ENGINE_FORWARDER_QUEUE_CAPACITY: usize = 5_000;
 /// Forwards packets to the Block Engine handler thread.
 /// Delays transactions for packet_delay_ms before forwarding them to the validator.
 pub fn start_forward_and_delay_thread(
-    packet_receiver: Receiver<BankingPacketBatch>,
-    delay_sender: Sender<RelayerPacketBatches>,
+    verified_receiver: Receiver<BankingPacketBatch>,
+    delay_packet_sender: Sender<RelayerPacketBatches>,
     packet_delay_ms: u32,
     block_engine_sender: tokio::sync::mpsc::Sender<BlockEnginePackets>,
     num_threads: u64,
@@ -33,32 +33,40 @@ pub fn start_forward_and_delay_thread(
 
     (0..num_threads)
         .map(|thread_id| {
-            let packet_receiver = packet_receiver.clone();
-            let delay_sender = delay_sender.clone();
+            let verified_receiver = verified_receiver.clone();
+            let delay_packet_sender = delay_packet_sender.clone();
             let block_engine_sender = block_engine_sender.clone();
 
             let exit = exit.clone();
             Builder::new()
                 .name(format!("forwarder_thread_{thread_id}"))
                 .spawn(move || {
-                    let metrics_interval = Duration::from_secs(1);
-                    let mut forwarder_metrics = ForwarderMetrics::default();
-                    let mut last_metrics_upload = Instant::now();
-
                     let mut buffered_packet_batches = VecDeque::with_capacity(100_000);
+
+                    let metrics_interval = Duration::from_secs(1);
+                    let mut forwarder_metrics = ForwarderMetrics::new(
+                        buffered_packet_batches.capacity(),
+                        verified_receiver.capacity().unwrap(),
+                        block_engine_sender.capacity(),
+                    );
+                    let mut last_metrics_upload = Instant::now();
 
                     while !exit.load(Ordering::Relaxed) {
                         if last_metrics_upload.elapsed() >= metrics_interval {
                             forwarder_metrics.report(thread_id, packet_delay_ms);
 
-                            forwarder_metrics = ForwarderMetrics::default();
+                            forwarder_metrics = ForwarderMetrics::new(
+                                buffered_packet_batches.capacity(),
+                                verified_receiver.capacity().unwrap(),
+                                block_engine_sender.capacity(),
+                            );
                             last_metrics_upload = Instant::now();
                         }
 
-                        match packet_receiver.recv_timeout(SLEEP_DURATION) {
+                        match verified_receiver.recv_timeout(SLEEP_DURATION) {
                             Ok(banking_packet_batch) => {
                                 let mut packet_batches = banking_packet_batch.0;
-                                while let Ok((batches, _)) = packet_receiver.try_recv() {
+                                while let Ok((batches, _)) = verified_receiver.try_recv() {
                                     packet_batches.extend(batches.into_iter());
                                 }
 
@@ -133,7 +141,7 @@ pub fn start_forward_and_delay_thread(
                                 batch.batches.iter().map(|b| b.len() as u64).sum::<u64>();
                             forwarder_metrics.num_relayer_packets_forwarded += num_packets;
 
-                            delay_sender
+                            delay_packet_sender
                                 .send(batch)
                                 .expect("exiting forwarding delayed packets");
                         }
@@ -141,7 +149,7 @@ pub fn start_forward_and_delay_thread(
                         forwarder_metrics.update_queue_lengths(
                             buffered_packet_batches.len(),
                             buffered_packet_batches.capacity(),
-                            packet_receiver.len(),
+                            verified_receiver.len(),
                             BLOCK_ENGINE_FORWARDER_QUEUE_CAPACITY - block_engine_sender.capacity(),
                         );
                     }
@@ -151,7 +159,6 @@ pub fn start_forward_and_delay_thread(
         .collect()
 }
 
-#[derive(Default)]
 struct ForwarderMetrics {
     pub num_batches_received: u64,
     pub num_packets_received: u64,
@@ -165,12 +172,36 @@ struct ForwarderMetrics {
 
     // high water mark on queue lengths
     pub buffered_packet_batches_max_len: usize,
-    pub buffered_packet_batches_max_capacity: usize,
+    pub buffered_packet_batches_capacity: usize,
     pub verified_receiver_max_len: usize,
+    pub verified_receiver_capacity: usize,
     pub block_engine_sender_max_len: usize,
+    pub block_engine_sender_capacity: usize,
 }
 
 impl ForwarderMetrics {
+    pub fn new(
+        buffered_packet_batches_capacity: usize,
+        verified_receiver_capacity: usize,
+        block_engine_sender_capacity: usize,
+    ) -> Self {
+        ForwarderMetrics {
+            num_batches_received: 0,
+            num_packets_received: 0,
+            num_packets_filtered: 0,
+            num_be_packets_forwarded: 0,
+            num_be_packets_dropped: 0,
+            num_be_sender_full: 0,
+            num_relayer_packets_forwarded: 0,
+            buffered_packet_batches_max_len: 0,
+            buffered_packet_batches_capacity,
+            verified_receiver_max_len: 0,
+            verified_receiver_capacity,
+            block_engine_sender_max_len: 0,
+            block_engine_sender_capacity,
+        }
+    }
+
     pub fn update_queue_lengths(
         &mut self,
         buffered_packet_batches_len: usize,
@@ -182,8 +213,8 @@ impl ForwarderMetrics {
             self.buffered_packet_batches_max_len,
             buffered_packet_batches_len,
         );
-        self.buffered_packet_batches_max_capacity = std::cmp::max(
-            self.buffered_packet_batches_max_capacity,
+        self.buffered_packet_batches_capacity = std::cmp::max(
+            self.buffered_packet_batches_capacity,
             buffered_packet_batches_capacity,
         );
         self.verified_receiver_max_len =
@@ -217,19 +248,29 @@ impl ForwarderMetrics {
             ),
             // Channel stats
             (
-                "buffered_packet_batches-len",
+                "buffered_packet_batches_len",
                 self.buffered_packet_batches_max_len,
                 i64
             ),
             (
-                "buffered_packet_batches-capacity",
-                self.buffered_packet_batches_max_capacity,
+                "buffered_packet_batches_capacity",
+                self.buffered_packet_batches_capacity,
                 i64
             ),
-            ("verified_receiver-len", self.verified_receiver_max_len, i64),
+            ("verified_receiver_len", self.verified_receiver_max_len, i64),
             (
-                "block_engine_sender-len",
+                "verified_receiver_capacity",
+                self.verified_receiver_capacity,
+                i64
+            ),
+            (
+                "block_engine_sender_len",
                 self.block_engine_sender_max_len,
+                i64
+            ),
+            (
+                "block_engine_sender_capacity",
+                self.block_engine_sender_capacity,
                 i64
             ),
         );

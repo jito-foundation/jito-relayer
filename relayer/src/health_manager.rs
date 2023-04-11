@@ -65,7 +65,8 @@ impl HealthManager {
                             recv(channel_len_tick) -> _ => {
                                 datapoint_info!(
                                     "health_manager-channel_stats",
-                                    ("slot_sender-len", slot_sender_max_len, i64),
+                                    ("slot_sender_len", slot_sender_max_len, i64),
+                                    ("slot_sender_capacity", slot_sender.capacity().unwrap(), i64),
                                 );
                                 slot_sender_max_len = 0;
                             }
