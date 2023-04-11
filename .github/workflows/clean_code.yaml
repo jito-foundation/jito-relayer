@@ -12,20 +12,23 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: 'recursive'
-      - uses: actions-rs/toolchain@v1
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
         with:
-          toolchain: nightly
-          override: true
-          components: clippy
+          caller-workflow-name: clippy_and_udeps_check
+
       - uses: actions-rs/clippy-check@v1
         with:
           token: ${{ secrets.GHUB_TOKEN }}
           args: --all-features
+
       - uses: actions-rs/cargo@v1
         with:
           command: install
           args: cargo-udeps --locked
-      - name: cargo udeps
+
+      - name: Run cargo udeps
         uses: actions-rs/cargo@v1
         with:
           command: udeps
