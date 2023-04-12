@@ -41,7 +41,7 @@ jobs:
         run: |
           docker run --rm --entrypoint cat jitolabs/jito-transaction-relayer:${{ inputs.TAG }} /app/jito-transaction-relayer > ./jito-transaction-relayer-x86_64-unknown-linux-gnu
           ls -lh .
-          file ./jito-shredstream-proxy-x86_64-unknown-linux-gnu
+          file ./jito-transaction-relayer-x86_64-unknown-linux-gnu
 
       - name: Create Release with artifact
         uses: softprops/action-gh-release@v1
