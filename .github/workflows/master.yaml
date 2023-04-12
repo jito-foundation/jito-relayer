@@ -22,7 +22,7 @@ jobs:
 
   push_images:
     needs: run_tests
-    uses: ./.github/workflows/push_images.yaml
+    uses: ./.github/workflows/push_artifacts.yaml
     with:
       TAG: "latest"
     secrets:

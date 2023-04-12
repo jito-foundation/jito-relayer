@@ -1,17 +1,5 @@
 # jito-relayer
-Transaction Relayer
+Jito Relayer acts as a transaction processing unit (TPU) proxy. 
+It filters and verifies transactions for multiple authenticated validators on a separate server to ensure validators can devote resources to executing transactions.
 
-# Setup
-
-```bash
-git submodule update --init --recursive
-cargo b --release
-```
-
-## Generate RSA keys:
-One needs to generate RSA keys for JWT key generation and verification. To do that, use the following scripts:
-```bash
-OUTPUT_DIR=
-openssl genrsa --out $OUTPUT_DIR/private.pem
-openssl rsa --in $OUTPUT_DIR/private.pem --pubout --out $OUTPUT_DIR/public.pem
-```
+See https://jito-foundation.gitbook.io/mev/jito-relayer/running-a-relayer for setup and usage instructions.
