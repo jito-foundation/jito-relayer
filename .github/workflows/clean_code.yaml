@@ -15,9 +15,8 @@ jobs:
         with:
           caller-workflow-name: clippy_and_udeps_check
 
-      - uses: actions-rs/clippy-check@v1
-        with:
-          args: --all-features
+      - name: Clippy Check
+        run: cargo +nightly clippy --all-targets
 
       - uses: actions-rs/cargo@v1
         with:
