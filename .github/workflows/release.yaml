@@ -25,3 +25,6 @@ jobs:
     uses: ./.github/workflows/push_artifacts.yaml
     with:
       TAG: ${{ github.ref_name }}-${{ github.sha }}
+    secrets:
+      DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+      DOCKERHUB_PWD: ${{ secrets.DOCKERHUB_PWD }}
