@@ -2,6 +2,7 @@ use std::{
     collections::HashSet,
     fs,
     net::{IpAddr, Ipv4Addr, SocketAddr},
+    path::PathBuf,
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -118,17 +119,19 @@ struct Args {
     #[arg(long, env, default_value_t = 200)]
     packet_delay_ms: u32,
 
-    /// Block engine address
+    /// Address for Jito Block Engine.
+    /// See https://jito-labs.gitbook.io/mev/searcher-resources/block-engine#connection-details
     #[arg(long, env)]
     block_engine_url: String,
 
-    /// Authentication service address of the block-engine. Keypairs are authenticated against the block engine
+    /// Manual override for authentication service address of the block-engine.
+    /// Defaults to `--block-engine-url`
     #[arg(long, env)]
-    block_engine_auth_service_url: String,
+    block_engine_auth_service_url: Option<String>,
 
-    /// Keypair path
+    /// Path to keypair file used to authenticate with the backend.
     #[arg(long, env)]
-    keypair_path: String,
+    keypair_path: PathBuf,
 
     /// Validators allowed to authenticate and connect to the relayer, comma separated.
     /// If null then all validators on the leader schedule shall be permitted.
@@ -137,11 +140,11 @@ struct Args {
 
     /// The private key used to sign tokens by this server.
     #[arg(long, env)]
-    signing_key_pem_path: String,
+    signing_key_pem_path: PathBuf,
 
     /// The public key used to verify tokens by this and other services.
     #[arg(long, env)]
-    verifying_key_pem_path: String,
+    verifying_key_pem_path: PathBuf,
 
     /// Specifies how long access_tokens are valid for, expressed in seconds.
     #[arg(long, env, default_value_t = 1_800)]
@@ -163,13 +166,13 @@ struct Args {
     #[arg(long, env, default_value_t = 10)]
     missing_slot_unhealthy_secs: u64,
 
-    /// Solana cluster name (mainnet-beta, testnet, devnet, ...)
+    /// DEPRECATED. Solana cluster name (mainnet-beta, testnet, devnet, ...)
     #[arg(long, env)]
-    cluster: String,
+    cluster: Option<String>,
 
-    /// Region (amsterdam, dallas, frankfurt, ...)
+    /// DEPRECATED. Region (amsterdam, dallas, frankfurt, ...)
     #[arg(long, env)]
-    region: String,
+    region: Option<String>,
 
     /// Accounts of interest cache TTL. Note this must play nicely with the refresh period that
     /// block engine uses to send full updates.
@@ -223,6 +226,14 @@ fn main() {
 
     let args: Args = Args::parse();
     info!("args: {:?}", args);
+
+    // Warn about deprecated args
+    if args.cluster.is_some() {
+        warn!("--cluster arg is deprecated and may be removed in the next release.")
+    }
+    if args.region.is_some() {
+        warn!("--region arg is deprecated and may be removed in the next release.")
+    }
 
     let public_ip = if args.public_ip.is_some() {
         args.public_ip.unwrap()
@@ -310,8 +321,9 @@ fn main() {
         &exit,
     );
     let block_engine_forwarder = BlockEngineRelayerHandler::new(
-        args.block_engine_url,
-        args.block_engine_auth_service_url,
+        args.block_engine_url.clone(),
+        args.block_engine_auth_service_url
+            .unwrap_or(args.block_engine_url),
         block_engine_receiver,
         keypair,
         exit.clone(),
@@ -344,7 +356,7 @@ fn main() {
 
     let priv_key = fs::read(&args.signing_key_pem_path).unwrap_or_else(|_| {
         panic!(
-            "Failed to read signing key file: {}",
+            "Failed to read signing key file: {:?}",
             &args.verifying_key_pem_path
         )
     });
@@ -355,7 +367,7 @@ fn main() {
 
     let key = fs::read(&args.verifying_key_pem_path).unwrap_or_else(|_| {
         panic!(
-            "Failed to read verifying key file: {}",
+            "Failed to read verifying key file: {:?}",
             &args.verifying_key_pem_path
         )
     });

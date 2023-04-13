@@ -30,7 +30,7 @@ COPY . .
 RUN --mount=type=cache,mode=0777,target=/home/root/app/target \
     --mount=type=cache,mode=0777,target=/usr/local/cargo/registry \
     --mount=type=cache,mode=0777,target=/usr/local/cargo/git \
-    RUSTFLAGS="-C target-cpu=native" cargo build --release && cp target/release/jito-* ./
+    RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release && cp target/release/jito-* ./
 
 FROM debian:bullseye-slim as jito-transaction-relayer
 RUN apt-get -qq update && apt-get -qq -y install ca-certificates libssl1.1 && rm -rf /var/lib/apt/lists/*
