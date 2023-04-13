@@ -1,9 +1,6 @@
 name: Clean Code Check
 on:
   workflow_call:
-    secrets:
-      GHUB_TOKEN:
-        required: true
 
 jobs:
   clippy_and_udeps_check:
@@ -20,7 +17,6 @@ jobs:
 
       - uses: actions-rs/clippy-check@v1
         with:
-          token: ${{ secrets.GHUB_TOKEN }}
           args: --all-features
 
       - uses: actions-rs/cargo@v1
