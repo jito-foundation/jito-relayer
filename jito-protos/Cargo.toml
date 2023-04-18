@@ -10,7 +10,7 @@ prost = "0.11.8"
 prost-types = "0.11.8"
 solana-perf = "=1.14.13"
 solana-sdk = "=1.14.13"
-tonic = "0.8.3"
+tonic = "0.9.2"
 
 [build-dependencies]
-tonic-build = "0.8.4"
+tonic-build = "0.9.2"
