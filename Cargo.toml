@@ -8,3 +8,7 @@ members = [
     "rpc",
     "transaction-relayer"
 ]
+
+[profile.release]
+# thin has minimal overhead vs none (default): https://blog.llvm.org/2016/06/thinlto-scalable-and-incremental-lto.html
+lto = "thin"
