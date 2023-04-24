@@ -12,4 +12,7 @@ members = [
 [profile.release]
 # thin has minimal overhead vs none (default): https://blog.llvm.org/2016/06/thinlto-scalable-and-incremental-lto.html
 lto = "thin"
-debug = true
+
+# enable debug for profiling the heap using jeprof
+# example: jeprof --web target/release/jito-transaction-relayer jeprof.3085546.9823.i24.heap
+#debug = true
