@@ -177,7 +177,9 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
             ));
         }
 
-        let pubkey = Pubkey::new(&inner_req.pubkey[..]);
+        let pubkey = Pubkey::try_from(inner_req.pubkey)
+            .map_err(|_| Status::invalid_argument("Invalid pubkey supplied."))?;
+
         if !self.validator_auther.is_authorized(&pubkey) {
             return Err(Status::permission_denied(
                 "The supplied pubkey is not authorized to generate a challenge.",
@@ -218,11 +220,12 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
         let client_ip = Self::client_ip(&req)?;
         let inner_req = req.into_inner();
 
-        let client_pubkey = PublicKey::from_bytes(&inner_req.client_pubkey[..]).map_err(|e| {
+        let client_pubkey = PublicKey::from_bytes(&inner_req.client_pubkey).map_err(|e| {
             warn!("Failed to create pubkey from string: {}", e);
             Status::invalid_argument("Invalid pubkey supplied.")
         })?;
-        let sqlana_pubkey = Pubkey::new(&client_pubkey.to_bytes());
+        let solana_pubkey = Pubkey::try_from(client_pubkey.to_bytes())
+            .map_err(|_| Status::invalid_argument("Invalid pubkey supplied."))?;
 
         let auth_challenge = if let Some(challenge) = auth_challenges.get_priority(&client_ip).await
         {
@@ -234,7 +237,7 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
         }?;
 
         // Prepended with the pubkey to invalidate any tx this server could maliciously send.
-        let expected_challenge = format!("{}-{}", sqlana_pubkey, auth_challenge.0.challenge);
+        let expected_challenge = format!("{}-{}", solana_pubkey, auth_challenge.0.challenge);
         if expected_challenge != inner_req.challenge {
             return Err(Status::invalid_argument(format!(
                 "The provided challenge does not match the expected challenge: {expected_challenge}"
