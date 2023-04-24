@@ -6,10 +6,10 @@ publish = false
 
 [dependencies]
 bytes = "1.4.0"
-prost = "0.11.8"
-prost-types = "0.11.8"
-solana-perf = "=1.14.13"
-solana-sdk = "=1.14.13"
+prost = "0.11.9"
+prost-types = "0.11.9"
+solana-perf = "=1.14.17"
+solana-sdk = "=1.14.17"
 tonic = "0.9.2"
 
 [build-dependencies]
