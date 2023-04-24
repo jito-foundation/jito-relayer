@@ -44,8 +44,12 @@ use solana_sdk::{
     pubkey::Pubkey,
     signature::{read_keypair_file, Signer},
 };
+use tikv_jemallocator::Jemalloc;
 use tokio::{runtime::Builder, signal, sync::mpsc::channel};
 use tonic::transport::Server;
+
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
