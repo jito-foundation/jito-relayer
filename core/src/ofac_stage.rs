@@ -1,5 +1,6 @@
 use std::{
     collections::HashSet,
+    sync::Arc,
     thread,
     thread::{Builder, JoinHandle},
 };
@@ -23,7 +24,7 @@ impl OfacStage {
         verified_receiver: Receiver<BankingPacketBatch>,
         ofac_sender: Sender<BankingPacketBatch>,
         ofac_addresses: &HashSet<Pubkey>,
-        address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
+        address_lookup_table_cache: &Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
     ) -> OfacStage {
         let ofac_thread = if ofac_addresses.is_empty() {
             Self::spawn_passthrough(verified_receiver, ofac_sender)
@@ -64,7 +65,7 @@ impl OfacStage {
         verified_receiver: Receiver<BankingPacketBatch>,
         ofac_sender: Sender<BankingPacketBatch>,
         ofac_addresses: &HashSet<Pubkey>,
-        address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
+        address_lookup_table_cache: &Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
     ) -> JoinHandle<()> {
         let address_lookup_table_cache = address_lookup_table_cache.clone();
         let ofac_addresses = ofac_addresses.clone();
@@ -155,11 +156,10 @@ fn is_ofac_address_in_lookup_table(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, time::Duration};
+    use std::{collections::HashSet, sync::Arc, time::Duration};
 
     use crossbeam_channel::unbounded;
     use dashmap::DashMap;
-    use solana_core::banking_stage::BankingPacketBatch;
     use solana_perf::packet::PacketBatch;
     use solana_sdk::{
         address_lookup_table_account::AddressLookupTableAccount,
@@ -180,8 +180,9 @@ mod tests {
 
     #[test]
     fn test_is_ofac_address_in_static_keys() {
-        let ofac_pubkey = Pubkey::new_unique();
-        let ofac_addresses: HashSet<Pubkey> = HashSet::from_iter([ofac_pubkey.clone()]);
+        let ofac_signer = Keypair::new();
+        let ofac_pubkey = ofac_signer.pubkey();
+        let ofac_addresses: HashSet<Pubkey> = HashSet::from_iter([ofac_pubkey]);
 
         let payer = Keypair::new();
 
@@ -239,12 +240,30 @@ mod tests {
         let tx = VersionedTransaction::from(tx);
 
         assert!(is_ofac_address_in_static_keys(&tx, &ofac_addresses));
+
+        // transaction with ofac account as signer
+        let tx = Transaction::new_signed_with_payer(
+            &[Instruction::new_with_bytes(
+                Pubkey::new_unique(),
+                &[0],
+                vec![AccountMeta {
+                    pubkey: Pubkey::new_unique(),
+                    is_signer: false,
+                    is_writable: true,
+                }],
+            )],
+            Some(&ofac_signer.pubkey()),
+            &[&ofac_signer],
+            Hash::default(),
+        );
+        let tx = VersionedTransaction::from(tx);
+        assert!(is_ofac_address_in_static_keys(&tx, &ofac_addresses));
     }
 
     #[test]
     fn test_is_ofac_address_in_lookup_table() {
         let ofac_pubkey = Pubkey::new_unique();
-        let ofac_addresses: HashSet<Pubkey> = HashSet::from_iter([ofac_pubkey.clone()]);
+        let ofac_addresses: HashSet<Pubkey> = HashSet::from_iter([ofac_pubkey]);
 
         let payer = Keypair::new();
 
@@ -342,7 +361,7 @@ mod tests {
     #[test]
     fn test_discard_ofac_packets() {
         let ofac_pubkey = Pubkey::new_unique();
-        let ofac_addresses: HashSet<Pubkey> = HashSet::from_iter([ofac_pubkey.clone()]);
+        let ofac_addresses: HashSet<Pubkey> = HashSet::from_iter([ofac_pubkey]);
 
         let address_lookup_table_cache = DashMap::new();
 
@@ -398,9 +417,9 @@ mod tests {
     #[test]
     fn test_ofac_stage_ofac_tx() {
         let ofac_pubkey = Pubkey::new_unique();
-        let ofac_addresses: HashSet<Pubkey> = HashSet::from_iter([ofac_pubkey.clone()]);
+        let ofac_addresses: HashSet<Pubkey> = HashSet::from_iter([ofac_pubkey]);
 
-        let address_lookup_table_cache = DashMap::new();
+        let address_lookup_table_cache = Arc::new(DashMap::new());
 
         let payer = Keypair::new();
 
@@ -447,9 +466,9 @@ mod tests {
     #[test]
     fn test_ofac_stage_non_ofac_tx() {
         let ofac_pubkey = Pubkey::new_unique();
-        let ofac_addresses: HashSet<Pubkey> = HashSet::from_iter([ofac_pubkey.clone()]);
+        let ofac_addresses: HashSet<Pubkey> = HashSet::from_iter([ofac_pubkey]);
 
-        let address_lookup_table_cache = DashMap::new();
+        let address_lookup_table_cache = Arc::new(DashMap::new());
 
         let payer = Keypair::new();
 
@@ -496,7 +515,7 @@ mod tests {
     #[test]
     fn test_ofac_stage_passthrough() {
         let ofac_addresses: HashSet<Pubkey> = HashSet::new();
-        let address_lookup_table_cache = DashMap::new();
+        let address_lookup_table_cache = Arc::new(DashMap::new());
 
         let payer = Keypair::new();
 

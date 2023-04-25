@@ -66,7 +66,7 @@ impl Tpu {
         tpu_fwd_ip: &IpAddr,
         rpc_load_balancer: &Arc<LoadBalancer>,
         ofac_addresses: &HashSet<Pubkey>,
-        address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
+        address_lookup_table_cache: &Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
     ) -> (Self, Receiver<BankingPacketBatch>) {
         let TpuSockets {
             transactions_quic_sockets,
