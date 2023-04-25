@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 
-use crossbeam_channel::{unbounded, Receiver};
+use crossbeam_channel::Receiver;
 use dashmap::DashMap;
 use jito_rpc::load_balancer::LoadBalancer;
 use solana_core::{
@@ -140,7 +140,7 @@ impl Tpu {
             "tpu-verifier",
         );
 
-        let (ofac_sender, ofac_receiver) = unbounded();
+        let (ofac_sender, ofac_receiver) = crossbeam_channel::bounded(Self::TPU_QUEUE_CAPACITY);
         let ofac_stage = OfacStage::new(
             verified_receiver,
             ofac_sender,
