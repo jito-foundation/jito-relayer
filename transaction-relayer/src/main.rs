@@ -189,7 +189,7 @@ struct Args {
 
     /// Space-separated addresses to drop transactions for OFAC
     /// If any transaction mentions these addresses, the transaction will be dropped.
-    #[arg(long, env, value_delimiter = ',', value_parser = Pubkey::from_str)]
+    #[arg(long, env, value_delimiter = ' ', value_parser = Pubkey::from_str)]
     ofac_addresses: Option<Vec<Pubkey>>,
 }
 
