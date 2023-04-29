@@ -49,6 +49,10 @@ struct Args {
     #[arg(long, env, default_value_t = 0)]
     ip_port_offset: u16,
 
+    /// Number of transactions to serialize together in a single packet
+    #[arg(long, env, default_value_t = 10)]
+    transaction_batch_size: u64,
+
     /// Interval between sending packets on a given thread
     #[arg(long, env)]
     loop_sleep_micros: Option<u64>,
@@ -111,8 +115,6 @@ fn read_keypairs(path: PathBuf) -> io::Result<Vec<Keypair>> {
         )?])
     }
 }
-
-const TXN_BATCH_SIZE: u64 = 10;
 
 /// Generates sequential localhost sockets on different IPs
 pub fn local_socket_addr(
@@ -204,7 +206,7 @@ fn main() {
                             + cumm_fail_count
                             + curr_success_count
                             + curr_fail_count;
-                        let serialized_txns: Vec<Vec<u8>> = (0..TXN_BATCH_SIZE)
+                        let serialized_txns: Vec<Vec<u8>> = (0..args.transaction_batch_size)
                             .filter_map(|i| {
                                 let lamports = count + i;
                                 let txn = transfer(
