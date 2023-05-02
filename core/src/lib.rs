@@ -12,6 +12,7 @@ use std::{
 use log::*;
 
 mod fetch_stage;
+mod ofac_stage;
 mod staked_nodes_updater_service;
 pub mod tpu;
 

@@ -186,6 +186,11 @@ struct Args {
     /// How frequently to refresh the address lookup table accounts
     #[arg(long, env, default_value_t = 30)]
     lookup_table_refresh_secs: u64,
+
+    /// Space-separated addresses to drop transactions for OFAC
+    /// If any transaction mentions these addresses, the transaction will be dropped.
+    #[arg(long, env, value_delimiter = ' ', value_parser = Pubkey::from_str)]
+    ofac_addresses: Option<Vec<Pubkey>>,
 }
 
 #[derive(Debug)]
@@ -282,6 +287,12 @@ fn main() {
         .zip(args.websocket_servers.into_iter())
         .collect();
 
+    let ofac_addresses: HashSet<Pubkey> = args
+        .ofac_addresses
+        .map(|a| a.into_iter().collect())
+        .unwrap_or_default();
+    info!("ofac addresses: {:?}", ofac_addresses);
+
     let (rpc_load_balancer, slot_receiver) = LoadBalancer::new(&servers, &exit);
     let rpc_load_balancer = Arc::new(rpc_load_balancer);
 
@@ -290,7 +301,7 @@ fn main() {
         Arc::new(DashMap::new());
     let lookup_table_refresher = start_lookup_table_refresher(
         &rpc_load_balancer,
-        address_lookup_table_cache.clone(),
+        &address_lookup_table_cache,
         Duration::from_secs(args.lookup_table_refresh_secs),
         &exit,
     );
@@ -302,6 +313,8 @@ fn main() {
         &sockets.tpu_ip,
         &sockets.tpu_fwd_ip,
         &rpc_load_balancer,
+        &ofac_addresses,
+        &address_lookup_table_cache,
     );
 
     let leader_cache = LeaderScheduleCacheUpdater::new(&rpc_load_balancer, &exit);
@@ -471,12 +484,13 @@ impl ValidatorAuther for ValidatorAutherImpl {
 
 fn start_lookup_table_refresher(
     rpc_load_balancer: &Arc<LoadBalancer>,
-    lookup_table: Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
+    lookup_table: &Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
     refresh_duration: Duration,
     exit: &Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     let rpc_load_balancer = rpc_load_balancer.clone();
     let exit = exit.clone();
+    let lookup_table = lookup_table.clone();
 
     thread::Builder::new()
         .name("lookup_table_refresher".to_string())

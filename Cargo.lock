@@ -2239,7 +2239,9 @@ dependencies = [
 name = "jito-core"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "crossbeam-channel",
+ "dashmap 5.4.0",
  "jito-rpc",
  "lazy_static",
  "log",
@@ -3921,7 +3923,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
- "webpki-roots",
+ "webpki-roots 0.22.6",
  "winreg",
 ]
 
@@ -6106,7 +6108,7 @@ dependencies = [
  "tokio-rustls 0.23.4",
  "tungstenite",
  "webpki 0.22.0",
- "webpki-roots",
+ "webpki-roots 0.22.6",
 ]
 
 [[package]]
@@ -6251,6 +6253,7 @@ dependencies = [
  "percent-encoding 2.2.0",
  "pin-project",
  "prost 0.11.9",
+ "rustls-native-certs",
  "rustls-pemfile 1.0.2",
  "tokio",
  "tokio-rustls 0.24.0",
@@ -6259,6 +6262,7 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+ "webpki-roots 0.23.0",
 ]
 
 [[package]]
@@ -6405,7 +6409,7 @@ dependencies = [
  "url 2.3.1",
  "utf-8",
  "webpki 0.22.0",
- "webpki-roots",
+ "webpki-roots 0.22.6",
 ]
 
 [[package]]
@@ -6727,6 +6731,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6c71e40d7d2c34a5106301fb632274ca37242cd0c9d3e64dbece371a40a2d87"
 dependencies = [
  "webpki 0.22.0",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa54963694b65584e170cf5dc46aeb4dcaa5584e652ff5f3952e56d66aff0125"
+dependencies = [
+ "rustls-webpki",
 ]
 
 [[package]]
