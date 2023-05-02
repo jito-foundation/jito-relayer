@@ -232,6 +232,7 @@ fn get_sockets(args: &Args) -> Sockets {
 }
 
 fn main() {
+    // one can override the default log level by setting the env var RUST_LOG
     env_logger::Builder::from_env(Env::new().default_filter_or("info"))
         .format_timestamp_millis()
         .init();
