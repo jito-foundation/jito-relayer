@@ -117,9 +117,7 @@ impl BlockEngineRelayerHandler {
                 let rt = Runtime::new().unwrap();
                 rt.block_on(async move {
                     while !exit.load(Ordering::Relaxed) {
-                        is_connected_to_block_engine.store(false, Ordering::Relaxed);
-
-                        match Self::auth_and_connect(
+                        let result = Self::auth_and_connect(
                             &block_engine_url,
                             &auth_service_url,
                             &mut block_engine_receiver,
@@ -129,18 +127,17 @@ impl BlockEngineRelayerHandler {
                             &address_lookup_table_cache,
                             &is_connected_to_block_engine,
                         )
-                        .await
-                        {
-                            Ok(_) => {}
-                            Err(e) => {
-                                error!("error authenticating and connecting: {:?}", e);
-                                datapoint_error!("block_engine_relayer-error",
-                                    "block_engine_url" => block_engine_url,
-                                    "auth_service_url" => auth_service_url,
-                                    ("error", e.to_string(), String)
-                                );
-                                sleep(Duration::from_secs(2)).await;
-                            }
+                        .await;
+                        is_connected_to_block_engine.store(false, Ordering::Relaxed);
+
+                        if let Err(e) = result {
+                            error!("error authenticating and connecting: {:?}", e);
+                            datapoint_error!("block_engine_relayer-error",
+                                "block_engine_url" => block_engine_url,
+                                "auth_service_url" => auth_service_url,
+                                ("error", e.to_string(), String)
+                            );
+                            sleep(Duration::from_secs(2)).await;
                         }
                     }
                 });
