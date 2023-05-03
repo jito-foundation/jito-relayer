@@ -312,7 +312,7 @@ impl RelayerImpl {
             public_ip,
             threads: vec![thread],
             health_state,
-            packet_subscriptions: packet_subscriptions.clone(),
+            packet_subscriptions,
         }
     }
 
