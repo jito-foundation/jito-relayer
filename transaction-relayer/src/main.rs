@@ -32,6 +32,7 @@ use jito_relayer::{
     relayer::RelayerImpl,
     schedule_cache::{LeaderScheduleCacheUpdater, LeaderScheduleUpdatingHandle},
 };
+use jito_relayer_web::{start_relayer_web_server, RelayerState};
 use jito_rpc::load_balancer::LoadBalancer;
 use jito_transaction_relayer::forwarder::start_forward_and_delay_thread;
 use jwt::{AlgorithmType, PKeyWithDigest};
@@ -192,6 +193,10 @@ struct Args {
     /// If any transaction mentions these addresses, the transaction will be dropped.
     #[arg(long, env, value_delimiter = ' ', value_parser = Pubkey::from_str)]
     ofac_addresses: Option<Vec<Pubkey>>,
+
+    /// Webserver bind address that exposes diagnostic information
+    #[arg(long, env, default_value_t = SocketAddr::from_str("127.0.0.1:11227").unwrap())]
+    webserver_bind_addr: SocketAddr,
 }
 
 #[derive(Debug)]
@@ -232,6 +237,9 @@ fn get_sockets(args: &Args) -> Sockets {
 }
 
 fn main() {
+    const MAX_BUFFERED_REQUESTS: usize = 10;
+    const REQUESTS_PER_SECOND: u64 = 5;
+
     // one can override the default log level by setting the env var RUST_LOG
     env_logger::Builder::from_env(Env::new().default_filter_or("info"))
         .format_timestamp_millis()
@@ -341,6 +349,8 @@ fn main() {
         1,
         &exit,
     );
+
+    let is_connected_to_block_engine = Arc::new(AtomicBool::new(false));
     let block_engine_forwarder = BlockEngineRelayerHandler::new(
         args.block_engine_url.clone(),
         args.block_engine_auth_service_url
@@ -350,6 +360,7 @@ fn main() {
         exit.clone(),
         args.aoi_cache_ttl_secs,
         address_lookup_table_cache,
+        &is_connected_to_block_engine,
     );
 
     // receiver tracked as relayer_metrics.slot_receiver_len
@@ -402,7 +413,23 @@ fn main() {
         None => ValidatorStore::LeaderSchedule(leader_cache.handle()),
     };
 
+    let relayer_state = Arc::new(RelayerState::new(
+        health_manager.handle(),
+        &is_connected_to_block_engine,
+        relayer_svc.handle(),
+    ));
+
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();
+    rt.spawn({
+        let relayer_state = relayer_state.clone();
+        start_relayer_web_server(
+            relayer_state,
+            args.webserver_bind_addr,
+            MAX_BUFFERED_REQUESTS,
+            REQUESTS_PER_SECOND,
+        )
+    });
+
     rt.block_on(async {
         let auth_svc = AuthServiceImpl::new(
             ValidatorAutherImpl {

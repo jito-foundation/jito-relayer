@@ -108,14 +108,16 @@ impl BlockEngineRelayerHandler {
         exit: Arc<AtomicBool>,
         aoi_cache_ttl_s: u64,
         address_lookup_table_cache: Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
+        is_connected_to_block_engine: &Arc<AtomicBool>,
     ) -> BlockEngineRelayerHandler {
+        let is_connected_to_block_engine = is_connected_to_block_engine.clone();
         let block_engine_forwarder = Builder::new()
             .name("block_engine_relayer_handler_thread".into())
             .spawn(move || {
                 let rt = Runtime::new().unwrap();
                 rt.block_on(async move {
                     while !exit.load(Ordering::Relaxed) {
-                        match Self::auth_and_connect(
+                        let result = Self::auth_and_connect(
                             &block_engine_url,
                             &auth_service_url,
                             &mut block_engine_receiver,
@@ -123,19 +125,19 @@ impl BlockEngineRelayerHandler {
                             &exit,
                             aoi_cache_ttl_s,
                             &address_lookup_table_cache,
+                            &is_connected_to_block_engine,
                         )
-                        .await
-                        {
-                            Ok(_) => {}
-                            Err(e) => {
-                                error!("error authenticating and connecting: {:?}", e);
-                                datapoint_error!("block_engine_relayer-error",
-                                    "block_engine_url" => block_engine_url,
-                                    "auth_service_url" => auth_service_url,
-                                    ("error", e.to_string(), String)
-                                );
-                                sleep(Duration::from_secs(2)).await;
-                            }
+                        .await;
+                        is_connected_to_block_engine.store(false, Ordering::Relaxed);
+
+                        if let Err(e) = result {
+                            error!("error authenticating and connecting: {:?}", e);
+                            datapoint_error!("block_engine_relayer-error",
+                                "block_engine_url" => block_engine_url,
+                                "auth_service_url" => auth_service_url,
+                                ("error", e.to_string(), String)
+                            );
+                            sleep(Duration::from_secs(2)).await;
                         }
                     }
                 });
@@ -212,6 +214,7 @@ impl BlockEngineRelayerHandler {
         exit: &Arc<AtomicBool>,
         aoi_cache_ttl_s: u64,
         address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
+        is_connected_to_block_engine: &Arc<AtomicBool>,
     ) -> BlockEngineResult<()> {
         let mut auth_endpoint = Endpoint::from_str(auth_service_url).expect("valid auth url");
         if auth_service_url.contains("https") {
@@ -275,6 +278,7 @@ impl BlockEngineRelayerHandler {
             exit,
             aoi_cache_ttl_s,
             address_lookup_table_cache,
+            is_connected_to_block_engine,
         )
         .await
     }
@@ -295,6 +299,7 @@ impl BlockEngineRelayerHandler {
         exit: &Arc<AtomicBool>,
         aoi_cache_ttl_s: u64,
         address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
+        is_connected_to_block_engine: &Arc<AtomicBool>,
     ) -> BlockEngineResult<()> {
         let subscribe_aoi_stream = client
             .subscribe_accounts_of_interest(AccountsOfInterestRequest {})
@@ -325,6 +330,7 @@ impl BlockEngineRelayerHandler {
             exit,
             aoi_cache_ttl_s,
             address_lookup_table_cache,
+            is_connected_to_block_engine,
         )
         .await
     }
@@ -342,12 +348,15 @@ impl BlockEngineRelayerHandler {
         exit: &Arc<AtomicBool>,
         aoi_cache_ttl_s: u64,
         address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
+        is_connected_to_block_engine: &Arc<AtomicBool>,
     ) -> BlockEngineResult<()> {
         let mut aoi_stream = subscribe_aoi_stream.into_inner();
         let mut poi_stream = subscribe_poi_stream.into_inner();
 
         // drain old buffered packets before streaming packets to the block engine
         while block_engine_receiver.try_recv().is_ok() {}
+
+        is_connected_to_block_engine.store(true, Ordering::Relaxed);
 
         let mut accounts_of_interest: TimedCache<Pubkey, u8> =
             TimedCache::with_lifespan_and_capacity(aoi_cache_ttl_s, 1_000_000);
