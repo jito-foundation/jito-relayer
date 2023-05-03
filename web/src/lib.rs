@@ -4,12 +4,17 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, RwLock,
     },
+    time::Duration,
 };
 
-use axum::{routing::get, Extension, Json, Router};
+use axum::{
+    error_handling::HandleErrorLayer, http::StatusCode, routing::get, BoxError, Extension, Json,
+    Router,
+};
 use jito_relayer::{health_manager::HealthState, relayer::RelayerHandle};
 use log::debug;
 use serde::Serialize;
+use tower::{buffer::BufferLayer, limit::RateLimitLayer, ServiceBuilder};
 
 /// State object that exposes info inside relayer
 pub struct RelayerState {
@@ -40,7 +45,11 @@ pub struct RelayerStatus {
 }
 
 /// Returns an axum router with endpoints to get status of relayer
-pub fn build_relayer_router(state: Arc<RelayerState>) -> Router {
+pub fn build_relayer_router(
+    state: Arc<RelayerState>,
+    max_buffered_request: usize,
+    requests_per_second: u64,
+) -> Router {
     async fn homepage(Extension(_state): Extension<Arc<RelayerState>>) -> String {
         "jito relayer".to_string()
     }
@@ -80,18 +89,36 @@ pub fn build_relayer_router(state: Arc<RelayerState>) -> Router {
         Json(status)
     }
 
-    // TODO (LB): add rate limits!!!!!
     Router::new()
         .route("/", get(homepage))
         .route("/health", get(get_health))
         .route("/status", get(get_status))
+        .layer(
+            ServiceBuilder::new()
+                .layer(HandleErrorLayer::new(|err: BoxError| async move {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Unhandled error: {}", err),
+                    )
+                }))
+                .layer(BufferLayer::new(max_buffered_request))
+                .layer(RateLimitLayer::new(
+                    requests_per_second,
+                    Duration::from_secs(1),
+                )),
+        )
         .layer(Extension(state))
 }
 
 /// Starts the relayer webserver to serve HTTP requests against
 /// Note this is a blocking call, so call spawn in tokio
-pub async fn start_relayer_web_server(state: Arc<RelayerState>, addr: SocketAddr) {
-    let app = build_relayer_router(state);
+pub async fn start_relayer_web_server(
+    state: Arc<RelayerState>,
+    addr: SocketAddr,
+    max_buffered_request: usize,
+    requests_per_second: u64,
+) {
+    let app = build_relayer_router(state, max_buffered_request, requests_per_second);
     let _ = axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .await;
