@@ -1,0 +1,16 @@
+[package]
+name = "jito-relayer-web"
+version = "0.1.0"
+description = "Transaction relayer web server"
+authors = ["Jito Team <team@jito.wtf>"]
+homepage = "https://jito.wtf/"
+edition = "2021"
+publish = false
+
+[dependencies]
+axum = "0.5.17"
+serde = { version = "1.0.160", features = ["derive"] }
+serde_json = "1.0.96"
+tokio = "~1.14.0"
+tower = { version = "0.4.1", features = ["limit"] }
+jito-relayer = { path = "../relayer" }

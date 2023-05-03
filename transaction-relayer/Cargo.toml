@@ -20,6 +20,7 @@ jito-block-engine = { path = "../block_engine" }
 jito-core = { path = "../core" }
 jito-protos = { path = "../jito-protos" }
 jito-relayer = { path = "../relayer" }
+jito-relayer-web = { path = "../web" }
 jito-rpc = { path = "../rpc" }
 jwt = { version = "0.16.0", features = ["openssl"] }
 log = "0.4.17"

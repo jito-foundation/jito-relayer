@@ -32,6 +32,7 @@ use jito_relayer::{
     relayer::RelayerImpl,
     schedule_cache::{LeaderScheduleCacheUpdater, LeaderScheduleUpdatingHandle},
 };
+use jito_relayer_web::{start_relayer_web_server, RelayerState};
 use jito_rpc::load_balancer::LoadBalancer;
 use jito_transaction_relayer::forwarder::start_forward_and_delay_thread;
 use jwt::{AlgorithmType, PKeyWithDigest};
@@ -192,6 +193,10 @@ struct Args {
     /// If any transaction mentions these addresses, the transaction will be dropped.
     #[arg(long, env, value_delimiter = ' ', value_parser = Pubkey::from_str)]
     ofac_addresses: Option<Vec<Pubkey>>,
+
+    /// Webserver bind address
+    #[arg(long, env, default_value_t = SocketAddr::from_str("127.0.0.1:11227").unwrap())]
+    webserver_bind_addr: SocketAddr,
 }
 
 #[derive(Debug)]
@@ -402,7 +407,14 @@ fn main() {
         None => ValidatorStore::LeaderSchedule(leader_cache.handle()),
     };
 
+    let relayer_state = Arc::new(RelayerState {});
+
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();
+    rt.spawn({
+        let relayer_state = relayer_state.clone();
+        start_relayer_web_server(relayer_state, args.webserver_bind_addr)
+    });
+
     rt.block_on(async {
         let auth_svc = AuthServiceImpl::new(
             ValidatorAutherImpl {
