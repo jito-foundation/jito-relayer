@@ -2383,8 +2383,10 @@ version = "0.1.0"
 dependencies = [
  "axum 0.5.17",
  "jito-relayer",
+ "log",
  "serde",
  "serde_json",
+ "solana-sdk",
  "tokio",
  "tower",
 ]

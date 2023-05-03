@@ -194,7 +194,7 @@ struct Args {
     #[arg(long, env, value_delimiter = ' ', value_parser = Pubkey::from_str)]
     ofac_addresses: Option<Vec<Pubkey>>,
 
-    /// Webserver bind address
+    /// Webserver bind address that exposes diagnostic information
     #[arg(long, env, default_value_t = SocketAddr::from_str("127.0.0.1:11227").unwrap())]
     webserver_bind_addr: SocketAddr,
 }
@@ -346,6 +346,8 @@ fn main() {
         1,
         &exit,
     );
+
+    let is_connected_to_block_engine = Arc::new(AtomicBool::new(false));
     let block_engine_forwarder = BlockEngineRelayerHandler::new(
         args.block_engine_url.clone(),
         args.block_engine_auth_service_url
@@ -355,6 +357,7 @@ fn main() {
         exit.clone(),
         args.aoi_cache_ttl_secs,
         address_lookup_table_cache,
+        &is_connected_to_block_engine,
     );
 
     // receiver tracked as relayer_metrics.slot_receiver_len
@@ -407,7 +410,11 @@ fn main() {
         None => ValidatorStore::LeaderSchedule(leader_cache.handle()),
     };
 
-    let relayer_state = Arc::new(RelayerState {});
+    let relayer_state = Arc::new(RelayerState::new(
+        health_manager.handle(),
+        &is_connected_to_block_engine,
+        relayer_svc.handle(),
+    ));
 
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();
     rt.spawn({
