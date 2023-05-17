@@ -13,9 +13,9 @@ dashmap = "5.4.0"
 jito-protos = { path = "../jito-protos" }
 log = "0.4.17"
 prost-types = "0.11.9"
-solana-metrics = "=1.14.17"
-solana-perf = "=1.14.17"
-solana-sdk = "=1.14.17"
+solana-metrics = "=1.14.18"
+solana-perf = "=1.14.18"
+solana-sdk = "=1.14.18"
 thiserror = "1.0.40"
 tokio = { version = "~1.14.1", features = ["rt-multi-thread"] }
 tokio-stream = "0.1.12"
