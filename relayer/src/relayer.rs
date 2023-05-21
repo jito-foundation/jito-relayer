@@ -145,7 +145,7 @@ impl RelayerMetrics {
     }
 
     fn report(&self) {
-        for (pubkey, stats) in self.packet_stats_per_validator {
+        for (pubkey, stats) in &self.packet_stats_per_validator {
             datapoint_info!("relayer_validator_metrics",
                 "pubkey" => pubkey.to_string(),
                 ("num_packets_forwarded", stats.num_packets_forwarded, i64),
