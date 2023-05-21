@@ -29,6 +29,7 @@ use solana_perf::packet::PacketBatch;
 use solana_sdk::{
     clock::{Slot, NUM_CONSECUTIVE_LEADER_SLOTS},
     pubkey::Pubkey,
+    saturating_add_assign,
 };
 use thiserror::Error;
 use tokio::sync::mpsc::{channel, error::TrySendError, Sender as TokioSender};
@@ -37,14 +38,18 @@ use tonic::{Request, Response, Status};
 
 use crate::{health_manager::HealthState, schedule_cache::LeaderScheduleUpdatingHandle};
 
+#[derive(Default)]
+struct PacketForwardStats {
+    num_packets_forwarded: u64,
+    num_packets_dropped: u64,
+}
+
 struct RelayerMetrics {
     pub highest_slot: u64,
     pub num_added_connections: u64,
     pub num_removed_connections: u64,
     pub num_current_connections: u64,
     pub num_heartbeats: u64,
-    pub num_batches_forwarded: u64,
-    pub num_packets_forwarded: u64,
     pub max_heartbeat_tick_latency_us: u64,
     pub metrics_latency_us: u64,
     pub num_try_send_channel_full: u64,
@@ -58,6 +63,7 @@ struct RelayerMetrics {
     pub delay_packet_receiver_max_len: usize,
     pub delay_packet_receiver_capacity: usize,
     pub packet_subscriptions_total_queued: usize, // sum of all items currently queued
+    packet_stats_per_validator: HashMap<Pubkey, PacketForwardStats>,
 }
 
 impl RelayerMetrics {
@@ -72,8 +78,6 @@ impl RelayerMetrics {
             num_removed_connections: 0,
             num_current_connections: 0,
             num_heartbeats: 0,
-            num_batches_forwarded: 0,
-            num_packets_forwarded: 0,
             max_heartbeat_tick_latency_us: 0,
             metrics_latency_us: 0,
             num_try_send_channel_full: 0,
@@ -85,6 +89,7 @@ impl RelayerMetrics {
             delay_packet_receiver_max_len: 0,
             delay_packet_receiver_capacity,
             packet_subscriptions_total_queued: 0,
+            packet_stats_per_validator: HashMap::new(),
         }
     }
 
@@ -119,7 +124,34 @@ impl RelayerMetrics {
         self.packet_subscriptions_total_queued = packet_subscriptions_total_queued;
     }
 
+    fn increment_packets_forwarded(&mut self, validator_id: &Pubkey, num_packets: u64) {
+        self.packet_stats_per_validator
+            .entry(*validator_id)
+            .and_modify(|entry| saturating_add_assign!(entry.num_packets_forwarded, num_packets))
+            .or_insert(PacketForwardStats {
+                num_packets_forwarded: num_packets,
+                num_packets_dropped: 0,
+            });
+    }
+
+    fn increment_packets_dropped(&mut self, validator_id: &Pubkey, num_packets: u64) {
+        self.packet_stats_per_validator
+            .entry(*validator_id)
+            .and_modify(|entry| saturating_add_assign!(entry.num_packets_dropped, num_packets))
+            .or_insert(PacketForwardStats {
+                num_packets_forwarded: 0,
+                num_packets_dropped: num_packets,
+            });
+    }
+
     fn report(&self) {
+        for (pubkey, stats) in self.packet_stats_per_validator {
+            datapoint_info!("relayer_validator_metrics",
+                "pubkey" => pubkey.to_string(),
+                ("num_packets_forwarded", stats.num_packets_forwarded, i64),
+                ("num_packets_dropped", stats.num_packets_dropped, i64),
+            );
+        }
         datapoint_info!(
             "relayer_metrics",
             ("highest_slot", self.highest_slot, i64),
@@ -127,8 +159,6 @@ impl RelayerMetrics {
             ("num_removed_connections", self.num_removed_connections, i64),
             ("num_current_connections", self.num_current_connections, i64),
             ("num_heartbeats", self.num_heartbeats, i64),
-            ("num_batches_forwarded", self.num_batches_forwarded, i64),
-            ("num_packets_forwarded", self.num_packets_forwarded, i64),
             (
                 "num_try_send_channel_full",
                 self.num_try_send_channel_full,
@@ -511,14 +541,18 @@ impl RelayerImpl {
                     )),
                 })) {
                     Ok(_) => {
-                        relayer_metrics.num_batches_forwarded += 1;
-                        relayer_metrics.num_packets_forwarded +=
-                            proto_packet_batch.packets.len() as u64;
+                        relayer_metrics.increment_packets_forwarded(
+                            pubkey,
+                            proto_packet_batch.packets.len() as u64,
+                        );
                         None
                     }
                     Err(TrySendError::Full(_)) => {
                         error!("packet channel is full for pubkey: {:?}", pubkey);
-                        relayer_metrics.num_try_send_channel_full += 1;
+                        relayer_metrics.increment_packets_dropped(
+                            pubkey,
+                            proto_packet_batch.packets.len() as u64,
+                        );
                         None
                     }
                     Err(TrySendError::Closed(_)) => {
