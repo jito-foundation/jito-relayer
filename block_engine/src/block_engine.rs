@@ -22,7 +22,7 @@ use jito_protos::{
         AccountsOfInterestRequest, AccountsOfInterestUpdate, ExpiringPacketBatch,
         PacketBatchUpdate, ProgramsOfInterestRequest, ProgramsOfInterestUpdate,
     },
-    convert::{packet_to_proto_packet, versioned_tx_from_packet},
+    convert::packet_to_proto_packet,
     packet::{Packet as ProtoPacket, PacketBatch as ProtoPacketBatch},
     shared::{Header, Heartbeat},
 };
@@ -213,7 +213,7 @@ impl BlockEngineRelayerHandler {
         keypair: &Arc<Keypair>,
         exit: &Arc<AtomicBool>,
         aoi_cache_ttl_s: u64,
-        address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
+        address_lookup_table_cache: &Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
         is_connected_to_block_engine: &Arc<AtomicBool>,
     ) -> BlockEngineResult<()> {
         let mut auth_endpoint = Endpoint::from_str(auth_service_url).expect("valid auth url");
@@ -298,7 +298,7 @@ impl BlockEngineRelayerHandler {
         shared_access_token: Arc<Mutex<Token>>,
         exit: &Arc<AtomicBool>,
         aoi_cache_ttl_s: u64,
-        address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
+        address_lookup_table_cache: &Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
         is_connected_to_block_engine: &Arc<AtomicBool>,
     ) -> BlockEngineResult<()> {
         let subscribe_aoi_stream = client
@@ -347,7 +347,7 @@ impl BlockEngineRelayerHandler {
         shared_access_token: Arc<Mutex<Token>>,
         exit: &Arc<AtomicBool>,
         aoi_cache_ttl_s: u64,
-        address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
+        address_lookup_table_cache: &Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
         is_connected_to_block_engine: &Arc<AtomicBool>,
     ) -> BlockEngineResult<()> {
         let mut aoi_stream = subscribe_aoi_stream.into_inner();
@@ -623,8 +623,7 @@ impl BlockEngineRelayerHandler {
             .flat_map(|b| {
                 b.iter()
                     .filter_map(|p| {
-                        let pb = packet_to_proto_packet(p)?;
-                        let tx = versioned_tx_from_packet(&pb)?;
+                        let tx: VersionedTransaction = p.deserialize_slice(..).ok()?;
 
                         let is_forwardable =
                             is_aoi_in_static_keys(&tx, accounts_of_interest, programs_of_interest)
@@ -636,7 +635,7 @@ impl BlockEngineRelayerHandler {
                                 );
 
                         if is_forwardable {
-                            Some(pb)
+                            Some(packet_to_proto_packet(p)?)
                         } else {
                             None
                         }
