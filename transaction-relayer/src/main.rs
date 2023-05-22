@@ -428,7 +428,7 @@ fn main() {
     ));
 
     rt.block_on(async {
-        let _block_engine_relayer_handle = BlockEngineRelayerHandler::new(
+        let block_engine_relayer_handle = BlockEngineRelayerHandler::new(
             args.block_engine_url.clone(),
             args.block_engine_auth_service_url
                 .unwrap_or(args.block_engine_url),
@@ -438,7 +438,8 @@ fn main() {
             args.aoi_cache_ttl_secs,
             &address_lookup_table_cache,
             &is_connected_to_block_engine,
-        );
+        )
+        .await;
 
         let auth_svc = AuthServiceImpl::new(
             ValidatorAutherImpl {
@@ -464,6 +465,7 @@ fn main() {
             .serve_with_shutdown(server_addr, shutdown_signal(exit.clone()))
             .await
             .expect("serve relayer");
+        block_engine_relayer_handle.join().await.unwrap();
     });
 
     exit.store(true, Ordering::Relaxed);

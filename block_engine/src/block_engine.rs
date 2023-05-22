@@ -36,7 +36,7 @@ use thiserror::Error;
 use tokio::{
     select,
     sync::mpsc::{channel, Receiver, Sender},
-    task::JoinHandle,
+    task::{JoinError, JoinHandle},
     time::{interval, sleep},
 };
 use tokio_stream::wrappers::ReceiverStream;
@@ -91,7 +91,7 @@ pub type BlockEngineResult<T> = Result<T, BlockEngineError>;
 
 /// Attempts to maintain a connection to a Block Engine and forward packets to it
 pub struct BlockEngineRelayerHandler {
-    _task: JoinHandle<()>,
+    task: JoinHandle<()>,
 }
 
 impl BlockEngineRelayerHandler {
@@ -138,7 +138,11 @@ impl BlockEngineRelayerHandler {
             }
         });
 
-        BlockEngineRelayerHandler { _task: task }
+        BlockEngineRelayerHandler { task }
+    }
+
+    pub async fn join(self) -> Result<(), JoinError> {
+        self.task.await
     }
 
     /// Relayers are whitelisted in the block engine. In order to auth, a challenge-response handshake
