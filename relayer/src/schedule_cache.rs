@@ -15,6 +15,7 @@ use log::{debug, error};
 use solana_metrics::datapoint_info;
 use solana_sdk::{
     clock::{Slot, DEFAULT_SLOTS_PER_EPOCH},
+    commitment_config::CommitmentConfig,
     pubkey::Pubkey,
 };
 
@@ -107,7 +108,9 @@ impl LeaderScheduleCacheUpdater {
                         ("slots_in_schedule", slots_in_schedule, i64),
                     );
 
-                    sleep(Duration::from_secs(10));
+                    // the solana leader schedule is computed 2 epochs in advance, so frequent refreshes
+                    // are unnecessary
+                    sleep(Duration::from_secs(48 * 60 * 60));
                 }
             })
             .unwrap()
@@ -119,8 +122,12 @@ impl LeaderScheduleCacheUpdater {
     ) -> bool {
         let rpc_client = load_balancer.rpc_client();
 
-        if let Ok(epoch_info) = rpc_client.get_epoch_info() {
-            if let Ok(Some(leader_schedule)) = rpc_client.get_leader_schedule(None) {
+        if let Ok(epoch_info) =
+            rpc_client.get_epoch_info_with_commitment(CommitmentConfig::finalized())
+        {
+            if let Ok(Some(leader_schedule)) =
+                rpc_client.get_leader_schedule_with_commitment(None, CommitmentConfig::finalized())
+            {
                 let epoch_offset = epoch_info.absolute_slot - epoch_info.slot_index;
 
                 debug!("read leader schedule of length: {}", leader_schedule.len());
