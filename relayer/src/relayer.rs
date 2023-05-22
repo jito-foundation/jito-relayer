@@ -14,7 +14,7 @@ use crossbeam_channel::{bounded, Receiver, RecvError, Sender};
 use histogram::Histogram;
 use jito_protos::{
     convert::packet_to_proto_packet,
-    packet::{Packet as ProtoPacket, PacketBatch as ProtoPacketBatch},
+    packet::PacketBatch as ProtoPacketBatch,
     relayer::{
         relayer_server::Relayer, subscribe_packets_response, GetTpuConfigsRequest,
         GetTpuConfigsResponse, SubscribePacketsRequest, SubscribePacketsResponse,
@@ -508,68 +508,51 @@ impl RelayerImpl {
             .collect();
         let slot_leaders = leader_schedule_cache.leaders_for_slots(&slots);
 
-        let proto_packet_batch = ProtoPacketBatch {
-            packets: packet_batches
-                .batches
-                .into_iter()
-                .flat_map(|b| {
-                    b.iter()
-                        .filter_map(packet_to_proto_packet)
-                        .collect::<Vec<ProtoPacket>>()
-                })
-                .collect(),
-        };
-        if proto_packet_batch.packets.len() > 30 {
-            info!(
-                "proto_packet_batch num packets: {}",
-                proto_packet_batch.packets.len()
-            );
-        }
+        let proto_packet_batches: Vec<ProtoPacketBatch> = packet_batches
+            .batches
+            .iter()
+            .map(|b| ProtoPacketBatch {
+                packets: b.iter().filter_map(packet_to_proto_packet).collect(),
+            })
+            .collect();
 
         let l_subscriptions = subscriptions.read().unwrap();
 
-        let failed_forwards = slot_leaders
-            .iter()
-            .filter_map(|pubkey| {
-                let sender = l_subscriptions.get(pubkey)?;
-
-                // NOTE: this is important to avoid divide-by-0 inside the validator if packets
-                // get routed to sigverify under the assumption theres > 0 packets in the batch
-                if proto_packet_batch.packets.is_empty() {
-                    return None;
-                }
-
-                // try send because it's a bounded channel and we don't want to block if the channel is full
-                match sender.try_send(Ok(SubscribePacketsResponse {
-                    header: Some(Header {
-                        ts: Some(Timestamp::from(SystemTime::now())),
-                    }),
-                    msg: Some(subscribe_packets_response::Msg::Batch(
-                        proto_packet_batch.clone(),
-                    )),
-                })) {
-                    Ok(_) => {
-                        relayer_metrics.increment_packets_forwarded(
-                            pubkey,
-                            proto_packet_batch.packets.len() as u64,
-                        );
-                        None
+        let mut failed_forwards = Vec::new();
+        for pubkey in slot_leaders {
+            for batch in &proto_packet_batches {
+                if let Some(sender) = l_subscriptions.get(&pubkey) {
+                    // NOTE: this is important to avoid divide-by-0 inside the validator if packets
+                    // get routed to sigverify under the assumption theres > 0 packets in the batch
+                    if batch.packets.is_empty() {
+                        continue;
                     }
-                    Err(TrySendError::Full(_)) => {
-                        error!("packet channel is full for pubkey: {:?}", pubkey);
-                        relayer_metrics.increment_packets_dropped(
-                            pubkey,
-                            proto_packet_batch.packets.len() as u64,
-                        );
-                        None
-                    }
-                    Err(TrySendError::Closed(_)) => {
-                        error!("channel is closed for pubkey: {:?}", pubkey);
-                        Some(*pubkey)
+
+                    // try send because it's a bounded channel and we don't want to block if the channel is full
+                    match sender.try_send(Ok(SubscribePacketsResponse {
+                        header: Some(Header {
+                            ts: Some(Timestamp::from(SystemTime::now())),
+                        }),
+                        msg: Some(subscribe_packets_response::Msg::Batch(batch.clone())),
+                    })) {
+                        Ok(_) => {
+                            relayer_metrics
+                                .increment_packets_forwarded(&pubkey, batch.packets.len() as u64);
+                        }
+                        Err(TrySendError::Full(_)) => {
+                            error!("packet channel is full for pubkey: {:?}", pubkey);
+                            relayer_metrics
+                                .increment_packets_dropped(&pubkey, batch.packets.len() as u64);
+                        }
+                        Err(TrySendError::Closed(_)) => {
+                            error!("channel is closed for pubkey: {:?}", pubkey);
+                            failed_forwards.push(pubkey);
+                        }
                     }
                 }
-            })
-            .collect();
+            }
+        }
+
         Ok(failed_forwards)
     }
 
