@@ -66,9 +66,9 @@ pub fn start_forward_and_delay_thread(
                         match verified_receiver.recv_timeout(SLEEP_DURATION) {
                             Ok(banking_packet_batch) => {
                                 let mut packet_batches = banking_packet_batch.0;
-                                while let Ok((batches, _)) = verified_receiver.try_recv() {
-                                    packet_batches.extend(batches.into_iter());
-                                }
+                                // while let Ok((batches, _)) = verified_receiver.try_recv() {
+                                //     packet_batches.extend(batches.into_iter());
+                                // }
 
                                 let total_packets: u64 =
                                     packet_batches.iter().map(|b| b.len() as u64).sum();

@@ -519,6 +519,12 @@ impl RelayerImpl {
                 })
                 .collect(),
         };
+        if proto_packet_batch.packets.len() > 30 {
+            info!(
+                "proto_packet_batch num packets: {}",
+                proto_packet_batch.packets.len()
+            );
+        }
 
         let l_subscriptions = subscriptions.read().unwrap();
 
@@ -527,6 +533,8 @@ impl RelayerImpl {
             .filter_map(|pubkey| {
                 let sender = l_subscriptions.get(pubkey)?;
 
+                // NOTE: this is important to avoid divide-by-0 inside the validator if packets
+                // get routed to sigverify under the assumption theres > 0 packets in the batch
                 if proto_packet_batch.packets.is_empty() {
                     return None;
                 }
