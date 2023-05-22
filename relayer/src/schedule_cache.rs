@@ -122,6 +122,8 @@ impl LeaderScheduleCacheUpdater {
     ) -> bool {
         let rpc_client = load_balancer.rpc_client();
 
+        // TODO (LB): do smart refreshing when epoch rolls over
+
         if let Ok(epoch_info) =
             rpc_client.get_epoch_info_with_commitment(CommitmentConfig::finalized())
         {
