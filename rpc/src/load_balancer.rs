@@ -13,22 +13,18 @@ use dashmap::DashMap;
 use log::{error, info};
 use solana_client::{pubsub_client::PubsubClient, rpc_client::RpcClient};
 use solana_metrics::{datapoint_error, datapoint_info};
-use solana_sdk::{
-    clock::Slot,
-    commitment_config::{CommitmentConfig, CommitmentLevel},
-};
+use solana_sdk::{clock::Slot, commitment_config::CommitmentConfig};
 
 pub struct LoadBalancer {
     /// (ws_url, slot)
     server_to_slot: Arc<DashMap<String, Slot>>,
     /// (rpc_url, client)
-    server_to_rpc_client: DashMap<String, Arc<RpcClient>>,
+    servers: DashMap<String, String>,
     subscription_threads: Vec<JoinHandle<()>>,
 }
 
 impl LoadBalancer {
     const DISCONNECT_WEBSOCKET_TIMEOUT: Duration = Duration::from_secs(30);
-    const RPC_TIMEOUT: Duration = Duration::from_secs(15);
     pub const SLOT_QUEUE_CAPACITY: usize = 100;
     pub fn new(
         servers: &[(String, String)], /* http rpc url, ws url */
@@ -38,22 +34,6 @@ impl LoadBalancer {
             servers.iter().map(|(_, ws)| (ws.clone(), 0)),
         ));
 
-        let server_to_rpc_client = DashMap::from_iter(servers.iter().map(|(rpc_url, ws)| {
-            // warm up the connection
-            let rpc_client = Arc::new(RpcClient::new_with_timeout_and_commitment(
-                rpc_url,
-                Self::RPC_TIMEOUT,
-                CommitmentConfig {
-                    commitment: CommitmentLevel::Processed,
-                },
-            ));
-            if let Err(e) = rpc_client.get_slot() {
-                error!("error warming up rpc: {rpc_url}. error: {e}");
-            }
-            // store as ws instead of http so we can lookup by furthest ahead ws subscription
-            (ws.clone(), rpc_client)
-        }));
-
         // sender tracked as health_manager-channel_stats.slot_sender_len
         let (slot_sender, slot_receiver) = crossbeam_channel::bounded(Self::SLOT_QUEUE_CAPACITY);
         let subscription_threads =
@@ -61,7 +41,10 @@ impl LoadBalancer {
         (
             LoadBalancer {
                 server_to_slot,
-                server_to_rpc_client,
+                servers: servers
+                    .iter()
+                    .map(|(http, ws)| (http.to_string(), ws.to_string()))
+                    .collect(),
                 subscription_threads,
             },
             slot_receiver,
@@ -159,15 +142,37 @@ impl LoadBalancer {
             .collect()
     }
 
-    /// Returns the server with the highest slot URL
-    pub fn rpc_client(&self) -> Arc<RpcClient> {
+    /// Returns a new RPC client with the highest slot
+    /// NOTE: if you're using a load balancer this might not do what you expect. For instance,
+    /// the websocket could be attached to a different RPC server behind the scenes.
+    pub fn rpc_client(&self) -> RpcClient {
         let (highest_server, _) = self.get_highest_slot();
 
-        self.server_to_rpc_client
+        let rpc_url = self
+            .servers
             .get(&highest_server)
             .unwrap()
             .value()
-            .to_owned()
+            .to_string();
+        RpcClient::new(rpc_url)
+    }
+
+    /// Returns a new non-blocking RPC client with the highest slot
+    /// NOTE: if you're using a load balancer this might not do what you expect. For instance,
+    /// the websocket could be attached to a different RPC server behind the scenes.
+    pub fn non_blocking_rpc_client(&self) -> solana_client::nonblocking::rpc_client::RpcClient {
+        let (highest_server, _) = self.get_highest_slot();
+
+        let rpc_url = self
+            .servers
+            .get(&highest_server)
+            .unwrap()
+            .value()
+            .to_string();
+        solana_client::nonblocking::rpc_client::RpcClient::new_with_commitment(
+            rpc_url,
+            CommitmentConfig::processed(),
+        )
     }
 
     pub fn get_highest_slot(&self) -> (String, Slot) {

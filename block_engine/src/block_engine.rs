@@ -4,8 +4,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    thread,
-    thread::{Builder, JoinHandle},
     time::{Duration, Instant, SystemTime},
 };
 
@@ -36,9 +34,9 @@ use solana_sdk::{
 };
 use thiserror::Error;
 use tokio::{
-    runtime::Runtime,
     select,
     sync::mpsc::{channel, Receiver, Sender},
+    task::JoinHandle,
     time::{interval, sleep},
 };
 use tokio_stream::wrappers::ReceiverStream;
@@ -93,63 +91,54 @@ pub type BlockEngineResult<T> = Result<T, BlockEngineError>;
 
 /// Attempts to maintain a connection to a Block Engine and forward packets to it
 pub struct BlockEngineRelayerHandler {
-    block_engine_forwarder: JoinHandle<()>,
+    _task: JoinHandle<()>,
 }
 
 impl BlockEngineRelayerHandler {
     const BLOCK_ENGINE_PACKET_QUEUE_CAPACITY: usize = 1_000;
 
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub async fn new(
         block_engine_url: String,
         auth_service_url: String,
         mut block_engine_receiver: Receiver<BlockEnginePackets>,
         keypair: Arc<Keypair>,
         exit: Arc<AtomicBool>,
         aoi_cache_ttl_s: u64,
-        address_lookup_table_cache: Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
+        address_lookup_table_cache: &Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
         is_connected_to_block_engine: &Arc<AtomicBool>,
     ) -> BlockEngineRelayerHandler {
         let is_connected_to_block_engine = is_connected_to_block_engine.clone();
-        let block_engine_forwarder = Builder::new()
-            .name("block_engine_relayer_handler_thread".into())
-            .spawn(move || {
-                let rt = Runtime::new().unwrap();
-                rt.block_on(async move {
-                    while !exit.load(Ordering::Relaxed) {
-                        let result = Self::auth_and_connect(
-                            &block_engine_url,
-                            &auth_service_url,
-                            &mut block_engine_receiver,
-                            &keypair,
-                            &exit,
-                            aoi_cache_ttl_s,
-                            &address_lookup_table_cache,
-                            &is_connected_to_block_engine,
-                        )
-                        .await;
-                        is_connected_to_block_engine.store(false, Ordering::Relaxed);
+        let address_lookup_table_cache = address_lookup_table_cache.clone();
 
-                        if let Err(e) = result {
-                            error!("error authenticating and connecting: {:?}", e);
-                            datapoint_error!("block_engine_relayer-error",
-                                "block_engine_url" => block_engine_url,
-                                "auth_service_url" => auth_service_url,
-                                ("error", e.to_string(), String)
-                            );
-                            sleep(Duration::from_secs(2)).await;
-                        }
-                    }
-                });
-            })
-            .unwrap();
-        BlockEngineRelayerHandler {
-            block_engine_forwarder,
-        }
-    }
+        let task = tokio::spawn(async move {
+            while !exit.load(Ordering::Relaxed) {
+                let result = Self::auth_and_connect(
+                    &block_engine_url,
+                    &auth_service_url,
+                    &mut block_engine_receiver,
+                    &keypair,
+                    &exit,
+                    aoi_cache_ttl_s,
+                    &address_lookup_table_cache,
+                    &is_connected_to_block_engine,
+                )
+                .await;
+                is_connected_to_block_engine.store(false, Ordering::Relaxed);
 
-    pub fn join(self) -> thread::Result<()> {
-        self.block_engine_forwarder.join()
+                if let Err(e) = result {
+                    error!("error authenticating and connecting: {:?}", e);
+                    datapoint_error!("block_engine_relayer-error",
+                        "block_engine_url" => block_engine_url,
+                        "auth_service_url" => auth_service_url,
+                        ("error", e.to_string(), String)
+                    );
+                    sleep(Duration::from_secs(2)).await;
+                }
+            }
+        });
+
+        BlockEngineRelayerHandler { _task: task }
     }
 
     /// Relayers are whitelisted in the block engine. In order to auth, a challenge-response handshake
