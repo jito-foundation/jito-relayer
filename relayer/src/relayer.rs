@@ -527,6 +527,7 @@ impl RelayerImpl {
             .filter_map(|pubkey| {
                 let sender = l_subscriptions.get(pubkey)?;
 
+                // NOTE: this check is important to avoid divide by zero error inside the validator's sigverify
                 if proto_packet_batch.packets.is_empty() {
                     return None;
                 }
