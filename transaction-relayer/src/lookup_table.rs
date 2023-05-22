@@ -13,7 +13,7 @@ use jito_geyser_protos::solana::geyser::{
     geyser_client::GeyserClient, SubscribeAccountUpdatesRequest, TimestampedAccountUpdate,
 };
 use jito_rpc::load_balancer::LoadBalancer;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use solana_address_lookup_table_program::state::AddressLookupTable;
 use solana_metrics::{datapoint_error, datapoint_info};
 use solana_program::{address_lookup_table_account::AddressLookupTableAccount, pubkey::Pubkey};
@@ -99,6 +99,9 @@ async fn update_lookup_table_from_stream(
     Ok(())
 }
 
+/// Uses Geyser to update lookup tables
+/// Note: this currently doesn't rollback tables if there's a block that ends up being on a minor fork.
+/// The assumption is that the RPC updated will roll it back at some point if the state is different.
 async fn geyser_lookup_table_updater(
     geyser_url: String,
     geyser_access_token: Option<String>,
@@ -119,19 +122,29 @@ async fn geyser_lookup_table_updater(
                         if let Err(e) =
                             update_lookup_table_from_stream(stream, &lookup_table_cache).await
                         {
-                            error!("error streaming from lookup table: {:?}", e);
+                            datapoint_error!(
+                                "geyser_lookup_table_updater-stream_error",
+                                ("error", e, String)
+                            );
                         }
                     }
                     Err(e) => {
-                        warn!("error connecting to geyser: {:?}", e);
-                        sleep(Duration::from_secs(2)).await;
+                        datapoint_error!(
+                            "geyser_lookup_table_updater-subscribe_error",
+                            ("error", e.to_string(), String)
+                        );
                     }
                 }
             }
             Err(e) => {
-                error!("error connecting to geyser: {:?}", e);
+                datapoint_error!(
+                    "geyser_lookup_table_updater-connect_error",
+                    ("error", e.to_string(), String)
+                );
             }
         }
+
+        sleep(Duration::from_secs(2)).await;
     }
 }
 
@@ -146,7 +159,8 @@ pub async fn start_lookup_table_refresher(
     let rpc_load_balancer = rpc_load_balancer.clone();
     let exit = exit.clone();
     let lookup_table = lookup_table.clone();
-    // seed lookup table
+
+    // seed lookup table before starting
     if let Err(e) = refresh_address_lookup_table(&rpc_load_balancer, &lookup_table).await {
         error!("error refreshing address lookup table: {e:?}");
     }
