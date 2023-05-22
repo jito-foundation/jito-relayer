@@ -107,7 +107,7 @@ impl LeaderScheduleCacheUpdater {
                         ("slots_in_schedule", slots_in_schedule, i64),
                     );
 
-                    sleep(Duration::from_secs(10));
+                    sleep(Duration::from_secs(12 * 60 * 60));
                 }
             })
             .unwrap()
