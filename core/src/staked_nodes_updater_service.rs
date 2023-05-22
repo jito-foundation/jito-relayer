@@ -15,7 +15,7 @@ use solana_client::{client_error, rpc_response::RpcContactInfo};
 use solana_sdk::pubkey::Pubkey;
 use solana_streamer::streamer::StakedNodes;
 
-const IP_TO_STAKE_REFRESH_DURATION: Duration = Duration::from_secs(5);
+const IP_TO_STAKE_REFRESH_DURATION: Duration = Duration::from_secs(15 * 60);
 
 pub struct StakedNodesUpdaterService {
     thread_hdl: JoinHandle<()>,
