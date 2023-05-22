@@ -43,7 +43,7 @@ impl LoadBalancer {
                 server_to_slot,
                 servers: servers
                     .iter()
-                    .map(|(http, ws)| (http.to_string(), ws.to_string()))
+                    .map(|(http, ws)| (ws.to_string(), http.to_string()))
                     .collect(),
                 subscription_threads,
             },
