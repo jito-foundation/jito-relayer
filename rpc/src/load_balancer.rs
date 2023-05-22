@@ -154,7 +154,7 @@ impl LoadBalancer {
             .unwrap()
             .value()
             .to_string();
-        RpcClient::new(rpc_url)
+        RpcClient::new_with_commitment(rpc_url, CommitmentConfig::processed())
     }
 
     /// Returns a new non-blocking RPC client with the highest slot

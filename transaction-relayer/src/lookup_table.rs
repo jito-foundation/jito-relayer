@@ -110,8 +110,11 @@ async fn geyser_lookup_table_updater(
     let address_lookup_table =
         Pubkey::from_str("AddressLookupTab1e1111111111111111111111111").unwrap();
     loop {
+        info!("connecting to geyser to refresh account lookup tables");
+
         match get_geyser_client(&geyser_url, &geyser_access_token).await {
             Ok(mut geyser_client) => {
+                info!("subscribing to geyser account updates");
                 match geyser_client
                     .subscribe_account_updates(SubscribeAccountUpdatesRequest {
                         accounts: vec![address_lookup_table.to_bytes().to_vec()],
@@ -119,6 +122,8 @@ async fn geyser_lookup_table_updater(
                     .await
                 {
                     Ok(stream) => {
+                        info!("streaming account updates from geyser");
+
                         if let Err(e) =
                             update_lookup_table_from_stream(stream, &lookup_table_cache).await
                         {
