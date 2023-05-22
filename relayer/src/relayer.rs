@@ -520,8 +520,8 @@ impl RelayerImpl {
 
         let mut failed_forwards = Vec::new();
         for pubkey in slot_leaders {
-            for batch in &proto_packet_batches {
-                if let Some(sender) = l_subscriptions.get(&pubkey) {
+            if let Some(sender) = l_subscriptions.get(&pubkey) {
+                for batch in &proto_packet_batches {
                     // NOTE: this is important to avoid divide-by-0 inside the validator if packets
                     // get routed to sigverify under the assumption theres > 0 packets in the batch
                     if batch.packets.is_empty() {
@@ -547,6 +547,7 @@ impl RelayerImpl {
                         Err(TrySendError::Closed(_)) => {
                             error!("channel is closed for pubkey: {:?}", pubkey);
                             failed_forwards.push(pubkey);
+                            break;
                         }
                     }
                 }
