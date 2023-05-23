@@ -596,6 +596,7 @@ impl RelayerImpl {
         relayer_metrics: &mut RelayerMetrics,
     ) -> RelayerResult<()> {
         *highest_slot = maybe_slot?;
+        datapoint_info!("relayer-highest_slot", ("slot", *highest_slot as i64, i64));
         relayer_metrics.highest_slot = *highest_slot;
         Ok(())
     }
