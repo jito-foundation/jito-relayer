@@ -16,6 +16,7 @@ use std::{
 use clap::Parser;
 use crossbeam_channel::tick;
 use dashmap::DashMap;
+use env_logger::Env;
 use jito_block_engine::block_engine::BlockEngineRelayerHandler;
 use jito_core::{
     graceful_panic,
@@ -31,6 +32,7 @@ use jito_relayer::{
     relayer::RelayerImpl,
     schedule_cache::{LeaderScheduleCacheUpdater, LeaderScheduleUpdatingHandle},
 };
+use jito_relayer_web::{start_relayer_web_server, RelayerState};
 use jito_rpc::load_balancer::LoadBalancer;
 use jito_transaction_relayer::forwarder::start_forward_and_delay_thread;
 use jwt::{AlgorithmType, PKeyWithDigest};
@@ -186,6 +188,15 @@ struct Args {
     /// How frequently to refresh the address lookup table accounts
     #[arg(long, env, default_value_t = 30)]
     lookup_table_refresh_secs: u64,
+
+    /// Space-separated addresses to drop transactions for OFAC
+    /// If any transaction mentions these addresses, the transaction will be dropped.
+    #[arg(long, env, value_delimiter = ' ', value_parser = Pubkey::from_str)]
+    ofac_addresses: Option<Vec<Pubkey>>,
+
+    /// Webserver bind address that exposes diagnostic information
+    #[arg(long, env, default_value_t = SocketAddr::from_str("127.0.0.1:11227").unwrap())]
+    webserver_bind_addr: SocketAddr,
 }
 
 #[derive(Debug)]
@@ -226,7 +237,13 @@ fn get_sockets(args: &Args) -> Sockets {
 }
 
 fn main() {
-    env_logger::builder().format_timestamp_millis().init();
+    const MAX_BUFFERED_REQUESTS: usize = 10;
+    const REQUESTS_PER_SECOND: u64 = 5;
+
+    // one can override the default log level by setting the env var RUST_LOG
+    env_logger::Builder::from_env(Env::new().default_filter_or("info"))
+        .format_timestamp_millis()
+        .init();
 
     let args: Args = Args::parse();
     info!("args: {:?}", args);
@@ -282,6 +299,12 @@ fn main() {
         .zip(args.websocket_servers.into_iter())
         .collect();
 
+    let ofac_addresses: HashSet<Pubkey> = args
+        .ofac_addresses
+        .map(|a| a.into_iter().collect())
+        .unwrap_or_default();
+    info!("ofac addresses: {:?}", ofac_addresses);
+
     let (rpc_load_balancer, slot_receiver) = LoadBalancer::new(&servers, &exit);
     let rpc_load_balancer = Arc::new(rpc_load_balancer);
 
@@ -290,7 +313,7 @@ fn main() {
         Arc::new(DashMap::new());
     let lookup_table_refresher = start_lookup_table_refresher(
         &rpc_load_balancer,
-        address_lookup_table_cache.clone(),
+        &address_lookup_table_cache,
         Duration::from_secs(args.lookup_table_refresh_secs),
         &exit,
     );
@@ -302,6 +325,8 @@ fn main() {
         &sockets.tpu_ip,
         &sockets.tpu_fwd_ip,
         &rpc_load_balancer,
+        &ofac_addresses,
+        &address_lookup_table_cache,
     );
 
     let leader_cache = LeaderScheduleCacheUpdater::new(&rpc_load_balancer, &exit);
@@ -324,6 +349,8 @@ fn main() {
         1,
         &exit,
     );
+
+    let is_connected_to_block_engine = Arc::new(AtomicBool::new(false));
     let block_engine_forwarder = BlockEngineRelayerHandler::new(
         args.block_engine_url.clone(),
         args.block_engine_auth_service_url
@@ -333,6 +360,7 @@ fn main() {
         exit.clone(),
         args.aoi_cache_ttl_secs,
         address_lookup_table_cache,
+        &is_connected_to_block_engine,
     );
 
     // receiver tracked as relayer_metrics.slot_receiver_len
@@ -385,7 +413,23 @@ fn main() {
         None => ValidatorStore::LeaderSchedule(leader_cache.handle()),
     };
 
+    let relayer_state = Arc::new(RelayerState::new(
+        health_manager.handle(),
+        &is_connected_to_block_engine,
+        relayer_svc.handle(),
+    ));
+
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();
+    rt.spawn({
+        let relayer_state = relayer_state.clone();
+        start_relayer_web_server(
+            relayer_state,
+            args.webserver_bind_addr,
+            MAX_BUFFERED_REQUESTS,
+            REQUESTS_PER_SECOND,
+        )
+    });
+
     rt.block_on(async {
         let auth_svc = AuthServiceImpl::new(
             ValidatorAutherImpl {
@@ -471,12 +515,13 @@ impl ValidatorAuther for ValidatorAutherImpl {
 
 fn start_lookup_table_refresher(
     rpc_load_balancer: &Arc<LoadBalancer>,
-    lookup_table: Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
+    lookup_table: &Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
     refresh_duration: Duration,
     exit: &Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     let rpc_load_balancer = rpc_load_balancer.clone();
     let exit = exit.clone();
+    let lookup_table = lookup_table.clone();
 
     thread::Builder::new()
         .name("lookup_table_refresher".to_string())

@@ -20,20 +20,21 @@ jito-block-engine = { path = "../block_engine" }
 jito-core = { path = "../core" }
 jito-protos = { path = "../jito-protos" }
 jito-relayer = { path = "../relayer" }
+jito-relayer-web = { path = "../web" }
 jito-rpc = { path = "../rpc" }
 jwt = { version = "0.16.0", features = ["openssl"] }
 log = "0.4.17"
 openssl = "0.10.51"
 prost-types = "0.11.9"
 reqwest = "0.11.16"
-solana-address-lookup-table-program = "=1.14.17"
-solana-client = "=1.14.17"
-solana-core = "=1.14.17"
-solana-metrics = "=1.14.17"
-solana-net-utils = "=1.14.17"
-solana-perf = "=1.14.17"
-solana-program = "=1.14.17"
-solana-sdk = "=1.14.17"
+solana-address-lookup-table-program = "=1.14.18"
+solana-client = "=1.14.18"
+solana-core = "=1.14.18"
+solana-metrics = "=1.14.18"
+solana-net-utils = "=1.14.18"
+solana-perf = "=1.14.18"
+solana-program = "=1.14.18"
+solana-sdk = "=1.14.18"
 tikv-jemallocator = { version = "0.5", features = ["profiling"] }
 tokio = { version = "~1.14.1", features = ["rt-multi-thread"] }
 tokio-stream = "0.1.12"
