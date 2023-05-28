@@ -353,7 +353,7 @@ impl BlockEngineRelayerHandler {
         let mut aoi_stream = subscribe_aoi_stream.into_inner();
         let mut poi_stream = subscribe_poi_stream.into_inner();
 
-        // drain old buffered packets before streaming packets to the block engine
+        // on reconnection, drain old buffered packets before streaming packets to the block engine
         while block_engine_receiver.try_recv().is_ok() {}
 
         is_connected_to_block_engine.store(true, Ordering::Relaxed);
@@ -442,8 +442,8 @@ impl BlockEngineRelayerHandler {
                     let flush_start = Instant::now();
                     accounts_of_interest.flush();
                     programs_of_interest.flush();
-
                     block_engine_stats.increment_flush_elapsed_us(flush_start.elapsed().as_micros() as u64);
+
                     block_engine_stats.increment_accounts_of_interest_len(accounts_of_interest.cache_size() as u64);
                     block_engine_stats.increment_programs_of_interest_len(programs_of_interest.cache_size() as u64);
 
