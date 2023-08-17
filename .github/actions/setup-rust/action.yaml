@@ -54,9 +54,9 @@ runs:
       run: |
         rustup install nightly-2023-04-19
         rustup component add rustfmt --toolchain nightly-2023-04-19-x86_64-unknown-linux-gnu
+        rustup component add clippy --toolchain nightly-2023-04-19-x86_64-unknown-linux-gnu
         cargo install cargo-udeps --locked
         cargo install cargo-sort
-        rustup component add clippy
       shell: bash
 
     - name: Check rust version after
