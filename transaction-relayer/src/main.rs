@@ -197,6 +197,10 @@ struct Args {
     /// Webserver bind address that exposes diagnostic information
     #[arg(long, env, default_value_t = SocketAddr::from_str("127.0.0.1:11227").unwrap())]
     webserver_bind_addr: SocketAddr,
+
+    /// Max unstaked connections for the QUIC server
+    #[arg(long, env, default_value_t = 500)]
+    max_unstaked_quic_connections: usize,
 }
 
 #[derive(Debug)]
@@ -327,6 +331,7 @@ fn main() {
         &rpc_load_balancer,
         &ofac_addresses,
         &address_lookup_table_cache,
+        args.max_unstaked_quic_connections,
     );
 
     let leader_cache = LeaderScheduleCacheUpdater::new(&rpc_load_balancer, &exit);

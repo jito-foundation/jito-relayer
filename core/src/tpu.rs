@@ -26,7 +26,7 @@ use solana_sdk::{
     address_lookup_table_account::AddressLookupTableAccount, pubkey::Pubkey, signature::Keypair,
 };
 use solana_streamer::{
-    quic::{spawn_server, StreamStats, MAX_STAKED_CONNECTIONS, MAX_UNSTAKED_CONNECTIONS},
+    quic::{spawn_server, StreamStats, MAX_STAKED_CONNECTIONS},
     streamer::StakedNodes,
 };
 
@@ -67,6 +67,7 @@ impl Tpu {
         rpc_load_balancer: &Arc<LoadBalancer>,
         ofac_addresses: &HashSet<Pubkey>,
         address_lookup_table_cache: &Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
+        max_unstaked_quic_connections: usize,
     ) -> (Self, Receiver<BankingPacketBatch>) {
         let TpuSockets {
             transactions_quic_sockets,
@@ -97,7 +98,7 @@ impl Tpu {
             MAX_QUIC_CONNECTIONS_PER_IP,
             staked_nodes.clone(),
             MAX_STAKED_CONNECTIONS,
-            MAX_UNSTAKED_CONNECTIONS,
+            max_unstaked_quic_connections,
             stats.clone(),
         )
         .unwrap();
@@ -110,7 +111,7 @@ impl Tpu {
             exit.clone(),
             MAX_QUIC_CONNECTIONS_PER_IP,
             staked_nodes.clone(),
-            MAX_STAKED_CONNECTIONS.saturating_add(MAX_UNSTAKED_CONNECTIONS),
+            MAX_STAKED_CONNECTIONS.saturating_add(max_unstaked_quic_connections),
             0, // Prevent unstaked nodes from forwarding transactions
             stats,
         )
