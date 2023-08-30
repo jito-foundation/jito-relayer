@@ -160,7 +160,7 @@ fn main() {
         .into_iter()
         .enumerate()
         .map(|(thread_id, keypair)| {
-            let client = Arc::new(RpcClient::new(&args.rpc_addr));
+            // let client = Arc::new(RpcClient::new(&args.rpc_addr));
             let args = args.clone();
             Builder::new()
                 .name(format!("packet_blaster-thread_{thread_id}"))
@@ -171,7 +171,7 @@ fn main() {
                     };
                     let metrics_interval = Duration::from_secs(5);
                     let mut last_blockhash_refresh = Instant::now();
-                    let mut latest_blockhash = client.get_latest_blockhash().unwrap();
+                    let mut latest_blockhash = solana_sdk::hash::Hash::new_unique();
                     let mut curr_success_count = 0u64;
                     let mut curr_fail_count = 0u64;
                     let mut cumm_success_count = 0u64;
@@ -197,7 +197,7 @@ fn main() {
 
                             curr_success_count = 0;
                             curr_fail_count = 0;
-                            latest_blockhash = client.get_latest_blockhash().unwrap();
+                            latest_blockhash = solana_sdk::hash::Hash::new_unique();
                         }
 
                         let count = cumm_success_count

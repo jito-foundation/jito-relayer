@@ -130,8 +130,11 @@ async fn connect_auth_and_stream(
             }
             maybe_msg = packet_stream.message() => {
                 let resp = maybe_msg?.ok_or(ProxyError::GrpcStreamDisconnected)?;
-                let timestamp = resp.header.unwrap().ts.unwrap();
-                info!("Got packet. timestamp: {:?}", timestamp);
+                if let Some(header) = resp.header {
+                    if let Some (timestamp) = header.ts {
+                        info!("Got packet. timestamp: {:?}", timestamp);
+                    }
+                }
             }
         }
     }
