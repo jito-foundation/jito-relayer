@@ -32,7 +32,7 @@ impl HealthManager {
         missing_slot_unhealthy_threshold: Duration,
         exit: Arc<AtomicBool>,
     ) -> HealthManager {
-        let health_state = Arc::new(RwLock::new(HealthState::Unhealthy));
+        let health_state = Arc::new(RwLock::new(HealthState::Healthy));
         HealthManager {
             state: health_state.clone(),
             manager_thread: Builder::new()

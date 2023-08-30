@@ -51,10 +51,13 @@ async fn start(relayer_addr: String, keypair: Keypair) {
     let mut error_count: u64 = 0;
 
     loop {
-        if let Err(_e) = connect_auth_and_stream(&relayer_addr, &keypair, &CONNECTION_TIMEOUT).await
+        if let Err(e) = connect_auth_and_stream(&relayer_addr, &keypair, &CONNECTION_TIMEOUT).await
         {
             error_count += 1;
-            error!("Failed to connect to relayer.  Attempt: {}", error_count)
+            error!(
+                "Failed to connect to relayer.  Attempt: {}.  Error: {:?}",
+                error_count, e
+            )
         }
         sleep(CONNECTION_BACKOFF).await;
     }
