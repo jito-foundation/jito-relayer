@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "block_engine",
+    "client",
     "core",
     "jito-protos",
     "packet_blaster",
