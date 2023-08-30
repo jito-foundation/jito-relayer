@@ -575,43 +575,43 @@ fn start_lookup_table_refresher(
 }
 
 fn refresh_address_lookup_table(
-    rpc_load_balancer: &Arc<LoadBalancer>,
+    _rpc_load_balancer: &Arc<LoadBalancer>,
     lookup_table: &DashMap<Pubkey, AddressLookupTableAccount>,
 ) -> solana_client::client_error::Result<()> {
-    let rpc_client = rpc_load_balancer.rpc_client();
-
-    let address_lookup_table =
-        Pubkey::from_str("AddressLookupTab1e1111111111111111111111111").unwrap();
-    let start = Instant::now();
-    let accounts = rpc_client.get_program_accounts(&address_lookup_table)?;
-    info!(
-        "Fetched {} lookup tables from RPC in {:?}",
-        accounts.len(),
-        start.elapsed()
-    );
-
-    let mut new_pubkeys = HashSet::new();
-    for (pubkey, account_data) in accounts {
-        match AddressLookupTable::deserialize(&account_data.data) {
-            Err(e) => {
-                error!("error deserializing AddressLookupTable pubkey: {pubkey}, error: {e}");
-            }
-            Ok(table) => {
-                debug!("lookup table loaded pubkey: {pubkey:?}, table: {table:?}");
-                new_pubkeys.insert(pubkey);
-                lookup_table.insert(
-                    pubkey,
-                    AddressLookupTableAccount {
-                        key: pubkey,
-                        addresses: table.addresses.to_vec(),
-                    },
-                );
-            }
-        }
-    }
-
-    // remove all the closed lookup tables
-    lookup_table.retain(|pubkey, _| new_pubkeys.contains(pubkey));
+    // let rpc_client = rpc_load_balancer.rpc_client();
+    //
+    // let address_lookup_table =
+    //     Pubkey::from_str("AddressLookupTab1e1111111111111111111111111").unwrap();
+    // let start = Instant::now();
+    // let accounts = rpc_client.get_program_accounts(&address_lookup_table)?;
+    // info!(
+    //     "Fetched {} lookup tables from RPC in {:?}",
+    //     accounts.len(),
+    //     start.elapsed()
+    // );
+    //
+    // let mut new_pubkeys = HashSet::new();
+    // for (pubkey, account_data) in accounts {
+    //     match AddressLookupTable::deserialize(&account_data.data) {
+    //         Err(e) => {
+    //             error!("error deserializing AddressLookupTable pubkey: {pubkey}, error: {e}");
+    //         }
+    //         Ok(table) => {
+    //             debug!("lookup table loaded pubkey: {pubkey:?}, table: {table:?}");
+    //             new_pubkeys.insert(pubkey);
+    //             lookup_table.insert(
+    //                 pubkey,
+    //                 AddressLookupTableAccount {
+    //                     key: pubkey,
+    //                     addresses: table.addresses.to_vec(),
+    //                 },
+    //             );
+    //         }
+    //     }
+    // }
+    //
+    // // remove all the closed lookup tables
+    // lookup_table.retain(|pubkey, _| new_pubkeys.contains(pubkey));
 
     Ok(())
 }

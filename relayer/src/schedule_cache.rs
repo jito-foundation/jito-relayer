@@ -64,6 +64,15 @@ impl LeaderScheduleCacheUpdater {
         exit: &Arc<AtomicBool>,
     ) -> LeaderScheduleCacheUpdater {
         let schedules = Arc::new(RwLock::new(HashMap::new()));
+        // Hardcode pubkeys into schedule (slot will always be 1)
+        schedules.write().unwrap().insert(
+            1,
+            Pubkey::from_str("845Rn9TQ4B4Pnfrh9xmX8Y9JQfXBAiNHmSMxSXdHdbce").unwrap(),
+        );
+        schedules.write().unwrap().insert(
+            2,
+            Pubkey::from_str("4Jqrxtn4fV5bZShs6xzakLQ6QMccpLjZbLTUfgvr3UKg").unwrap(),
+        );
         let refresh_thread = Self::refresh_thread(schedules.clone(), load_balancer.clone(), exit);
         LeaderScheduleCacheUpdater {
             schedules,
@@ -117,31 +126,31 @@ impl LeaderScheduleCacheUpdater {
         load_balancer: &Arc<LoadBalancer>,
         schedule: &Arc<RwLock<HashMap<Slot, Pubkey>>>,
     ) -> bool {
-        let rpc_client = load_balancer.rpc_client();
-
-        if let Ok(epoch_info) = rpc_client.get_epoch_info() {
-            if let Ok(Some(leader_schedule)) = rpc_client.get_leader_schedule(None) {
-                let epoch_offset = epoch_info.absolute_slot - epoch_info.slot_index;
-
-                debug!("read leader schedule of length: {}", leader_schedule.len());
-
-                let mut new_schedule = HashMap::with_capacity(DEFAULT_SLOTS_PER_EPOCH as usize);
-                for (pk_str, slots) in leader_schedule.iter() {
-                    for slot in slots.iter() {
-                        if let Ok(pubkey) = Pubkey::from_str(pk_str) {
-                            new_schedule.insert(*slot as u64 + epoch_offset, pubkey);
-                        }
-                    }
-                }
-                *schedule.write().unwrap() = new_schedule;
-
-                return true;
-            } else {
-                error!("Couldn't Get Leader Schedule Update from RPC!!!")
-            };
-        } else {
-            error!("Couldn't Get Epoch Info from RPC!!!")
-        };
+        // let rpc_client = load_balancer.rpc_client();
+        //
+        // if let Ok(epoch_info) = rpc_client.get_epoch_info() {
+        //     if let Ok(Some(leader_schedule)) = rpc_client.get_leader_schedule(None) {
+        //         let epoch_offset = epoch_info.absolute_slot - epoch_info.slot_index;
+        //
+        //         debug!("read leader schedule of length: {}", leader_schedule.len());
+        //
+        //         let mut new_schedule = HashMap::with_capacity(DEFAULT_SLOTS_PER_EPOCH as usize);
+        //         for (pk_str, slots) in leader_schedule.iter() {
+        //             for slot in slots.iter() {
+        //                 if let Ok(pubkey) = Pubkey::from_str(pk_str) {
+        //                     new_schedule.insert(*slot as u64 + epoch_offset, pubkey);
+        //                 }
+        //             }
+        //         }
+        //         *schedule.write().unwrap() = new_schedule;
+        //
+        //         return true;
+        //     } else {
+        //         error!("Couldn't Get Leader Schedule Update from RPC!!!")
+        //     };
+        // } else {
+        //     error!("Couldn't Get Epoch Info from RPC!!!")
+        // };
         false
     }
 }

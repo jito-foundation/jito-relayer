@@ -61,51 +61,51 @@ impl StakedNodesUpdaterService {
         total_stake: &mut u64,
         rpc_load_balancer: &Arc<LoadBalancer>,
     ) -> client_error::Result<bool> {
-        if last_stakes.elapsed() > IP_TO_STAKE_REFRESH_DURATION {
-            let client = rpc_load_balancer.rpc_client();
-            let vote_accounts = client.get_vote_accounts()?;
-            let cluster_info: HashMap<String, RpcContactInfo> = client
-                .get_cluster_nodes()?
-                .into_iter()
-                .map(|contact_info| (contact_info.pubkey.to_string(), contact_info))
-                .collect();
-            *total_stake = vote_accounts
-                .current
-                .iter()
-                .chain(vote_accounts.delinquent.iter())
-                .map(|acc| acc.activated_stake)
-                .sum();
-            *ip_to_stake = vote_accounts
-                .current
-                .iter()
-                .chain(vote_accounts.delinquent.iter())
-                .filter_map(
-                    |vote_account| match cluster_info.get(&vote_account.node_pubkey) {
-                        None => None,
-                        Some(node_info) => {
-                            Some((node_info.gossip?.ip(), vote_account.activated_stake))
-                        }
-                    },
-                )
-                .collect();
-            *pubkey_stake_map = vote_accounts
-                .current
-                .iter()
-                .chain(vote_accounts.delinquent.iter())
-                .filter_map(|vote_account| {
-                    Some((
-                        Pubkey::from_str(&vote_account.node_pubkey).ok()?,
-                        vote_account.activated_stake,
-                    ))
-                })
-                .collect();
-
-            *last_stakes = Instant::now();
-            Ok(true)
-        } else {
-            sleep(Duration::from_millis(1));
-            Ok(false)
-        }
+        // if last_stakes.elapsed() > IP_TO_STAKE_REFRESH_DURATION {
+        //     let client = rpc_load_balancer.rpc_client();
+        //     let vote_accounts = client.get_vote_accounts()?;
+        //     let cluster_info: HashMap<String, RpcContactInfo> = client
+        //         .get_cluster_nodes()?
+        //         .into_iter()
+        //         .map(|contact_info| (contact_info.pubkey.to_string(), contact_info))
+        //         .collect();
+        //     *total_stake = vote_accounts
+        //         .current
+        //         .iter()
+        //         .chain(vote_accounts.delinquent.iter())
+        //         .map(|acc| acc.activated_stake)
+        //         .sum();
+        //     *ip_to_stake = vote_accounts
+        //         .current
+        //         .iter()
+        //         .chain(vote_accounts.delinquent.iter())
+        //         .filter_map(
+        //             |vote_account| match cluster_info.get(&vote_account.node_pubkey) {
+        //                 None => None,
+        //                 Some(node_info) => {
+        //                     Some((node_info.gossip?.ip(), vote_account.activated_stake))
+        //                 }
+        //             },
+        //         )
+        //         .collect();
+        //     *pubkey_stake_map = vote_accounts
+        //         .current
+        //         .iter()
+        //         .chain(vote_accounts.delinquent.iter())
+        //         .filter_map(|vote_account| {
+        //             Some((
+        //                 Pubkey::from_str(&vote_account.node_pubkey).ok()?,
+        //                 vote_account.activated_stake,
+        //             ))
+        //         })
+        //         .collect();
+        //
+        //     *last_stakes = Instant::now();
+        //     Ok(true)
+        // } else {
+        sleep(Duration::from_secs(1));
+        Ok(false)
+        // }
     }
 
     pub fn join(self) -> thread::Result<()> {

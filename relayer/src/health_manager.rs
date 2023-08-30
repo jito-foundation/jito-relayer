@@ -58,7 +58,13 @@ impl HealthManager {
                                 );
                             }
                             recv(slot_receiver) -> maybe_slot => {
-                                let slot = maybe_slot.expect("error receiving slot, exiting");
+                                let slot = match maybe_slot {
+                                    Ok(slot) => slot,
+                                    Err(e) => {
+                                        log::error!("slot receiver error, setting to 1.  {} ", e);
+                                        1 as u64
+                                    },
+                                };
                                 slot_sender.send(slot).expect("error forwarding slot, exiting");
                                 last_update = Instant::now();
                             }
