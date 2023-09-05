@@ -5,7 +5,9 @@ use std::{
 };
 
 use auth::{generate_auth_tokens, AuthInterceptor};
+use chrono::Utc;
 use clap::Parser;
+use histogram::Histogram;
 use jito_protos::{
     auth::auth_service_client::AuthServiceClient,
     relayer::{self, relayer_client::RelayerClient},
@@ -14,8 +16,7 @@ use jito_relayer_client::{auth, ProxyError, Result};
 use log::{debug, error, info};
 use solana_sdk::{signature::Keypair, signer::keypair::read_keypair_file};
 use tokio::time::{interval, sleep, timeout};
-use tonic::transport::Endpoint;
-use tonic::Streaming;
+use tonic::{transport::Endpoint, Streaming};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -122,18 +123,35 @@ async fn connect_auth_and_stream(
     .into_inner();
 
     let mut auth_tick = interval(Duration::from_secs(30));
+    let mut histogram = Histogram::new();
+    let mut num_packets = 0;
 
     loop {
         tokio::select! {
             _ = auth_tick.tick() => {
-                info!("ToDo: Implement Auth Check");
+                // Todo (jl): Implement Auth Check
             }
             maybe_msg = packet_stream.message() => {
                 let resp = maybe_msg?.ok_or(ProxyError::GrpcStreamDisconnected)?;
                 if let Some(header) = resp.header {
                     if let Some (timestamp) = header.ts {
-                        info!("Got packet. timestamp: {:?}", timestamp);
-                    }
+                       debug!("got packet. timestamp: {:?}", timestamp);
+                        let now = Utc::now().timestamp_millis();
+                        let ts_millis = timestamp.seconds*1000 + (timestamp.nanos as i64)/1000000;
+                        let diff = now.checked_sub(ts_millis).unwrap_or_default();
+                        debug!("diff in millis = {diff}");
+                        histogram.increment(diff.try_into().unwrap_or_default());
+                        if histogram.entries() >= 50000 {
+                            num_packets = num_packets + histogram.entries();
+                            info!("toatl packets: {},  batch latency - mean: {}, min: {}, max: {}, p90: {} ",
+                                num_packets,
+                                histogram.mean().unwrap(),
+                                histogram.minimum().unwrap(),
+                                histogram.maximum().unwrap(),
+                                histogram.percentile(90.0).unwrap());
+                            histogram.clear();
+                        }
+                    } else {info!("got packet. no timestamp");}
                 }
             }
         }

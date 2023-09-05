@@ -56,6 +56,14 @@ struct Args {
     /// Method of connecting to Solana TPU
     #[command(subcommand)]
     connection_mode: Mode,
+
+    /// Number of packets to send per iteration
+    #[arg(long, env, default_value = "10")]
+    batch_size: u8,
+
+    /// Size of packets in bytes
+    #[arg(long, env, default_value = "1000")]
+    packet_size: u8,
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]
@@ -111,8 +119,6 @@ fn read_keypairs(path: PathBuf) -> io::Result<Vec<Keypair>> {
         )?])
     }
 }
-
-const TXN_BATCH_SIZE: u64 = 10;
 
 /// Generates sequential localhost sockets on different IPs
 pub fn local_socket_addr(
@@ -176,6 +182,10 @@ fn main() {
                     let mut curr_fail_count = 0u64;
                     let mut cumm_success_count = 0u64;
                     let mut cumm_fail_count = 0u64;
+
+                    let batch_size = args.batch_size;
+                    let packet_size = args.packet_size;
+
                     loop {
                         let now = Instant::now();
                         let elapsed = now.sub(last_blockhash_refresh);
@@ -204,9 +214,9 @@ fn main() {
                             + cumm_fail_count
                             + curr_success_count
                             + curr_fail_count;
-                        let serialized_txns: Vec<Vec<u8>> = (0..TXN_BATCH_SIZE)
+                        let serialized_txns: Vec<Vec<u8>> = (0..batch_size)
                             .filter_map(|i| {
-                                let lamports = count + i;
+                                let lamports = count + i as u64;
                                 let txn = transfer(
                                     &keypair,
                                     &keypair.pubkey(),
@@ -219,7 +229,10 @@ fn main() {
                                 //     lamports,
                                 //     &txn.signatures
                                 // );
-                                serialize(&txn).ok()
+                                serialize(&txn).ok().map(|mut tx| {
+                                    tx.resize(packet_size as usize, 0);
+                                    tx
+                                })
                             })
                             .collect();
                         let (_successes, fails): (Vec<()>, Vec<PacketBlasterError>) = RUNTIME

@@ -2329,6 +2329,7 @@ dependencies = [
  "chrono",
  "clap 4.2.7",
  "env_logger",
+ "histogram",
  "jito-protos",
  "log",
  "solana-sdk",
