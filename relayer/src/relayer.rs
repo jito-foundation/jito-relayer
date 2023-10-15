@@ -24,7 +24,6 @@ use jito_protos::{
 use jito_rpc::load_balancer::LoadBalancer;
 use log::*;
 use prost_types::Timestamp;
-use solana_measure::measure;
 use solana_metrics::datapoint_info;
 use solana_perf::packet::PacketBatch;
 use solana_sdk::{
@@ -495,20 +494,20 @@ impl RelayerImpl {
         while !exit.load(Ordering::Relaxed) {
             crossbeam_channel::select! {
                 recv(slot_receiver) -> maybe_slot => {
-                    let (relayer_result, latency) = measure!(Self::update_highest_slot(maybe_slot, &mut highest_slot, &mut relayer_metrics));
-                    let _ = relayer_metrics.crossbeam_slot_receiver_processing_us.increment(latency.as_us());
-                    let _ = relayer_result?;
+                    let start = Instant::now();
+                    Self::update_highest_slot(maybe_slot, &mut highest_slot, &mut relayer_metrics)?;
+                    let _ = relayer_metrics.crossbeam_slot_receiver_processing_us.increment(start.elapsed().as_micros() as u64);
                 },
                 recv(delay_packet_receiver) -> maybe_packet_batches => {
-                    let (relayer_result, latency) = measure!(Self::forward_packets(maybe_packet_batches, &packet_subscriptions, &leader_schedule_cache, &highest_slot, &leader_lookahead, &mut relayer_metrics));
-                    let failed_forwards = relayer_result?;
+                    let start = Instant::now();
+                    let failed_forwards = Self::forward_packets(maybe_packet_batches, &packet_subscriptions, &leader_schedule_cache, &highest_slot, &leader_lookahead, &mut relayer_metrics)?;
                     Self::drop_connections(failed_forwards, &packet_subscriptions, &mut relayer_metrics);
-                    let _ = relayer_metrics.crossbeam_delay_packet_receiver_processing_us.increment(latency.as_us());
+                    let _ = relayer_metrics.crossbeam_delay_packet_receiver_processing_us.increment(start.elapsed().as_micros() as u64);
                 },
                 recv(subscription_receiver) -> maybe_subscription => {
-                    let (relayer_result, latency) = measure!(Self::handle_subscription(maybe_subscription, &packet_subscriptions, &mut relayer_metrics));
-                    let _ = relayer_result?;
-                    let _ = relayer_metrics.crossbeam_subscription_receiver_processing_us.increment(latency.as_us());
+                    let start = Instant::now();
+                    Self::handle_subscription(maybe_subscription, &packet_subscriptions, &mut relayer_metrics)?;
+                    let _ = relayer_metrics.crossbeam_subscription_receiver_processing_us.increment(start.elapsed().as_micros() as u64);
                 }
                 recv(heartbeat_tick) -> time_generated => {
                     let start = Instant::now();
