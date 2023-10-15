@@ -56,11 +56,11 @@ struct RelayerMetrics {
     pub num_try_send_channel_full: u64,
     pub packet_latencies_us: Histogram,
 
-    pub crossbeam_slot_receiver_latency_us: Histogram,
-    pub crossbeam_delay_packet_receiver_latency_us: Histogram,
-    pub crossbeam_subscription_receiver_latency_us: Histogram,
-    pub crossbeam_heartbeat_tick_latency_us: Histogram,
-    pub crossbeam_metrics_tick_latency_us: Histogram,
+    pub crossbeam_slot_receiver_processing_us: Histogram,
+    pub crossbeam_delay_packet_receiver_processing_us: Histogram,
+    pub crossbeam_subscription_receiver_processing_us: Histogram,
+    pub crossbeam_heartbeat_tick_processing_us: Histogram,
+    pub crossbeam_metrics_tick_processing_us: Histogram,
 
     // channel stats
     pub slot_receiver_max_len: usize,
@@ -89,11 +89,11 @@ impl RelayerMetrics {
             metrics_latency_us: 0,
             num_try_send_channel_full: 0,
             packet_latencies_us: Histogram::default(),
-            crossbeam_slot_receiver_latency_us: Histogram::default(),
-            crossbeam_delay_packet_receiver_latency_us: Histogram::default(),
-            crossbeam_subscription_receiver_latency_us: Histogram::default(),
-            crossbeam_heartbeat_tick_latency_us: Histogram::default(),
-            crossbeam_metrics_tick_latency_us: Histogram::default(),
+            crossbeam_slot_receiver_processing_us: Histogram::default(),
+            crossbeam_delay_packet_receiver_processing_us: Histogram::default(),
+            crossbeam_subscription_receiver_processing_us: Histogram::default(),
+            crossbeam_heartbeat_tick_processing_us: Histogram::default(),
+            crossbeam_metrics_tick_processing_us: Histogram::default(),
             slot_receiver_max_len: 0,
             slot_receiver_capacity,
             subscription_receiver_max_len: 0,
@@ -216,106 +216,106 @@ impl RelayerMetrics {
             ),
             // crossbeam arm latencies
             (
-                "crossbeam_subscription_receiver_latency_us_p50",
-                self.crossbeam_subscription_receiver_latency_us
+                "crossbeam_subscription_receiver_processing_us_p50",
+                self.crossbeam_subscription_receiver_processing_us
                     .percentile(50.0)
                     .unwrap_or_default(),
                 i64
             ),
             (
-                "crossbeam_subscription_receiver_latency_us_p90",
-                self.crossbeam_subscription_receiver_latency_us
+                "crossbeam_subscription_receiver_processing_us_p90",
+                self.crossbeam_subscription_receiver_processing_us
                     .percentile(90.0)
                     .unwrap_or_default(),
                 i64
             ),
             (
-                "crossbeam_subscription_receiver_latency_us_p99",
-                self.crossbeam_subscription_receiver_latency_us
+                "crossbeam_subscription_receiver_processing_us_p99",
+                self.crossbeam_subscription_receiver_processing_us
                     .percentile(99.0)
                     .unwrap_or_default(),
                 i64
             ),
             (
-                "crossbeam_slot_receiver_latency_us_p50",
-                self.crossbeam_slot_receiver_latency_us
+                "crossbeam_slot_receiver_processing_us_p50",
+                self.crossbeam_slot_receiver_processing_us
                     .percentile(50.0)
                     .unwrap_or_default(),
                 i64
             ),
             (
-                "crossbeam_slot_receiver_latency_us_p90",
-                self.crossbeam_slot_receiver_latency_us
+                "crossbeam_slot_receiver_processing_us_p90",
+                self.crossbeam_slot_receiver_processing_us
                     .percentile(90.0)
                     .unwrap_or_default(),
                 i64
             ),
             (
-                "crossbeam_slot_receiver_latency_us_p99",
-                self.crossbeam_slot_receiver_latency_us
+                "crossbeam_slot_receiver_processing_us_p99",
+                self.crossbeam_slot_receiver_processing_us
                     .percentile(99.0)
                     .unwrap_or_default(),
                 i64
             ),
             (
-                "crossbeam_metrics_tick_latency_us_p50",
-                self.crossbeam_metrics_tick_latency_us
+                "crossbeam_metrics_tick_processing_us_p50",
+                self.crossbeam_metrics_tick_processing_us
                     .percentile(50.0)
                     .unwrap_or_default(),
                 i64
             ),
             (
-                "crossbeam_metrics_tick_latency_us_p90",
-                self.crossbeam_metrics_tick_latency_us
+                "crossbeam_metrics_tick_processing_us_p90",
+                self.crossbeam_metrics_tick_processing_us
                     .percentile(90.0)
                     .unwrap_or_default(),
                 i64
             ),
             (
-                "crossbeam_metrics_tick_latency_us_p99",
-                self.crossbeam_metrics_tick_latency_us
+                "crossbeam_metrics_tick_processing_us_p99",
+                self.crossbeam_metrics_tick_processing_us
                     .percentile(99.0)
                     .unwrap_or_default(),
                 i64
             ),
             (
-                "crossbeam_delay_packet_receiver_latency_us_p50",
-                self.crossbeam_delay_packet_receiver_latency_us
+                "crossbeam_delay_packet_receiver_processing_us_p50",
+                self.crossbeam_delay_packet_receiver_processing_us
                     .percentile(50.0)
                     .unwrap_or_default(),
                 i64
             ),
             (
-                "crossbeam_delay_packet_receiver_latency_us_p90",
-                self.crossbeam_delay_packet_receiver_latency_us
+                "crossbeam_delay_packet_receiver_processing_us_p90",
+                self.crossbeam_delay_packet_receiver_processing_us
                     .percentile(90.0)
                     .unwrap_or_default(),
                 i64
             ),
             (
-                "crossbeam_delay_packet_receiver_latency_us_p99",
-                self.crossbeam_delay_packet_receiver_latency_us
+                "crossbeam_delay_packet_receiver_processing_us_p99",
+                self.crossbeam_delay_packet_receiver_processing_us
                     .percentile(99.0)
                     .unwrap_or_default(),
                 i64
             ),
             (
-                "crossbeam_heartbeat_tick_latency_us_p50",
-                self.crossbeam_heartbeat_tick_latency_us
+                "crossbeam_heartbeat_tick_processing_us_p50",
+                self.crossbeam_heartbeat_tick_processing_us
                     .percentile(50.0)
                     .unwrap_or_default(),
                 i64
             ),
             (
-                "crossbeam_heartbeat_tick_latency_us_p90",
-                self.crossbeam_heartbeat_tick_latency_us
+                "crossbeam_heartbeat_tick_processing_us_p90",
+                self.crossbeam_heartbeat_tick_processing_us
                     .percentile(90.0)
                     .unwrap_or_default(),
                 i64
             ),
             (
-                "crossbeam_heartbeat_tick_latency_us_p99",
-                self.crossbeam_heartbeat_tick_latency_us
+                "crossbeam_heartbeat_tick_processing_us_p99",
+                self.crossbeam_heartbeat_tick_processing_us
                     .percentile(99.0)
                     .unwrap_or_default(),
                 i64
@@ -496,19 +496,19 @@ impl RelayerImpl {
             crossbeam_channel::select! {
                 recv(slot_receiver) -> maybe_slot => {
                     let (relayer_result, latency) = measure!(Self::update_highest_slot(maybe_slot, &mut highest_slot, &mut relayer_metrics));
-                    let _ = relayer_metrics.crossbeam_slot_receiver_latency_us.increment(latency.as_us());
+                    let _ = relayer_metrics.crossbeam_slot_receiver_processing_us.increment(latency.as_us());
                     let _ = relayer_result?;
                 },
                 recv(delay_packet_receiver) -> maybe_packet_batches => {
                     let (relayer_result, latency) = measure!(Self::forward_packets(maybe_packet_batches, &packet_subscriptions, &leader_schedule_cache, &highest_slot, &leader_lookahead, &mut relayer_metrics));
                     let failed_forwards = relayer_result?;
                     Self::drop_connections(failed_forwards, &packet_subscriptions, &mut relayer_metrics);
-                    let _ = relayer_metrics.crossbeam_delay_packet_receiver_latency_us.increment(latency.as_us());
+                    let _ = relayer_metrics.crossbeam_delay_packet_receiver_processing_us.increment(latency.as_us());
                 },
                 recv(subscription_receiver) -> maybe_subscription => {
                     let (relayer_result, latency) = measure!(Self::handle_subscription(maybe_subscription, &packet_subscriptions, &mut relayer_metrics));
                     let _ = relayer_result?;
-                    let _ = relayer_metrics.crossbeam_subscription_receiver_latency_us.increment(latency.as_us());
+                    let _ = relayer_metrics.crossbeam_subscription_receiver_processing_us.increment(latency.as_us());
                 }
                 recv(heartbeat_tick) -> time_generated => {
                     let start = Instant::now();
@@ -527,7 +527,7 @@ impl RelayerImpl {
                         HealthState::Unhealthy => packet_subscriptions.read().unwrap().keys().cloned().collect(),
                     };
                     Self::drop_connections(pubkeys_to_drop, &packet_subscriptions, &mut relayer_metrics);
-                    let _ = relayer_metrics.crossbeam_heartbeat_tick_latency_us.increment(start.elapsed().as_micros() as u64);
+                    let _ = relayer_metrics.crossbeam_heartbeat_tick_processing_us.increment(start.elapsed().as_micros() as u64);
                 }
                 recv(metrics_tick) -> time_generated => {
                     let start = Instant::now();
@@ -539,7 +539,7 @@ impl RelayerImpl {
                     if let Ok(time_generated) = time_generated {
                         relayer_metrics.metrics_latency_us = time_generated.elapsed().as_micros() as u64;
                     }
-                    let _ = relayer_metrics.crossbeam_metrics_tick_latency_us.increment(start.elapsed().as_micros() as u64);
+                    let _ = relayer_metrics.crossbeam_metrics_tick_processing_us.increment(start.elapsed().as_micros() as u64);
 
                     relayer_metrics.report();
                     relayer_metrics = RelayerMetrics::new(
