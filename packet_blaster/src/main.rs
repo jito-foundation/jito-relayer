@@ -11,23 +11,28 @@ use std::{
 };
 
 use bincode::serialize;
+use chrono::Utc;
 use clap::Parser;
 use itertools::Itertools;
 use log::*;
 use once_cell::sync::Lazy;
+use solana_client::tpu_client::TpuClientConfig;
 use solana_client::{
     client_error::{ClientError, ClientErrorKind},
     connection_cache::ConnectionCacheStats,
     nonblocking::quic_client::QuicLazyInitializedEndpoint,
     quic_client::QuicTpuConnection,
     rpc_client::RpcClient,
+    tpu_client::TpuClient,
     tpu_connection::TpuConnection,
 };
 use solana_sdk::{
+    instruction::{AccountMeta, Instruction},
     native_token::LAMPORTS_PER_SOL,
     pubkey::Pubkey,
     signature::{Keypair, Signature, Signer},
-    system_transaction::transfer,
+    system_instruction::transfer,
+    transaction::{Transaction, VersionedTransaction},
 };
 
 #[derive(Parser, Clone, Debug)]
@@ -53,17 +58,17 @@ struct Args {
     #[arg(long, env)]
     loop_sleep_micros: Option<u64>,
 
-    /// Method of connecting to Solana TPU
-    #[command(subcommand)]
-    connection_mode: Mode,
-
     /// Number of packets to send per iteration
     #[arg(long, env, default_value = "10")]
     batch_size: u8,
 
     /// Size of packets in bytes
     #[arg(long, env, default_value = "1000")]
-    packet_size: u8,
+    packet_size: usize,
+
+    /// Method of connecting to Solana TPU
+    #[command(subcommand)]
+    connection_mode: Mode,
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]
@@ -104,6 +109,12 @@ enum Mode {
         /// Number of streams per connection.
         #[arg(long, env, default_value_t = solana_sdk::quic::QUIC_MAX_UNSTAKED_CONCURRENT_STREAMS as u64)]
         num_streams_per_conn: u64,
+    },
+    /// Use standard Quic TPU Client to spam entire network (USE RESPONSIBLY!!! - i.e. testnet)
+    QuicFullNetwork {
+        /// Websocket address to get leader schedule
+        #[arg(long, env, default_value = "http://127.0.0.1:8900")]
+        websocket_url: String,
     },
 }
 
@@ -166,25 +177,27 @@ fn main() {
         .into_iter()
         .enumerate()
         .map(|(thread_id, keypair)| {
-            // let client = Arc::new(RpcClient::new(&args.rpc_addr));
+            let client = Arc::new(RpcClient::new(&args.rpc_addr));
             let args = args.clone();
             Builder::new()
                 .name(format!("packet_blaster-thread_{thread_id}"))
                 .spawn(move || {
-                    let tpu_sender = match RUNTIME.block_on(TpuSender::new(&args, thread_id)) {
-                        Ok(x) => x,
-                        Err(e) => panic!("Failed to connect, err: {e}"),
-                    };
+                    let tpu_sender =
+                        match RUNTIME.block_on(TpuSender::new(&args, thread_id, client.clone())) {
+                            Ok(x) => x,
+                            Err(e) => panic!("Failed to connect, err: {e}"),
+                        };
                     let metrics_interval = Duration::from_secs(5);
                     let mut last_blockhash_refresh = Instant::now();
-                    let mut latest_blockhash = solana_sdk::hash::Hash::new_unique();
+                    let mut latest_blockhash = client.get_latest_blockhash().unwrap();
+                    // let mut latest_blockhash = solana_sdk::hash::Hash::new_unique();
                     let mut curr_success_count = 0u64;
                     let mut curr_fail_count = 0u64;
                     let mut cumm_success_count = 0u64;
                     let mut cumm_fail_count = 0u64;
 
                     let batch_size = args.batch_size;
-                    let packet_size = args.packet_size;
+                    let packet_padding = args.packet_size.saturating_sub(241usize);
 
                     loop {
                         let now = Instant::now();
@@ -207,7 +220,8 @@ fn main() {
 
                             curr_success_count = 0;
                             curr_fail_count = 0;
-                            latest_blockhash = solana_sdk::hash::Hash::new_unique();
+                            latest_blockhash = client.get_latest_blockhash().unwrap();
+                            // latest_blockhash = solana_sdk::hash::Hash::new_unique();
                         }
 
                         let count = cumm_success_count
@@ -217,22 +231,32 @@ fn main() {
                         let serialized_txns: Vec<Vec<u8>> = (0..batch_size)
                             .filter_map(|i| {
                                 let lamports = count + i as u64;
-                                let txn = transfer(
-                                    &keypair,
-                                    &keypair.pubkey(),
-                                    lamports,
-                                    latest_blockhash,
-                                );
+                                let now_millis = Utc::now().timestamp_millis();
+                                let txn =
+                                    VersionedTransaction::from(Transaction::new_signed_with_payer(
+                                        &[
+                                            build_memo(
+                                                Vec::from(format!("  ~~  {now_millis}").as_bytes()),
+                                                &[],
+                                            ),
+                                            build_memo(vec![0; packet_padding], &[]),
+                                            transfer(
+                                                &keypair.pubkey(),
+                                                &keypair.pubkey(),
+                                                lamports,
+                                            ),
+                                        ],
+                                        Some(&keypair.pubkey()),
+                                        &[&keypair],
+                                        latest_blockhash,
+                                    ));
                                 // debug!(
                                 //     "pubkey: {}, lamports: {}, signature: {:?}",
                                 //     &keypair.pubkey(),
                                 //     lamports,
                                 //     &txn.signatures
                                 // );
-                                serialize(&txn).ok().map(|mut tx| {
-                                    tx.resize(packet_size as usize, 0);
-                                    tx
-                                })
+                                serialize(&txn).ok()
                             })
                             .collect();
                         let (_successes, fails): (Vec<()>, Vec<PacketBlasterError>) = RUNTIME
@@ -270,6 +294,9 @@ enum TpuSender {
     Quic {
         client: QuicTpuConnection,
     },
+    QuicFullNetwork {
+        client: TpuClient,
+    },
 }
 
 // taken from https://github.com/solana-labs/solana/blob/527e2d4f59c6429a4a959d279738c872b97e56b5/client/src/nonblocking/quic_client.rs#L42
@@ -305,6 +332,8 @@ pub enum PacketBlasterError {
     WriteError(#[from] quinn::WriteError),
     #[error("transport error: {0}")]
     TransportError(#[from] solana_sdk::transport::TransportError),
+    #[error("tpu_client error")]
+    TpuClientError,
 }
 
 impl TpuSender {
@@ -343,8 +372,12 @@ impl TpuSender {
         endpoint
     }
 
-    async fn new(args: &Args, thread_id: usize) -> Result<TpuSender, PacketBlasterError> {
-        match args.connection_mode {
+    async fn new(
+        args: &Args,
+        thread_id: usize,
+        rpc_client: Arc<RpcClient>,
+    ) -> Result<TpuSender, PacketBlasterError> {
+        match args.clone().connection_mode {
             Mode::Quinn {
                 spam_from_localhost,
             } => {
@@ -384,6 +417,14 @@ impl TpuSender {
                     args.tpu_addr,
                     Arc::new(ConnectionCacheStats::default()),
                 ),
+            }),
+            Mode::QuicFullNetwork { websocket_url } => Ok(TpuSender::QuicFullNetwork {
+                client: TpuClient::new(
+                    rpc_client,
+                    &websocket_url.clone(),
+                    TpuClientConfig::default(),
+                )
+                .unwrap(),
             }),
         }
     }
@@ -458,6 +499,19 @@ impl TpuSender {
                     .send_wire_transaction_batch_async(serialized_txns)
                     .map_err(PacketBlasterError::TransportError)]
             }
+            TpuSender::QuicFullNetwork { client } => {
+                let results = serialized_txns
+                    .iter()
+                    .map(|tx| {
+                        if client.send_wire_transaction(tx.clone()) {
+                            Ok(())
+                        } else {
+                            Err(PacketBlasterError::TpuClientError)
+                        }
+                    })
+                    .collect();
+                results
+            }
         }
     }
 }
@@ -482,4 +536,19 @@ fn request_and_confirm_airdrop(
         }
     }
     Ok(())
+}
+
+mod spl_memo_3_0 {
+    solana_sdk::declare_id!("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
+}
+
+fn build_memo(memo: Vec<u8>, signer_pubkeys: &[&Pubkey]) -> Instruction {
+    Instruction {
+        program_id: spl_memo_3_0::id(),
+        accounts: signer_pubkeys
+            .iter()
+            .map(|&pubkey| AccountMeta::new_readonly(*pubkey, true))
+            .collect(),
+        data: memo,
+    }
 }

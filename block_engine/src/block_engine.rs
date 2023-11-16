@@ -117,26 +117,31 @@ impl BlockEngineRelayerHandler {
                 let rt = Runtime::new().unwrap();
                 rt.block_on(async move {
                     while !exit.load(Ordering::Relaxed) {
-                        let result = Self::auth_and_connect(
-                            &block_engine_url,
-                            &auth_service_url,
-                            &mut block_engine_receiver,
-                            &keypair,
-                            &exit,
-                            aoi_cache_ttl_s,
-                            &address_lookup_table_cache,
-                            &is_connected_to_block_engine,
-                        )
-                        .await;
-                        is_connected_to_block_engine.store(false, Ordering::Relaxed);
+                        if !block_engine_url.is_empty() {
+                            let result = Self::auth_and_connect(
+                                &block_engine_url,
+                                &auth_service_url,
+                                &mut block_engine_receiver,
+                                &keypair,
+                                &exit,
+                                aoi_cache_ttl_s,
+                                &address_lookup_table_cache,
+                                &is_connected_to_block_engine,
+                            )
+                            .await;
+                            is_connected_to_block_engine.store(false, Ordering::Relaxed);
 
-                        if let Err(e) = result {
-                            error!("error authenticating and connecting: {:?}", e);
-                            datapoint_error!("block_engine_relayer-error",
-                                "block_engine_url" => block_engine_url,
-                                "auth_service_url" => auth_service_url,
-                                ("error", e.to_string(), String)
-                            );
+                            if let Err(e) = result {
+                                error!("error authenticating and connecting: {:?}", e);
+                                datapoint_error!("block_engine_relayer-error",
+                                    "block_engine_url" => block_engine_url,
+                                    "auth_service_url" => auth_service_url,
+                                    ("error", e.to_string(), String)
+                                );
+                                sleep(Duration::from_secs(2)).await;
+                            }
+                        } else {
+                            while block_engine_receiver.try_recv().is_ok() {}
                             sleep(Duration::from_secs(2)).await;
                         }
                     }

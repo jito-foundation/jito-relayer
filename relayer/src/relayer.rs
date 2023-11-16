@@ -293,7 +293,7 @@ pub struct RelayerImpl {
 }
 
 impl RelayerImpl {
-    pub const SUBSCRIBER_QUEUE_CAPACITY: usize = 50_000;
+    pub const SUBSCRIBER_QUEUE_CAPACITY: usize = 200_000;
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(

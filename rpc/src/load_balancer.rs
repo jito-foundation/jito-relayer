@@ -157,7 +157,7 @@ impl LoadBalancer {
                             //     }
                             // }
 
-                            sleep(Duration::from_secs(10));
+                            sleep(Duration::from_secs(1));
                             // Never true, just keeping channel open
                             if last_slot_update.elapsed() > Duration::from_secs(u64::MAX) {
                                 if let Err(e) = slot_sender.send(1 as u64) {
