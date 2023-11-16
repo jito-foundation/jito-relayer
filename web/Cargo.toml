@@ -8,11 +8,11 @@ edition = "2021"
 publish = false
 
 [dependencies]
-axum = "0.5.17"
-jito-relayer = { path = "../relayer" }
-log = "0.4.17"
-serde = { version = "1.0.160", features = ["derive"] }
-serde_json = "1.0.96"
-solana-sdk = "=1.14.18"
-tokio = "~1.14.0"
-tower = { version = "0.4.1", features = ["limit"] }
+axum = { workspace = true }
+jito-relayer = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+solana-sdk = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }

@@ -8,23 +8,23 @@ edition = "2021"
 publish = false
 
 [dependencies]
-bincode = "1.3.3"
-crossbeam-channel = "0.5.8"
-dashmap = "5.4.0"
-jito-rpc = { path = "../rpc" }
-lazy_static = "1.4.0"
-log = "0.4.17"
-rayon = "1.7.0"
-solana-client = "=1.14.18"
-solana-core = "=1.14.18"
-solana-gossip = "=1.14.18"
-solana-measure = "=1.14.18"
-solana-metrics = "=1.14.18"
-solana-perf = "=1.14.18"
-solana-rayon-threadlimit = "=1.14.18"
-solana-runtime = "=1.14.18"
-solana-sdk = "=1.14.18"
-solana-streamer = "=1.14.18"
-thiserror = "1.0.40"
-tokio = { version = "~1.14.1", features = ["rt-multi-thread"] }
-tokio-stream = "0.1.12"
+bincode = { workspace = true }
+crossbeam-channel = { workspace = true }
+dashmap = { workspace = true }
+jito-rpc = { workspace = true }
+lazy_static = { workspace = true }
+log = { workspace = true }
+rayon = { workspace = true }
+solana-client = { workspace = true }
+solana-core = { workspace = true }
+solana-gossip = { workspace = true }
+solana-measure = { workspace = true }
+solana-metrics = { workspace = true }
+solana-perf = { workspace = true }
+solana-rayon-threadlimit = { workspace = true }
+solana-runtime = { workspace = true }
+solana-sdk = { workspace = true }
+solana-streamer = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }

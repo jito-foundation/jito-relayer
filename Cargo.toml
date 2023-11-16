@@ -3,16 +3,74 @@ members = [
     "block_engine",
     "core",
     "jito-protos",
-    "packet_blaster",
+#    "packet_blaster",
     "relayer",
     "rpc",
     "transaction-relayer",
     "web"
 ]
 
-[profile.release]
+[workspace.dependencies]
+axum = "0.5.17"
+bincode = "1.3.3"
+bytes = "1.4.0"
+cached = "0.42.0"
+chrono = "0.4.24"
+clap = { version = "4", features = ["derive", "env"] }
+crossbeam-channel = "0.5.8"
+dashmap = "5.4.0"
+ed25519-dalek = "1.0.1"
+env_logger = "0.9"
+futures-util = "0.3"
+histogram = "0.6.9"
+hostname = "0.3"
+itertools = "0.10.5"
+jito-block-engine = { path = "block_engine" }
+jito-core = { path = "core" }
+jito-protos = { path = "jito-protos" }
+jito-relayer = { path = "relayer" }
+jito-relayer-web = { path = "web" }
+jito-rpc = { path = "rpc" }
+jwt = { version = "0.16.0", features = ["openssl"] }
+keyed_priority_queue = "0.4.1"
+lazy_static = "1.4.0"
+log = "0.4.17"
+once_cell = "1"
+openssl = "0.10.51"
+prost = "0.12.1"
+prost-types = "0.12.1"
+quinn = "0.9"
+rand = "0.8.5"
+rayon = "1.7.0"
+reqwest = "0.11.16"
+rustls = { version = "0.20", features = ["dangerous_configuration"] }
+serde = { version = "1.0.160", features = ["derive"] }
+serde_json = "1.0.96"
+sha2 = "0.10.6"
+solana-address-lookup-table-program = "1.16.18"
+solana-client = "1.16.18"
+solana-core = "1.16.18"
+solana-gossip = "1.16.18"
+solana-measure = "1.16.18"
+solana-metrics = "1.16.18"
+solana-net-utils = "1.16.18"
+solana-perf = "1.16.18"
+solana-program = "1.16.18"
+solana-rayon-threadlimit = "1.16.18"
+solana-runtime = "1.16.18"
+solana-sdk = "1.16.18"
+solana-streamer = "1.16.18"
+thiserror = "1.0.40"
+tikv-jemallocator = { version = "0.5", features = ["profiling"] }
+tokio = { version = "1.33.0", features = ["rt-multi-thread"] }
+tokio-stream = "0.1.12"
+tonic = { version = "0.10.2", features = ["tls", "tls-roots", "tls-webpki-roots"] }
+tonic-build = "0.10.2"
+tower = { version = "0.4.1", features = ["limit"] }
+
+#[profile.release]
 # thin has minimal overhead vs none (default): https://blog.llvm.org/2016/06/thinlto-scalable-and-incremental-lto.html
-lto = "thin"
+#lto = "thin"
 
 # enable debug symbols for profiling the heap using jeprof
 # example: jeprof --web target/release/jito-transaction-relayer jeprof.3085546.9823.i24.heap
