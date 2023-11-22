@@ -73,7 +73,7 @@ impl StakedNodesUpdaterService {
             *last_stakes = Instant::now();
             Ok(true)
         } else {
-            sleep(Duration::from_millis(1));
+            sleep(Duration::from_secs(1));
             Ok(false)
         }
     }
