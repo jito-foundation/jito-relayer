@@ -72,6 +72,8 @@ pub fn start_forward_and_delay_thread(
                                     .iter()
                                     .map(|b| b.len() as u64)
                                     .sum::<u64>();
+                                forwarder_metrics.num_batches_received += 1;
+                                forwarder_metrics.num_packets_received += 1;
 
                                 // try_send because the block engine receiver only drains when it's connected
                                 // and we don't want to OOM on packet_receiver
@@ -140,7 +142,6 @@ pub fn start_forward_and_delay_thread(
 struct ForwarderMetrics {
     pub num_batches_received: u64,
     pub num_packets_received: u64,
-    pub num_packets_filtered: u64,
 
     pub num_be_packets_forwarded: u64,
     pub num_be_packets_dropped: u64,
@@ -166,7 +167,6 @@ impl ForwarderMetrics {
         ForwarderMetrics {
             num_batches_received: 0,
             num_packets_received: 0,
-            num_packets_filtered: 0,
             num_be_packets_forwarded: 0,
             num_be_packets_dropped: 0,
             num_be_sender_full: 0,
@@ -209,7 +209,6 @@ impl ForwarderMetrics {
             ("delay", delay, i64),
             ("num_batches_received", self.num_batches_received, i64),
             ("num_packets_received", self.num_packets_received, i64),
-            ("num_packets_filtered", self.num_packets_filtered, i64),
             // Relayer -> Block Engine Metrics
             (
                 "num_be_packets_forwarded",
