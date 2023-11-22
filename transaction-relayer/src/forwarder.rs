@@ -46,7 +46,7 @@ pub fn start_forward_and_delay_thread(
                     let metrics_interval = Duration::from_secs(1);
                     let mut forwarder_metrics = ForwarderMetrics::new(
                         buffered_packet_batches.capacity(),
-                        verified_receiver.capacity().unwrap(),
+                        verified_receiver.capacity().unwrap_or_default(), // TODO (LB): unbounded channel now, remove metric
                         block_engine_sender.capacity(),
                     );
                     let mut last_metrics_upload = Instant::now();
@@ -57,7 +57,7 @@ pub fn start_forward_and_delay_thread(
 
                             forwarder_metrics = ForwarderMetrics::new(
                                 buffered_packet_batches.capacity(),
-                                verified_receiver.capacity().unwrap(),
+                                verified_receiver.capacity().unwrap_or_default(), // TODO (LB): unbounded channel now, remove metric
                                 block_engine_sender.capacity(),
                             );
                             last_metrics_upload = Instant::now();
