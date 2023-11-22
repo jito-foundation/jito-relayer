@@ -67,6 +67,12 @@ pub fn start_forward_and_delay_thread(
                             Ok(banking_packet_batch) => {
                                 let instant = Instant::now();
                                 let system_time = SystemTime::now();
+                                let num_packets = banking_packet_batch
+                                    .0
+                                    .iter()
+                                    .map(|b| b.len() as u64)
+                                    .sum::<u64>();
+
                                 // try_send because the block engine receiver only drains when it's connected
                                 // and we don't want to OOM on packet_receiver
                                 match block_engine_sender.try_send(BlockEnginePackets {
@@ -75,8 +81,7 @@ pub fn start_forward_and_delay_thread(
                                     expiration: packet_delay_ms,
                                 }) {
                                     Ok(_) => {
-                                        forwarder_metrics.num_be_packets_forwarded += 1;
-                                        // TODO (LB)
+                                        forwarder_metrics.num_be_packets_forwarded += num_packets;
                                     }
                                     Err(TrySendError::Closed(_)) => {
                                         panic!(
@@ -85,9 +90,8 @@ pub fn start_forward_and_delay_thread(
                                     }
                                     Err(TrySendError::Full(_)) => {
                                         // block engine most likely not connected
-                                        forwarder_metrics.num_be_packets_dropped += 1; // TODO (LB)
+                                        forwarder_metrics.num_be_packets_dropped += num_packets;
                                         forwarder_metrics.num_be_sender_full += 1;
-                                        // TODO (LB)
                                     }
                                 }
                                 buffered_packet_batches.push_back(RelayerPacketBatches {
@@ -107,7 +111,14 @@ pub fn start_forward_and_delay_thread(
                             }
                             let batch = buffered_packet_batches.pop_front().unwrap();
 
-                            forwarder_metrics.num_relayer_packets_forwarded += 1; // TODO (LB)
+                            let num_packets = batch
+                                .banking_packet_batch
+                                .0
+                                .iter()
+                                .map(|b| b.len() as u64)
+                                .sum::<u64>();
+
+                            forwarder_metrics.num_relayer_packets_forwarded += num_packets;
                             delay_packet_sender
                                 .send(batch)
                                 .expect("exiting forwarding delayed packets");
