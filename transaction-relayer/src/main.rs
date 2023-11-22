@@ -329,8 +329,6 @@ fn main() {
         &sockets.tpu_ip,
         &sockets.tpu_fwd_ip,
         &rpc_load_balancer,
-        &ofac_addresses,
-        &address_lookup_table_cache,
         args.max_unstaked_quic_connections,
     );
 
@@ -364,8 +362,9 @@ fn main() {
         keypair,
         exit.clone(),
         args.aoi_cache_ttl_secs,
-        address_lookup_table_cache,
+        address_lookup_table_cache.clone(),
         &is_connected_to_block_engine,
+        ofac_addresses.clone(),
     );
 
     // receiver tracked as relayer_metrics.slot_receiver_len
@@ -389,6 +388,8 @@ fn main() {
         args.tpu_fwd_port,
         health_manager.handle(),
         exit.clone(),
+        ofac_addresses,
+        address_lookup_table_cache,
     );
 
     let priv_key = fs::read(&args.signing_key_pem_path).unwrap_or_else(|_| {

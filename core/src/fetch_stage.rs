@@ -94,7 +94,7 @@ impl FetchStage {
         tpu_sender: &PacketBatchSender,
     ) -> FetchStageResult<()> {
         let mark_forwarded = |packet: &mut Packet| {
-            packet.meta.flags |= PacketFlags::FORWARDED;
+            packet.meta_mut().flags |= PacketFlags::FORWARDED;
         };
 
         let mut packet_batch = tpu_forwards_receiver.recv()?;

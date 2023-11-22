@@ -10,8 +10,10 @@ publish = false
 [dependencies]
 chrono = { workspace = true }
 crossbeam-channel = { workspace = true }
+dashmap = { workspace = true }
 ed25519-dalek = { workspace = true }
 histogram = { workspace = true }
+jito-core = { workspace = true }
 jito-protos = { workspace = true }
 jito-rpc = { workspace = true }
 jwt = { workspace = true }
@@ -23,6 +25,7 @@ rand = { workspace = true }
 serde = { workspace = true }
 sha2 = { workspace = true }
 solana-client = { workspace = true }
+solana-core = { workspace = true }
 solana-metrics = { workspace = true }
 solana-perf = { workspace = true }
 solana-sdk = { workspace = true }

@@ -10,9 +10,11 @@ publish = false
 [dependencies]
 cached = { workspace = true }
 dashmap = { workspace = true }
+jito-core = { workspace = true }
 jito-protos = { workspace = true }
 log = { workspace = true }
 prost-types = { workspace = true }
+solana-core = { workspace = true }
 solana-metrics = { workspace = true }
 solana-perf = { workspace = true }
 solana-sdk = { workspace = true }

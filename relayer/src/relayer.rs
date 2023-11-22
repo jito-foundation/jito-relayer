@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::{
     collections::{hash_map::Entry, HashMap},
     net::IpAddr,
@@ -11,7 +12,9 @@ use std::{
 };
 
 use crossbeam_channel::{bounded, Receiver, RecvError, Sender};
+use dashmap::DashMap;
 use histogram::Histogram;
+use jito_core::ofac::is_tx_ofac_related;
 use jito_protos::{
     convert::packet_to_proto_packet,
     packet::PacketBatch as ProtoPacketBatch,
@@ -24,8 +27,10 @@ use jito_protos::{
 use jito_rpc::load_balancer::LoadBalancer;
 use log::*;
 use prost_types::Timestamp;
+use solana_core::banking_trace::BankingPacketBatch;
 use solana_metrics::datapoint_info;
-use solana_perf::packet::PacketBatch;
+use solana_sdk::address_lookup_table::AddressLookupTableAccount;
+use solana_sdk::transaction::VersionedTransaction;
 use solana_sdk::{
     clock::{Slot, NUM_CONSECUTIVE_LEADER_SLOTS},
     pubkey::Pubkey,
@@ -353,7 +358,7 @@ impl RelayerMetrics {
 
 pub struct RelayerPacketBatches {
     pub stamp: Instant,
-    pub batches: Vec<PacketBatch>,
+    pub banking_packet_batch: BankingPacketBatch,
 }
 
 pub enum Subscription {
@@ -422,6 +427,8 @@ impl RelayerImpl {
         tpu_fwd_port: u16,
         health_state: Arc<RwLock<HealthState>>,
         exit: Arc<AtomicBool>,
+        ofac_addresses: HashSet<Pubkey>,
+        address_lookup_table_cache: Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
     ) -> Self {
         const LEADER_LOOKAHEAD: u64 = 2;
 
@@ -446,6 +453,8 @@ impl RelayerImpl {
                         health_state,
                         exit,
                         &packet_subscriptions,
+                        ofac_addresses,
+                        address_lookup_table_cache,
                     );
                     warn!("RelayerImpl thread exited with result {res:?}")
                 })
@@ -479,6 +488,8 @@ impl RelayerImpl {
         packet_subscriptions: &Arc<
             RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>,
         >,
+        ofac_addresses: HashSet<Pubkey>,
+        address_lookup_table_cache: Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
     ) -> RelayerResult<()> {
         let mut highest_slot = Slot::default();
 
@@ -500,7 +511,7 @@ impl RelayerImpl {
                 },
                 recv(delay_packet_receiver) -> maybe_packet_batches => {
                     let start = Instant::now();
-                    let failed_forwards = Self::forward_packets(maybe_packet_batches, &packet_subscriptions, &leader_schedule_cache, &highest_slot, &leader_lookahead, &mut relayer_metrics)?;
+                    let failed_forwards = Self::forward_packets(maybe_packet_batches, &packet_subscriptions, &leader_schedule_cache, &highest_slot, &leader_lookahead, &mut relayer_metrics, &ofac_addresses, &address_lookup_table_cache)?;
                     Self::drop_connections(failed_forwards, &packet_subscriptions, &mut relayer_metrics);
                     let _ = relayer_metrics.crossbeam_delay_packet_receiver_processing_us.increment(start.elapsed().as_micros() as u64);
                 },
@@ -623,6 +634,8 @@ impl RelayerImpl {
         highest_slot: &u64,
         leader_lookahead: &u64,
         relayer_metrics: &mut RelayerMetrics,
+        ofac_addresses: &HashSet<Pubkey>,
+        address_lookup_table_cache: &Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
     ) -> RelayerResult<Vec<Pubkey>> {
         let packet_batches = maybe_packet_batches?;
 
@@ -635,13 +648,33 @@ impl RelayerImpl {
             .collect();
         let slot_leaders = leader_schedule_cache.leaders_for_slots(&slots);
 
-        let proto_packet_batches: Vec<ProtoPacketBatch> = packet_batches
-            .batches
+        // remove discards + check for OFAC before forwarding
+        let packets: Vec<_> = packet_batches
+            .banking_packet_batch
+            .0
             .iter()
-            .map(|b| ProtoPacketBatch {
-                packets: b.iter().filter_map(packet_to_proto_packet).collect(),
+            .flat_map(|batch| {
+                batch
+                    .iter()
+                    .filter(|p| !p.meta().discard())
+                    .filter_map(|packet| {
+                        let tx: VersionedTransaction = packet.deserialize_slice(..).ok()?;
+                        if !is_tx_ofac_related(&tx, ofac_addresses, address_lookup_table_cache) {
+                            Some(packet)
+                        } else {
+                            None
+                        }
+                    })
+                    .filter_map(packet_to_proto_packet)
             })
             .collect();
+
+        let mut proto_packet_batches = Vec::new();
+        for packet_chunk in packets.chunks(4) {
+            proto_packet_batches.push(ProtoPacketBatch {
+                packets: packet_chunk.to_vec(),
+            });
+        }
 
         let l_subscriptions = subscriptions.read().unwrap();
 

@@ -9,6 +9,7 @@ members = [
     "transaction-relayer",
     "web"
 ]
+resolver = "1"
 
 [workspace.dependencies]
 axum = "0.5.17"
@@ -47,22 +48,22 @@ rustls = { version = "0.20", features = ["dangerous_configuration"] }
 serde = { version = "1.0.160", features = ["derive"] }
 serde_json = "1.0.96"
 sha2 = "0.10.6"
-solana-address-lookup-table-program = "1.16.18"
-solana-client = "1.16.18"
-solana-core = "1.16.18"
-solana-gossip = "1.16.18"
-solana-measure = "1.16.18"
-solana-metrics = "1.16.18"
-solana-net-utils = "1.16.18"
-solana-perf = "1.16.18"
-solana-program = "1.16.18"
-solana-rayon-threadlimit = "1.16.18"
-solana-runtime = "1.16.18"
-solana-sdk = "1.16.18"
-solana-streamer = "1.16.18"
+solana-address-lookup-table-program = "1.17.5"
+solana-client = "1.17.5"
+solana-core = "1.17.5"
+solana-gossip = "1.17.5"
+solana-measure = "1.17.5"
+solana-metrics = "1.17.5"
+solana-net-utils = "1.17.5"
+solana-perf = "1.17.5"
+solana-program = "1.17.5"
+solana-rayon-threadlimit = "1.17.5"
+solana-runtime = "1.17.5"
+solana-sdk = "1.17.5"
+solana-streamer = "1.17.5"
 thiserror = "1.0.40"
 tikv-jemallocator = { version = "0.5", features = ["profiling"] }
-tokio = { version = "1.33.0", features = ["rt-multi-thread"] }
+tokio = { version = "1.29.1", features = ["full"] }
 tokio-stream = "0.1.12"
 tonic = { version = "0.10.2", features = ["tls", "tls-roots", "tls-webpki-roots"] }
 tonic-build = "0.10.2"

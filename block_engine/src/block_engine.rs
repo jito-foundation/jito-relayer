@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::{
     str::FromStr,
     sync::{
@@ -11,6 +12,7 @@ use std::{
 
 use cached::{Cached, TimedCache};
 use dashmap::DashMap;
+use jito_core::ofac::is_tx_ofac_related;
 use jito_protos::{
     auth::{
         auth_service_client::AuthServiceClient, GenerateAuthChallengeRequest,
@@ -23,16 +25,16 @@ use jito_protos::{
         PacketBatchUpdate, ProgramsOfInterestRequest, ProgramsOfInterestUpdate,
     },
     convert::packet_to_proto_packet,
-    packet::{Packet as ProtoPacket, PacketBatch as ProtoPacketBatch},
+    packet::PacketBatch as ProtoPacketBatch,
     shared::{Header, Heartbeat},
 };
 use log::{error, *};
 use prost_types::Timestamp;
+use solana_core::banking_trace::BankingPacketBatch;
 use solana_metrics::{datapoint_error, datapoint_info};
-use solana_perf::packet::PacketBatch;
+use solana_sdk::address_lookup_table::AddressLookupTableAccount;
 use solana_sdk::{
-    address_lookup_table_account::AddressLookupTableAccount, pubkey::Pubkey, signature::Signer,
-    signer::keypair::Keypair, transaction::VersionedTransaction,
+    pubkey::Pubkey, signature::Signer, signer::keypair::Keypair, transaction::VersionedTransaction,
 };
 use thiserror::Error;
 use tokio::{
@@ -75,7 +77,7 @@ impl Interceptor for AuthInterceptor {
 }
 
 pub struct BlockEnginePackets {
-    pub packet_batches: Vec<PacketBatch>,
+    pub banking_packet_batch: BankingPacketBatch,
     pub stamp: SystemTime,
     pub expiration: u32,
 }
@@ -109,6 +111,7 @@ impl BlockEngineRelayerHandler {
         aoi_cache_ttl_s: u64,
         address_lookup_table_cache: Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
         is_connected_to_block_engine: &Arc<AtomicBool>,
+        ofac_addresses: HashSet<Pubkey>,
     ) -> BlockEngineRelayerHandler {
         let is_connected_to_block_engine = is_connected_to_block_engine.clone();
         let block_engine_forwarder = Builder::new()
@@ -126,6 +129,7 @@ impl BlockEngineRelayerHandler {
                             aoi_cache_ttl_s,
                             &address_lookup_table_cache,
                             &is_connected_to_block_engine,
+                            &ofac_addresses,
                         )
                         .await;
                         is_connected_to_block_engine.store(false, Ordering::Relaxed);
@@ -215,6 +219,7 @@ impl BlockEngineRelayerHandler {
         aoi_cache_ttl_s: u64,
         address_lookup_table_cache: &Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
         is_connected_to_block_engine: &Arc<AtomicBool>,
+        ofac_addresses: &HashSet<Pubkey>,
     ) -> BlockEngineResult<()> {
         let mut auth_endpoint = Endpoint::from_str(auth_service_url).expect("valid auth url");
         if auth_service_url.contains("https") {
@@ -279,6 +284,7 @@ impl BlockEngineRelayerHandler {
             aoi_cache_ttl_s,
             address_lookup_table_cache,
             is_connected_to_block_engine,
+            ofac_addresses,
         )
         .await
     }
@@ -300,6 +306,7 @@ impl BlockEngineRelayerHandler {
         aoi_cache_ttl_s: u64,
         address_lookup_table_cache: &Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
         is_connected_to_block_engine: &Arc<AtomicBool>,
+        ofac_addresses: &HashSet<Pubkey>,
     ) -> BlockEngineResult<()> {
         let subscribe_aoi_stream = client
             .subscribe_accounts_of_interest(AccountsOfInterestRequest {})
@@ -331,6 +338,7 @@ impl BlockEngineRelayerHandler {
             aoi_cache_ttl_s,
             address_lookup_table_cache,
             is_connected_to_block_engine,
+            ofac_addresses,
         )
         .await
     }
@@ -349,6 +357,7 @@ impl BlockEngineRelayerHandler {
         aoi_cache_ttl_s: u64,
         address_lookup_table_cache: &Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
         is_connected_to_block_engine: &Arc<AtomicBool>,
+        ofac_addresses: &HashSet<Pubkey>,
     ) -> BlockEngineResult<()> {
         let mut aoi_stream = subscribe_aoi_stream.into_inner();
         let mut poi_stream = subscribe_poi_stream.into_inner();
@@ -413,8 +422,9 @@ impl BlockEngineRelayerHandler {
                         .ok_or_else(|| BlockEngineError::BlockEngineFailure("block engine packet receiver disconnected".to_string()))?;
 
                     let now = Instant::now();
-                    block_engine_stats.increment_num_packets_received(block_engine_batches.packet_batches.iter().map(|b|b.len() as u64).sum::<u64>());
-                    let filtered_packets = Self::filter_packets(block_engine_batches, &mut accounts_of_interest, &mut programs_of_interest, address_lookup_table_cache);
+
+                    block_engine_stats.increment_num_packets_received(1); // TODO (LB)
+                    let filtered_packets = Self::filter_packets(block_engine_batches, &mut accounts_of_interest, &mut programs_of_interest, address_lookup_table_cache, ofac_addresses);
                     block_engine_stats.increment_packet_filter_elapsed_us(now.elapsed().as_micros() as u64);
 
                     if let Some(filtered_packets) = filtered_packets {
@@ -616,33 +626,32 @@ impl BlockEngineRelayerHandler {
         accounts_of_interest: &mut TimedCache<Pubkey, u8>,
         programs_of_interest: &mut TimedCache<Pubkey, u8>,
         address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
+        ofac_addresses: &HashSet<Pubkey>,
     ) -> Option<ExpiringPacketBatch> {
-        let filtered_packets: Vec<ProtoPacket> = block_engine_batches
-            .packet_batches
-            .into_iter()
-            .flat_map(|b| {
-                b.iter()
-                    .filter_map(|p| {
-                        let tx: VersionedTransaction = p.deserialize_slice(..).ok()?;
+        let mut filtered_packets = Vec::new();
 
-                        let is_forwardable =
-                            is_aoi_in_static_keys(&tx, accounts_of_interest, programs_of_interest)
-                                || is_aoi_in_lookup_table(
-                                    &tx,
-                                    accounts_of_interest,
-                                    programs_of_interest,
-                                    address_lookup_table_cache,
-                                );
-
-                        if is_forwardable {
-                            Some(packet_to_proto_packet(p)?)
-                        } else {
-                            None
+        for batch in &block_engine_batches.banking_packet_batch.0 {
+            for packet in batch {
+                if packet.meta().discard() {
+                    continue;
+                }
+                if let Ok(tx) = packet.deserialize_slice::<VersionedTransaction, _>(..) {
+                    if !is_tx_ofac_related(&tx, ofac_addresses, address_lookup_table_cache)
+                        && (is_aoi_in_static_keys(&tx, accounts_of_interest, programs_of_interest)
+                            || is_aoi_in_lookup_table(
+                                &tx,
+                                accounts_of_interest,
+                                programs_of_interest,
+                                address_lookup_table_cache,
+                            ))
+                    {
+                        if let Some(packet) = packet_to_proto_packet(packet) {
+                            filtered_packets.push(packet)
                         }
-                    })
-                    .collect::<Vec<ProtoPacket>>()
-            })
-            .collect::<Vec<ProtoPacket>>();
+                    }
+                }
+            }
+        }
 
         if !filtered_packets.is_empty() {
             Some(ExpiringPacketBatch {
