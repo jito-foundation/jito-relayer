@@ -1,8 +1,10 @@
 use std::collections::HashSet;
 
 use dashmap::DashMap;
-use solana_sdk::address_lookup_table::AddressLookupTableAccount;
-use solana_sdk::{pubkey::Pubkey, transaction::VersionedTransaction};
+use solana_sdk::{
+    address_lookup_table::AddressLookupTableAccount, pubkey::Pubkey,
+    transaction::VersionedTransaction,
+};
 
 /// Returns true if transaction is ofac-related, false if not
 pub fn is_tx_ofac_related(

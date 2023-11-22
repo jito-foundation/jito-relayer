@@ -3,7 +3,7 @@ members = [
     "block_engine",
     "core",
     "jito-protos",
-#    "packet_blaster",
+#    "packet_blaster", // TODO (LB): fix
     "relayer",
     "rpc",
     "transaction-relayer",

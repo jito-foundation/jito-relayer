@@ -1,5 +1,5 @@
-use std::collections::HashSet;
 use std::{
+    collections::HashSet,
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -32,9 +32,9 @@ use log::{error, *};
 use prost_types::Timestamp;
 use solana_core::banking_trace::BankingPacketBatch;
 use solana_metrics::{datapoint_error, datapoint_info};
-use solana_sdk::address_lookup_table::AddressLookupTableAccount;
 use solana_sdk::{
-    pubkey::Pubkey, signature::Signer, signer::keypair::Keypair, transaction::VersionedTransaction,
+    address_lookup_table::AddressLookupTableAccount, pubkey::Pubkey, signature::Signer,
+    signer::keypair::Keypair, transaction::VersionedTransaction,
 };
 use thiserror::Error;
 use tokio::{

@@ -7,10 +7,10 @@ edition = "2021"
 bincode = { workspace = true }
 clap = { workspace = true }
 env_logger = { workspace = true }
-futures-util ={ workspace = true }
-itertools ={ workspace = true }
-log ={ workspace = true }
-once_cell ={ workspace = true }
+futures-util = { workspace = true }
+itertools = { workspace = true }
+log = { workspace = true }
+once_cell = { workspace = true }
 quinn = { workspace = true }
 rustls = { workspace = true }
 solana-client = { workspace = true }
