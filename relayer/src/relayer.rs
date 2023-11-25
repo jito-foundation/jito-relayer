@@ -659,11 +659,16 @@ impl RelayerImpl {
                     .iter()
                     .filter(|p| !p.meta().discard())
                     .filter_map(|packet| {
-                        let tx: VersionedTransaction = packet.deserialize_slice(..).ok()?;
-                        if !is_tx_ofac_related(&tx, ofac_addresses, address_lookup_table_cache) {
-                            Some(packet)
+                        if !ofac_addresses.is_empty() {
+                            let tx: VersionedTransaction = packet.deserialize_slice(..).ok()?;
+                            if !is_tx_ofac_related(&tx, ofac_addresses, address_lookup_table_cache)
+                            {
+                                Some(packet)
+                            } else {
+                                None
+                            }
                         } else {
-                            None
+                            Some(packet)
                         }
                     })
                     .filter_map(packet_to_proto_packet)
