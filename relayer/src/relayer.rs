@@ -675,7 +675,8 @@ impl RelayerImpl {
             })
             .collect();
 
-        let mut proto_packet_batches = Vec::new();
+        // TODO (LB): non-constant the 4
+        let mut proto_packet_batches = Vec::with_capacity(packets.len() / 4);
         for packet_chunk in packets.chunks(4) {
             proto_packet_batches.push(ProtoPacketBatch {
                 packets: packet_chunk.to_vec(),
