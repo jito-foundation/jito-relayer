@@ -501,16 +501,25 @@ impl RelayerImpl {
             delay_packet_receiver.capacity().unwrap(),
         );
 
+        let mut slot_leaders = HashSet::new();
+
         while !exit.load(Ordering::Relaxed) {
             crossbeam_channel::select! {
                 recv(slot_receiver) -> maybe_slot => {
                     let start = Instant::now();
+
                     Self::update_highest_slot(maybe_slot, &mut highest_slot, &mut relayer_metrics)?;
+
+                    let slots: Vec<_> = (highest_slot
+                        ..highest_slot + leader_lookahead * NUM_CONSECUTIVE_LEADER_SLOTS)
+                        .collect();
+                    slot_leaders = leader_schedule_cache.leaders_for_slots(&slots);
+
                     let _ = relayer_metrics.crossbeam_slot_receiver_processing_us.increment(start.elapsed().as_micros() as u64);
                 },
                 recv(delay_packet_receiver) -> maybe_packet_batches => {
                     let start = Instant::now();
-                    let failed_forwards = Self::forward_packets(maybe_packet_batches, &packet_subscriptions, &leader_schedule_cache, &highest_slot, &leader_lookahead, &mut relayer_metrics, &ofac_addresses, &address_lookup_table_cache)?;
+                    let failed_forwards = Self::forward_packets(maybe_packet_batches, &packet_subscriptions, &slot_leaders, &mut relayer_metrics, &ofac_addresses, &address_lookup_table_cache)?;
                     Self::drop_connections(failed_forwards, &packet_subscriptions, &mut relayer_metrics);
                     let _ = relayer_metrics.crossbeam_delay_packet_receiver_processing_us.increment(start.elapsed().as_micros() as u64);
                 },
@@ -629,9 +638,7 @@ impl RelayerImpl {
         subscriptions: &Arc<
             RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>,
         >,
-        leader_schedule_cache: &LeaderScheduleUpdatingHandle,
-        highest_slot: &u64,
-        leader_lookahead: &u64,
+        slot_leaders: &HashSet<Pubkey>,
         relayer_metrics: &mut RelayerMetrics,
         ofac_addresses: &HashSet<Pubkey>,
         address_lookup_table_cache: &Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
@@ -641,11 +648,6 @@ impl RelayerImpl {
         let _ = relayer_metrics
             .packet_latencies_us
             .increment(packet_batches.stamp.elapsed().as_micros() as u64);
-
-        let slots: Vec<_> = (*highest_slot
-            ..highest_slot + leader_lookahead * NUM_CONSECUTIVE_LEADER_SLOTS)
-            .collect();
-        let slot_leaders = leader_schedule_cache.leaders_for_slots(&slots);
 
         // remove discards + check for OFAC before forwarding
         let packets: Vec<_> = packet_batches
@@ -679,7 +681,7 @@ impl RelayerImpl {
 
         let mut failed_forwards = Vec::new();
         for pubkey in slot_leaders {
-            if let Some(sender) = l_subscriptions.get(&pubkey) {
+            if let Some(sender) = l_subscriptions.get(pubkey) {
                 for batch in &proto_packet_batches {
                     // NOTE: this is important to avoid divide-by-0 inside the validator if packets
                     // get routed to sigverify under the assumption theres > 0 packets in the batch
@@ -696,16 +698,16 @@ impl RelayerImpl {
                     })) {
                         Ok(_) => {
                             relayer_metrics
-                                .increment_packets_forwarded(&pubkey, batch.packets.len() as u64);
+                                .increment_packets_forwarded(pubkey, batch.packets.len() as u64);
                         }
                         Err(TrySendError::Full(_)) => {
                             error!("packet channel is full for pubkey: {:?}", pubkey);
                             relayer_metrics
-                                .increment_packets_dropped(&pubkey, batch.packets.len() as u64);
+                                .increment_packets_dropped(pubkey, batch.packets.len() as u64);
                         }
                         Err(TrySendError::Closed(_)) => {
                             error!("channel is closed for pubkey: {:?}", pubkey);
-                            failed_forwards.push(pubkey);
+                            failed_forwards.push(*pubkey);
                             break;
                         }
                     }
