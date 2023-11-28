@@ -428,6 +428,7 @@ impl RelayerImpl {
         exit: Arc<AtomicBool>,
         ofac_addresses: HashSet<Pubkey>,
         address_lookup_table_cache: Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
+        validator_packet_batch_size: usize,
     ) -> Self {
         const LEADER_LOOKAHEAD: u64 = 2;
 
@@ -454,6 +455,7 @@ impl RelayerImpl {
                         &packet_subscriptions,
                         ofac_addresses,
                         address_lookup_table_cache,
+                        validator_packet_batch_size,
                     );
                     warn!("RelayerImpl thread exited with result {res:?}")
                 })
@@ -489,6 +491,7 @@ impl RelayerImpl {
         >,
         ofac_addresses: HashSet<Pubkey>,
         address_lookup_table_cache: Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
+        validator_packet_batch_size: usize,
     ) -> RelayerResult<()> {
         let mut highest_slot = Slot::default();
 
@@ -519,7 +522,7 @@ impl RelayerImpl {
                 },
                 recv(delay_packet_receiver) -> maybe_packet_batches => {
                     let start = Instant::now();
-                    let failed_forwards = Self::forward_packets(maybe_packet_batches, &packet_subscriptions, &slot_leaders, &mut relayer_metrics, &ofac_addresses, &address_lookup_table_cache)?;
+                    let failed_forwards = Self::forward_packets(maybe_packet_batches, &packet_subscriptions, &slot_leaders, &mut relayer_metrics, &ofac_addresses, &address_lookup_table_cache, validator_packet_batch_size)?;
                     Self::drop_connections(failed_forwards, &packet_subscriptions, &mut relayer_metrics);
                     let _ = relayer_metrics.crossbeam_delay_packet_receiver_processing_us.increment(start.elapsed().as_micros() as u64);
                 },
@@ -642,6 +645,7 @@ impl RelayerImpl {
         relayer_metrics: &mut RelayerMetrics,
         ofac_addresses: &HashSet<Pubkey>,
         address_lookup_table_cache: &Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
+        validator_packet_batch_size: usize,
     ) -> RelayerResult<Vec<Pubkey>> {
         let packet_batches = maybe_packet_batches?;
 
@@ -675,9 +679,9 @@ impl RelayerImpl {
             })
             .collect();
 
-        // TODO (LB): non-constant the 4
-        let mut proto_packet_batches = Vec::with_capacity(packets.len() / 4);
-        for packet_chunk in packets.chunks(4) {
+        let mut proto_packet_batches =
+            Vec::with_capacity(packets.len() / validator_packet_batch_size);
+        for packet_chunk in packets.chunks(validator_packet_batch_size) {
             proto_packet_batches.push(ProtoPacketBatch {
                 packets: packet_chunk.to_vec(),
             });

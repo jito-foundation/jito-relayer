@@ -201,6 +201,10 @@ struct Args {
     /// Max unstaked connections for the QUIC server
     #[arg(long, env, default_value_t = 500)]
     max_unstaked_quic_connections: usize,
+
+    /// Number of packets to send in each packet batch to the validator
+    #[arg(long, env, default_value_t = 4)]
+    validator_packet_batch_size: usize,
 }
 
 #[derive(Debug)]
@@ -390,6 +394,7 @@ fn main() {
         exit.clone(),
         ofac_addresses,
         address_lookup_table_cache,
+        args.validator_packet_batch_size,
     );
 
     let priv_key = fs::read(&args.signing_key_pem_path).unwrap_or_else(|_| {
