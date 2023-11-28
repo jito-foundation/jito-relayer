@@ -16,7 +16,7 @@ jobs:
           caller-workflow-name: clippy_and_udeps_check
 
       - name: cargo clippy
-        run: cargo +nightly-2023-04-19-x86_64-unknown-linux-gnu clippy --all-targets
+        run: cargo +nightly-2023-10-05-x86_64-unknown-linux-gnu clippy --all-targets
 
       - name: cargo udeps
-        run: cargo +nightly-2023-04-19-x86_64-unknown-linux-gnu udeps --locked
+        run: cargo +nightly-2023-10-05-x86_64-unknown-linux-gnu udeps --locked
