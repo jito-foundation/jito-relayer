@@ -19,5 +19,5 @@ docker container create --name temp jitolabs/jito-transaction-relayer
 mkdir -p "$SCRIPT_DIR"/docker-output
 # Outputs the binaries
 docker container cp temp:/app/jito-transaction-relayer "$SCRIPT_DIR"/docker-output
-docker container cp temp:/app/jito-packet-blaster "$SCRIPT_DIR"/docker-output
+# docker container cp temp:/app/jito-packet-blaster "$SCRIPT_DIR"/docker-output
 docker rm temp
