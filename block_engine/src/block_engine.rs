@@ -640,28 +640,29 @@ impl BlockEngineRelayerHandler {
                 }
 
                 if let Ok(tx) = packet.deserialize_slice::<VersionedTransaction, _>(..) {
-                    if ofac_addresses.is_empty()
-                        && (is_aoi_in_static_keys(&tx, accounts_of_interest, programs_of_interest)
+                    let is_forwardable = if ofac_addresses.is_empty() {
+                        is_aoi_in_static_keys(&tx, accounts_of_interest, programs_of_interest)
                             || is_aoi_in_lookup_table(
                                 &tx,
                                 accounts_of_interest,
                                 programs_of_interest,
                                 address_lookup_table_cache,
-                            ))
-                    {
-                        if let Some(packet) = packet_to_proto_packet(packet) {
-                            filtered_packets.push(packet)
-                        }
-                    } else if !ofac_addresses.is_empty()
-                        && (is_aoi_in_static_keys(&tx, accounts_of_interest, programs_of_interest)
-                            || is_aoi_in_lookup_table(
+                            )
+                    } else {
+                        !is_tx_ofac_related(&tx, ofac_addresses, address_lookup_table_cache)
+                            && (is_aoi_in_static_keys(
+                                &tx,
+                                accounts_of_interest,
+                                programs_of_interest,
+                            ) || is_aoi_in_lookup_table(
                                 &tx,
                                 accounts_of_interest,
                                 programs_of_interest,
                                 address_lookup_table_cache,
                             ))
-                        && !is_tx_ofac_related(&tx, ofac_addresses, address_lookup_table_cache)
-                    {
+                    };
+
+                    if is_forwardable {
                         if let Some(packet) = packet_to_proto_packet(packet) {
                             filtered_packets.push(packet)
                         }

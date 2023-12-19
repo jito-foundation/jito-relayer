@@ -304,7 +304,7 @@ fn main() {
     let servers: Vec<(String, String)> = args
         .rpc_servers
         .into_iter()
-        .zip(args.websocket_servers.into_iter())
+        .zip(args.websocket_servers)
         .collect();
 
     let ofac_addresses: HashSet<Pubkey> = args
@@ -420,7 +420,7 @@ fn main() {
     });
 
     let validator_store = match args.allowed_validators {
-        Some(pubkeys) => ValidatorStore::UserDefined(HashSet::from_iter(pubkeys.into_iter())),
+        Some(pubkeys) => ValidatorStore::UserDefined(HashSet::from_iter(pubkeys)),
         None => ValidatorStore::LeaderSchedule(leader_cache.handle()),
     };
 

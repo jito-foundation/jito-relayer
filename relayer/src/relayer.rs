@@ -522,13 +522,13 @@ impl RelayerImpl {
                 },
                 recv(delay_packet_receiver) -> maybe_packet_batches => {
                     let start = Instant::now();
-                    let failed_forwards = Self::forward_packets(maybe_packet_batches, &packet_subscriptions, &slot_leaders, &mut relayer_metrics, &ofac_addresses, &address_lookup_table_cache, validator_packet_batch_size)?;
-                    Self::drop_connections(failed_forwards, &packet_subscriptions, &mut relayer_metrics);
+                    let failed_forwards = Self::forward_packets(maybe_packet_batches, packet_subscriptions, &slot_leaders, &mut relayer_metrics, &ofac_addresses, &address_lookup_table_cache, validator_packet_batch_size)?;
+                    Self::drop_connections(failed_forwards, packet_subscriptions, &mut relayer_metrics);
                     let _ = relayer_metrics.crossbeam_delay_packet_receiver_processing_us.increment(start.elapsed().as_micros() as u64);
                 },
                 recv(subscription_receiver) -> maybe_subscription => {
                     let start = Instant::now();
-                    Self::handle_subscription(maybe_subscription, &packet_subscriptions, &mut relayer_metrics)?;
+                    Self::handle_subscription(maybe_subscription, packet_subscriptions, &mut relayer_metrics)?;
                     let _ = relayer_metrics.crossbeam_subscription_receiver_processing_us.increment(start.elapsed().as_micros() as u64);
                 }
                 recv(heartbeat_tick) -> time_generated => {
@@ -541,13 +541,13 @@ impl RelayerImpl {
                     let pubkeys_to_drop = match *health_state.read().unwrap() {
                         HealthState::Healthy => {
                             Self::handle_heartbeat(
-                                &packet_subscriptions,
+                                packet_subscriptions,
                                 &mut relayer_metrics,
                             )
                         },
                         HealthState::Unhealthy => packet_subscriptions.read().unwrap().keys().cloned().collect(),
                     };
-                    Self::drop_connections(pubkeys_to_drop, &packet_subscriptions, &mut relayer_metrics);
+                    Self::drop_connections(pubkeys_to_drop, packet_subscriptions, &mut relayer_metrics);
                     let _ = relayer_metrics.crossbeam_heartbeat_tick_processing_us.increment(start.elapsed().as_micros() as u64);
                 }
                 recv(metrics_tick) -> time_generated => {
