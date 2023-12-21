@@ -427,7 +427,7 @@ impl BlockEngineRelayerHandler {
                     let num_packets: u64 = block_engine_batches.banking_packet_batch.0.iter().map(|b|b.len() as u64).sum::<u64>();
                     block_engine_stats.increment_num_packets_received(num_packets);
 
-                    let filtered_packets = Self::filter_packets(block_engine_batches, &mut accounts_of_interest, &mut programs_of_interest, address_lookup_table_cache, ofac_addresses);
+                    let filtered_packets = Self::filter_packets(block_engine_batches, num_packets, &mut accounts_of_interest, &mut programs_of_interest, address_lookup_table_cache, ofac_addresses);
                     block_engine_stats.increment_packet_filter_elapsed_us(now.elapsed().as_micros() as u64);
 
                     if let Some(filtered_packets) = filtered_packets {
@@ -626,12 +626,13 @@ impl BlockEngineRelayerHandler {
     /// Filters out packets that aren't on list of interest
     fn filter_packets(
         block_engine_batches: BlockEnginePackets,
+        num_packets: u64,
         accounts_of_interest: &mut TimedCache<Pubkey, u8>,
         programs_of_interest: &mut TimedCache<Pubkey, u8>,
         address_lookup_table_cache: &DashMap<Pubkey, AddressLookupTableAccount>,
         ofac_addresses: &HashSet<Pubkey>,
     ) -> Option<ExpiringPacketBatch> {
-        let mut filtered_packets = Vec::new();
+        let mut filtered_packets = Vec::with_capacity(num_packets as usize);
 
         for batch in &block_engine_batches.banking_packet_batch.0 {
             for packet in batch {
