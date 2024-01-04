@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{hash_map::Entry, HashMap, HashSet},
     net::IpAddr,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -11,7 +11,9 @@ use std::{
 };
 
 use crossbeam_channel::{bounded, Receiver, RecvError, Sender};
+use dashmap::DashMap;
 use histogram::Histogram;
+use jito_core::ofac::is_tx_ofac_related;
 use jito_protos::{
     convert::packet_to_proto_packet,
     packet::PacketBatch as ProtoPacketBatch,
@@ -24,12 +26,14 @@ use jito_protos::{
 use jito_rpc::load_balancer::LoadBalancer;
 use log::*;
 use prost_types::Timestamp;
+use solana_core::banking_trace::BankingPacketBatch;
 use solana_metrics::datapoint_info;
-use solana_perf::packet::PacketBatch;
 use solana_sdk::{
+    address_lookup_table::AddressLookupTableAccount,
     clock::{Slot, NUM_CONSECUTIVE_LEADER_SLOTS},
     pubkey::Pubkey,
     saturating_add_assign,
+    transaction::VersionedTransaction,
 };
 use thiserror::Error;
 use tokio::sync::mpsc::{channel, error::TrySendError, Sender as TokioSender};
@@ -353,7 +357,7 @@ impl RelayerMetrics {
 
 pub struct RelayerPacketBatches {
     pub stamp: Instant,
-    pub batches: Vec<PacketBatch>,
+    pub banking_packet_batch: BankingPacketBatch,
 }
 
 pub enum Subscription {
@@ -422,6 +426,9 @@ impl RelayerImpl {
         tpu_fwd_port: u16,
         health_state: Arc<RwLock<HealthState>>,
         exit: Arc<AtomicBool>,
+        ofac_addresses: HashSet<Pubkey>,
+        address_lookup_table_cache: Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
+        validator_packet_batch_size: usize,
     ) -> Self {
         const LEADER_LOOKAHEAD: u64 = 2;
 
@@ -446,6 +453,9 @@ impl RelayerImpl {
                         health_state,
                         exit,
                         &packet_subscriptions,
+                        ofac_addresses,
+                        address_lookup_table_cache,
+                        validator_packet_batch_size,
                     );
                     warn!("RelayerImpl thread exited with result {res:?}")
                 })
@@ -479,6 +489,9 @@ impl RelayerImpl {
         packet_subscriptions: &Arc<
             RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>,
         >,
+        ofac_addresses: HashSet<Pubkey>,
+        address_lookup_table_cache: Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
+        validator_packet_batch_size: usize,
     ) -> RelayerResult<()> {
         let mut highest_slot = Slot::default();
 
@@ -491,22 +504,31 @@ impl RelayerImpl {
             delay_packet_receiver.capacity().unwrap(),
         );
 
+        let mut slot_leaders = HashSet::new();
+
         while !exit.load(Ordering::Relaxed) {
             crossbeam_channel::select! {
                 recv(slot_receiver) -> maybe_slot => {
                     let start = Instant::now();
+
                     Self::update_highest_slot(maybe_slot, &mut highest_slot, &mut relayer_metrics)?;
+
+                    let slots: Vec<_> = (highest_slot
+                        ..highest_slot + leader_lookahead * NUM_CONSECUTIVE_LEADER_SLOTS)
+                        .collect();
+                    slot_leaders = leader_schedule_cache.leaders_for_slots(&slots);
+
                     let _ = relayer_metrics.crossbeam_slot_receiver_processing_us.increment(start.elapsed().as_micros() as u64);
                 },
                 recv(delay_packet_receiver) -> maybe_packet_batches => {
                     let start = Instant::now();
-                    let failed_forwards = Self::forward_packets(maybe_packet_batches, &packet_subscriptions, &leader_schedule_cache, &highest_slot, &leader_lookahead, &mut relayer_metrics)?;
-                    Self::drop_connections(failed_forwards, &packet_subscriptions, &mut relayer_metrics);
+                    let failed_forwards = Self::forward_packets(maybe_packet_batches, packet_subscriptions, &slot_leaders, &mut relayer_metrics, &ofac_addresses, &address_lookup_table_cache, validator_packet_batch_size)?;
+                    Self::drop_connections(failed_forwards, packet_subscriptions, &mut relayer_metrics);
                     let _ = relayer_metrics.crossbeam_delay_packet_receiver_processing_us.increment(start.elapsed().as_micros() as u64);
                 },
                 recv(subscription_receiver) -> maybe_subscription => {
                     let start = Instant::now();
-                    Self::handle_subscription(maybe_subscription, &packet_subscriptions, &mut relayer_metrics)?;
+                    Self::handle_subscription(maybe_subscription, packet_subscriptions, &mut relayer_metrics)?;
                     let _ = relayer_metrics.crossbeam_subscription_receiver_processing_us.increment(start.elapsed().as_micros() as u64);
                 }
                 recv(heartbeat_tick) -> time_generated => {
@@ -519,13 +541,13 @@ impl RelayerImpl {
                     let pubkeys_to_drop = match *health_state.read().unwrap() {
                         HealthState::Healthy => {
                             Self::handle_heartbeat(
-                                &packet_subscriptions,
+                                packet_subscriptions,
                                 &mut relayer_metrics,
                             )
                         },
                         HealthState::Unhealthy => packet_subscriptions.read().unwrap().keys().cloned().collect(),
                     };
-                    Self::drop_connections(pubkeys_to_drop, &packet_subscriptions, &mut relayer_metrics);
+                    Self::drop_connections(pubkeys_to_drop, packet_subscriptions, &mut relayer_metrics);
                     let _ = relayer_metrics.crossbeam_heartbeat_tick_processing_us.increment(start.elapsed().as_micros() as u64);
                 }
                 recv(metrics_tick) -> time_generated => {
@@ -619,10 +641,11 @@ impl RelayerImpl {
         subscriptions: &Arc<
             RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>,
         >,
-        leader_schedule_cache: &LeaderScheduleUpdatingHandle,
-        highest_slot: &u64,
-        leader_lookahead: &u64,
+        slot_leaders: &HashSet<Pubkey>,
         relayer_metrics: &mut RelayerMetrics,
+        ofac_addresses: &HashSet<Pubkey>,
+        address_lookup_table_cache: &Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
+        validator_packet_batch_size: usize,
     ) -> RelayerResult<Vec<Pubkey>> {
         let packet_batches = maybe_packet_batches?;
 
@@ -630,24 +653,45 @@ impl RelayerImpl {
             .packet_latencies_us
             .increment(packet_batches.stamp.elapsed().as_micros() as u64);
 
-        let slots: Vec<_> = (*highest_slot
-            ..highest_slot + leader_lookahead * NUM_CONSECUTIVE_LEADER_SLOTS)
-            .collect();
-        let slot_leaders = leader_schedule_cache.leaders_for_slots(&slots);
-
-        let proto_packet_batches: Vec<ProtoPacketBatch> = packet_batches
-            .batches
+        // remove discards + check for OFAC before forwarding
+        let packets: Vec<_> = packet_batches
+            .banking_packet_batch
+            .0
             .iter()
-            .map(|b| ProtoPacketBatch {
-                packets: b.iter().filter_map(packet_to_proto_packet).collect(),
+            .flat_map(|batch| {
+                batch
+                    .iter()
+                    .filter(|p| !p.meta().discard())
+                    .filter_map(|packet| {
+                        if !ofac_addresses.is_empty() {
+                            let tx: VersionedTransaction = packet.deserialize_slice(..).ok()?;
+                            if !is_tx_ofac_related(&tx, ofac_addresses, address_lookup_table_cache)
+                            {
+                                Some(packet)
+                            } else {
+                                None
+                            }
+                        } else {
+                            Some(packet)
+                        }
+                    })
+                    .filter_map(packet_to_proto_packet)
             })
             .collect();
+
+        let mut proto_packet_batches =
+            Vec::with_capacity(packets.len() / validator_packet_batch_size);
+        for packet_chunk in packets.chunks(validator_packet_batch_size) {
+            proto_packet_batches.push(ProtoPacketBatch {
+                packets: packet_chunk.to_vec(),
+            });
+        }
 
         let l_subscriptions = subscriptions.read().unwrap();
 
         let mut failed_forwards = Vec::new();
         for pubkey in slot_leaders {
-            if let Some(sender) = l_subscriptions.get(&pubkey) {
+            if let Some(sender) = l_subscriptions.get(pubkey) {
                 for batch in &proto_packet_batches {
                     // NOTE: this is important to avoid divide-by-0 inside the validator if packets
                     // get routed to sigverify under the assumption theres > 0 packets in the batch
@@ -664,16 +708,16 @@ impl RelayerImpl {
                     })) {
                         Ok(_) => {
                             relayer_metrics
-                                .increment_packets_forwarded(&pubkey, batch.packets.len() as u64);
+                                .increment_packets_forwarded(pubkey, batch.packets.len() as u64);
                         }
                         Err(TrySendError::Full(_)) => {
                             error!("packet channel is full for pubkey: {:?}", pubkey);
                             relayer_metrics
-                                .increment_packets_dropped(&pubkey, batch.packets.len() as u64);
+                                .increment_packets_dropped(pubkey, batch.packets.len() as u64);
                         }
                         Err(TrySendError::Closed(_)) => {
                             error!("channel is closed for pubkey: {:?}", pubkey);
-                            failed_forwards.push(pubkey);
+                            failed_forwards.push(*pubkey);
                             break;
                         }
                     }

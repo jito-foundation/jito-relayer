@@ -17,7 +17,6 @@ use log::*;
 use once_cell::sync::Lazy;
 use solana_client::{
     client_error::{ClientError, ClientErrorKind},
-    connection_cache::ConnectionCacheStats,
     nonblocking::quic_client::QuicLazyInitializedEndpoint,
     quic_client::QuicTpuConnection,
     rpc_client::RpcClient,
