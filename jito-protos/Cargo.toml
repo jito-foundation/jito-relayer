@@ -13,4 +13,5 @@ solana-sdk = { workspace = true }
 tonic = { workspace = true }
 
 [build-dependencies]
+protobuf-src = { workspace = true }
 tonic-build = { workspace = true }
