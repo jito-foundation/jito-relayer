@@ -18,16 +18,6 @@ runs:
       run: "echo Cache key: ${{ steps.cache-key-generator.outputs.cache-key }}"
       shell: bash
 
-    - name: Install Protobuf
-      run: |
-        export PROTOC_VERSION=21.12 && \
-        export PROTOC_ZIP=protoc-$PROTOC_VERSION-linux-x86_64.zip && \
-        curl -Ss -OL https://github.com/google/protobuf/releases/download/v$PROTOC_VERSION/$PROTOC_ZIP \
-        && sudo unzip -o $PROTOC_ZIP -d /usr/local bin/protoc \
-        && sudo unzip -o $PROTOC_ZIP -d /usr/local include/* \
-        && rm -f $PROTOC_ZIP
-      shell: bash
-
     - name: cache dependencies
       uses: actions/cache@v3
       with:
