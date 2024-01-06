@@ -2511,6 +2511,7 @@ dependencies = [
  "bytes",
  "prost 0.12.3",
  "prost-types 0.12.3",
+ "protobuf-src",
  "solana-perf",
  "solana-sdk",
  "tonic 0.10.2",
