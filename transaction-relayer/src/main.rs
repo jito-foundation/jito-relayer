@@ -101,7 +101,6 @@ struct Args {
         long,
         env,
         value_delimiter = ' ',
-        required = true,
         default_value = "http://127.0.0.1:8899"
     )]
     rpc_servers: Vec<String>,
@@ -111,7 +110,6 @@ struct Args {
         long,
         env,
         value_delimiter = ' ',
-        required = true,
         default_value = "ws://127.0.0.1:8900"
     )]
     websocket_servers: Vec<String>,

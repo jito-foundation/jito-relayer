@@ -80,8 +80,8 @@ impl LoadBalancer {
             .iter()
             .map(|(_, websocket_url)| {
                 let ws_url_no_token = websocket_url
-                    .split('?')
-                    .next()
+                    .split('/')
+                    .nth(2)
                     .unwrap_or_default()
                     .to_string();
                 let exit = exit.clone();
