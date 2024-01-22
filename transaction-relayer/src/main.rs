@@ -88,14 +88,6 @@ struct Args {
     #[arg(long, env, default_value_t = 11_226)]
     grpc_bind_port: u16,
 
-    /// Number of TPU threads
-    #[arg(long, env, default_value_t = 32)]
-    num_tpu_binds: usize,
-
-    /// Number of TPU forward threads
-    #[arg(long, env, default_value_t = 16)]
-    num_tpu_fwd_binds: usize,
-
     /// RPC servers as a space-separated list. Shall be same position as websocket equivalent below
     #[arg(
         long,
