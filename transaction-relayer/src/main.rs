@@ -56,10 +56,6 @@ static GLOBAL: Jemalloc = Jemalloc;
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// IP address to bind to for transaction packets
-    #[arg(long, env, default_value_t = IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)))]
-    tpu_bind_ip: IpAddr,
-
     /// Port to bind to advertise for TPU
     /// NOTE: There is no longer a socket created at this port since UDP transaction receiving is
     /// deprecated.
@@ -206,14 +202,14 @@ struct Sockets {
 
 fn get_sockets(args: &Args) -> Sockets {
     let (tpu_quic_bind_port, mut tpu_quic_sockets) = multi_bind_in_range(
-        args.tpu_bind_ip,
+        IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
         (args.tpu_quic_port, args.tpu_quic_port + 1),
         1,
     )
     .expect("to bind tpu_quic sockets");
 
     let (tpu_fwd_quic_bind_port, mut tpu_fwd_quic_sockets) = multi_bind_in_range(
-        args.tpu_bind_ip,
+        IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
         (args.tpu_quic_fwd_port, args.tpu_quic_fwd_port + 1),
         1,
     )
