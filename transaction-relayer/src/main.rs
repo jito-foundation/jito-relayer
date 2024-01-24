@@ -263,7 +263,7 @@ fn main() {
     info!("public ip: {:?}", public_ip);
     assert!(
         public_ip.is_ipv4(),
-        "Your public IP address needs to be IPV4 but is currently listed as {}. \
+        "Your public IP address needs to be IPv4 but is currently listed as {}. \
     If you are seeing this error and not passing in --public-ip, \
     please find your public ip address and pass it in on the command line",
         public_ip
@@ -272,7 +272,7 @@ fn main() {
     // Supporting IPV6 addresses is a DOS vector since they are cheap and there's a much larger amount of them.
     // The DOS is specifically with regards to the challenges queue filling up and starving other legitimate
     // challenge requests.
-    assert!(args.grpc_bind_ip.is_ipv4(), "must bind to IPV4 address");
+    assert!(args.grpc_bind_ip.is_ipv4(), "must bind to IPv4 address");
 
     let sockets = get_sockets(&args);
     info!("Relayer listening at: {sockets:?}");
