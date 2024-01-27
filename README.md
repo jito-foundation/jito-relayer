@@ -10,6 +10,21 @@ $ cargo b --release
 ```
 
 # Releases
+
+## Making a release
+
+We opt to use cargo workspaces for making releases.
+First, install cargo workspaces by running: `cargo install cargo-workspaces`.
+Next, check out the master branch of the jito-relayer repo and 
+ensure you're on the latest commit.
+In the master branch, run the following command and follow the instructions:
+```shell
+$ cargo workspaces version --all
+```
+This will bump all the versions of the packages in your repo, 
+push to master and tag a new commit.
+
+## Running a release
 There are two options for running the relayer from releases:
 - Download the most recent release on the [releases](https://github.com/jito-foundation/jito-relayer/releases) page.
 - (Not recommended for production): One can download and run Docker containers from the Docker [registry](https://hub.docker.com/r/jitolabs/jito-transaction-relayer).
