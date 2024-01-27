@@ -13,10 +13,11 @@ $ cargo b --release
 
 ## Making a release
 
-We opt to use cargo workspaces for this. 
-First install by running: `cargo install cargo-workspaces`.
-Next, check out the master branch and ensure you're on the latest commit.
-In the master branch, run the following command and follow instructions:
+We opt to use cargo workspaces for making releases.
+First, install cargo workspaces by running: `cargo install cargo-workspaces`.
+Next, check out the master branch of the jito-relayer repo and 
+ensure you're on the latest commit.
+In the master branch, run the following command and follow the instructions:
 ```shell
 $ cargo workspaces version --all
 ```
