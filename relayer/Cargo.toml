@@ -1,10 +1,11 @@
 [package]
 name = "jito-relayer"
-version = "0.1.0"
-description = "Relayer GRPC server"
-authors = ["Jito Team <team@jito.wtf>"]
-homepage = "https://jito.wtf/"
-edition = "2021"
+description = "Jito relayer code"
+version = { workspace = true }
+authors = { workspace = true }
+homepage = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
 publish = false
 
 [dependencies]

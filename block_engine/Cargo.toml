@@ -1,10 +1,11 @@
 [package]
 name = "jito-block-engine"
-version = "0.1.0"
 description = "Relayer Block Engine Client"
-authors = ["Jito Team <team@jito.wtf>"]
-homepage = "https://jito.wtf/"
-edition = "2021"
+version = { workspace = true }
+authors = { workspace = true }
+homepage = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
 publish = false
 
 [dependencies]
