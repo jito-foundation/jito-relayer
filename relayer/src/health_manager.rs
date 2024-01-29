@@ -42,23 +42,28 @@ impl HealthManager {
                     let mut slot_sender_max_len = 0usize;
                     let channel_len_tick = tick(Duration::from_secs(5));
                     let check_and_metrics_tick = tick(missing_slot_unhealthy_threshold / 2);
+                    let mut outside_epoch_boundary = true;
 
                     while !exit.load(Ordering::Relaxed) {
                         select! {
                             recv(check_and_metrics_tick) -> _ => {
-                                let new_health_state =
-                                    match last_update.elapsed() <= missing_slot_unhealthy_threshold {
-                                        true => HealthState::Healthy,
-                                        false => HealthState::Unhealthy,
-                                    };
-                                *health_state.write().unwrap() = new_health_state;
-                                datapoint_info!(
-                                    "relayer-health-state",
-                                    ("health_state", new_health_state, i64)
-                                );
+                                if outside_epoch_boundary {
+                                    let new_health_state =
+                                        match last_update.elapsed() <= missing_slot_unhealthy_threshold {
+                                            true => HealthState::Healthy,
+                                            false => HealthState::Unhealthy,
+                                        };
+                                        *health_state.write().unwrap() = new_health_state;
+                                        datapoint_info!(
+                                            "relayer-health-state",
+                                            ("health_state", new_health_state, i64)
+                                        );
+                                }
                             }
                             recv(slot_receiver) -> maybe_slot => {
                                 let slot = maybe_slot.expect("error receiving slot, exiting");
+                                // Don't perform health updates within +/- ~30 sec of epoch boundary 
+                                outside_epoch_boundary = (75..=431_925).contains(&(slot % 432_000));
                                 slot_sender.send(slot).expect("error forwarding slot, exiting");
                                 last_update = Instant::now();
                             }
