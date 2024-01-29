@@ -372,9 +372,20 @@ fn main() {
     // downstream channel gets data that was duplicated by HealthManager
     let (downstream_slot_sender, downstream_slot_receiver) =
         crossbeam_channel::bounded(LoadBalancer::SLOT_QUEUE_CAPACITY);
+
+    let slots_per_epoch = match rpc_load_balancer.rpc_client().get_epoch_info() {
+        Ok(epoch_info) => epoch_info.slots_in_epoch,
+        Err(e) => {
+            error!("Couldn't get epoch info from rpc - {e}");
+            exit.store(true, Ordering::Relaxed);
+            return;
+        }
+    };
+
     let health_manager = HealthManager::new(
         slot_receiver,
         downstream_slot_sender,
+        slots_per_epoch,
         Duration::from_secs(args.missing_slot_unhealthy_secs),
         exit.clone(),
     );
