@@ -19,7 +19,7 @@ Next, check out the master branch of the jito-relayer repo and
 ensure you're on the latest commit.
 In the master branch, run the following command and follow the instructions:
 ```shell
-$ cargo workspaces version --all
+$ ./release
 ```
 This will bump all the versions of the packages in your repo, 
 push to master and tag a new commit.

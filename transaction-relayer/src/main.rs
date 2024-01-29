@@ -268,6 +268,10 @@ fn main() {
     please find your public ip address and pass it in on the command line",
         public_ip
     );
+    assert!(
+        !public_ip.is_loopback(),
+        "Your public IP can't be the loopback interface"
+    );
 
     // Supporting IPV6 addresses is a DOS vector since they are cheap and there's a much larger amount of them.
     // The DOS is specifically with regards to the challenges queue filling up and starving other legitimate
