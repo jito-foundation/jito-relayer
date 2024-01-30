@@ -30,6 +30,7 @@ impl HealthManager {
         slot_receiver: Receiver<Slot>,
         slot_sender: Sender<Slot>,
         slots_per_epoch: u64,
+        epoch_offset: u64,
         missing_slot_unhealthy_threshold: Duration,
         exit: Arc<AtomicBool>,
     ) -> HealthManager {
@@ -64,7 +65,7 @@ impl HealthManager {
                             recv(slot_receiver) -> maybe_slot => {
                                 let slot = maybe_slot.expect("error receiving slot, exiting");
                                 // Don't perform health updates within +/- 75 slots of epoch boundary
-                                let slot_index = slot % slots_per_epoch;
+                                let slot_index = slot % slots_per_epoch - epoch_offset;
                                 outside_epoch_boundary = 75 < slot_index && slot_index < (slots_per_epoch - 75);
                                 slot_sender.send(slot).expect("error forwarding slot, exiting");
                                 last_update = Instant::now();
