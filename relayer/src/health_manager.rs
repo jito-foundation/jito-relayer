@@ -10,7 +10,7 @@ use std::{
 
 use crossbeam_channel::{select, tick, Receiver, Sender};
 use solana_metrics::datapoint_info;
-use solana_sdk::clock::Slot;
+use solana_sdk::clock::{Slot, DEFAULT_SLOTS_PER_EPOCH};
 
 #[derive(PartialEq, Eq, Copy, Clone)]
 pub enum HealthState {
@@ -29,8 +29,6 @@ impl HealthManager {
     pub fn new(
         slot_receiver: Receiver<Slot>,
         slot_sender: Sender<Slot>,
-        slots_per_epoch: u64,
-        epoch_offset: u64,
         missing_slot_unhealthy_threshold: Duration,
         exit: Arc<AtomicBool>,
     ) -> HealthManager {
@@ -65,8 +63,9 @@ impl HealthManager {
                             recv(slot_receiver) -> maybe_slot => {
                                 let slot = maybe_slot.expect("error receiving slot, exiting");
                                 // Don't perform health updates within +/- 75 slots of epoch boundary
-                                let slot_index = slot % slots_per_epoch - epoch_offset;
-                                outside_epoch_boundary = 75 < slot_index && slot_index < (slots_per_epoch - 75);
+                                // Note: This is not necessarily correct for local testing
+                                let slot_index = slot % DEFAULT_SLOTS_PER_EPOCH;
+                                outside_epoch_boundary = 75 < slot_index && slot_index < (DEFAULT_SLOTS_PER_EPOCH - 75);
                                 slot_sender.send(slot).expect("error forwarding slot, exiting");
                                 last_update = Instant::now();
                             }
