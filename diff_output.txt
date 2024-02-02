@@ -1,0 +1,146 @@
+[1mdiff --git a/transaction-relayer/src/forwarder.rs b/transaction-relayer/src/forwarder.rs[m
+[1mindex e9d334b..bc8d736 100644[m
+[1m--- a/transaction-relayer/src/forwarder.rs[m
+[1m+++ b/transaction-relayer/src/forwarder.rs[m
+[36m@@ -7,8 +7,10 @@[m [muse std::{[m
+     thread::{Builder, JoinHandle},[m
+     time::{Duration, Instant, SystemTime},[m
+ };[m
+[31m-[m
+[32m+[m[32muse log::info;[m
+[32m+[m[32muse solana_sdk::{clock::Slot, pubkey};[m
+ use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};[m
+[32m+[m[32muse jito_relayer::schedule_cache::{LeaderScheduleCacheUpdater, LeaderScheduleUpdatingHandle};[m
+ use jito_block_engine::block_engine::BlockEnginePackets;[m
+ use jito_relayer::relayer::RelayerPacketBatches;[m
+ use solana_core::banking_trace::BankingPacketBatch;[m
+[36m@@ -25,16 +27,44 @@[m [mpub fn start_forward_and_delay_thread([m
+     packet_delay_ms: u32,[m
+     block_engine_sender: tokio::sync::mpsc::Sender<BlockEnginePackets>,[m
+     num_threads: u64,[m
+[32m+[m[32m    leader_cache: &LeaderScheduleCacheUpdater,[m
+[32m+[m[32m    slot_receiver: Receiver<Slot>,[m
+     exit: &Arc<AtomicBool>,[m
+ ) -> Vec<JoinHandle<()>> {[m
+[32m+[m[32m    info!("starting forward delay thread");[m
+     const SLEEP_DURATION: Duration = Duration::from_millis(5);[m
+     let packet_delay = Duration::from_millis(packet_delay_ms as u64);[m
+ [m
+[32m+[m[32m    // Duration of 4 slots which is leader duration[m
+[32m+[m[32m    let iteration = Duration::from_millis(1700);[m
+[32m+[m[32m    // Duration of 3.5 slots that would work normally[m
+[32m+[m[32m    let new_iteration = Duration::from_millis(1400);[m
+[32m+[m
+[32m+[m[32m    let current_slot = Arc::new(Mutex::new(0));[m
+[32m+[m
+[32m+[m[32m    // ... (your existing code)[m
+[32m+[m
+[32m+[m[32m    // Spawn a separate thread for continuously updating the current_slot[m
+[32m+[m[32m    let current_slot_thread = {[m
+[32m+[m[32m        let current_slot = current_slot.clone();[m
+[32m+[m[32m        Builder::new().spawn(move || {[m
+[32m+[m[32m            loop {[m
+[32m+[m[32m                if let Ok(new_slot) = slot_receiver.recv() {[m
+[32m+[m[32m                    // Update the current_slot variable within the mutex[m
+[32m+[m[32m                    *current_slot.lock().unwrap() = new_slot;[m
+[32m+[m[32m                }[m
+[32m+[m[32m            }[m
+[32m+[m[32m        })[m
+[32m+[m[32m    };[m
+[32m+[m
+     (0..num_threads)[m
+         .map(|thread_id| {[m
+             let verified_receiver = verified_receiver.clone();[m
+             let delay_packet_sender = delay_packet_sender.clone();[m
+             let block_engine_sender = block_engine_sender.clone();[m
+[32m+[m[32m            let leader_schedule_handle: LeaderScheduleUpdatingHandle =[m
+[32m+[m[32m                LeaderScheduleCacheUpdater::handle(&leader_cache);[m
+[32m+[m[32m            let current_slot = current_slot.clone();[m
+ [m
+             let exit = exit.clone();[m
+             Builder::new()[m
+[36m@@ -51,6 +81,12 @@[m [mpub fn start_forward_and_delay_thread([m
+                     );[m
+                     let mut last_metrics_upload = Instant::now();[m
+ [m
+[32m+[m[32m                    // Last system Time when relayer became Leader's TPU[m
+[32m+[m[32m                    // Note: It is only for a relayer connected to a single validator[m
+[32m+[m[32m                    let mut last_iter_time = Instant::now();[m
+[32m+[m[32m                    let is_leader = false;[m
+[32m+[m[41m                    [m
+[32m+[m
+                     while !exit.load(Ordering::Relaxed) {[m
+                         if last_metrics_upload.elapsed() >= metrics_interval {[m
+                             forwarder_metrics.report(thread_id, packet_delay_ms);[m
+[36m@@ -67,6 +103,22 @@[m [mpub fn start_forward_and_delay_thread([m
+                             Ok(banking_packet_batch) => {[m
+                                 let instant = Instant::now();[m
+                                 let system_time = SystemTime::now();[m
+[32m+[m
+[32m+[m[32m                                // When a packet is received we check if it being received for current Leader duration[m
+[32m+[m[32m                                // or not, Since Since it won't receive packets here if it not the leader[m
+[32m+[m[32m                                // So very long time gap[m
+[32m+[m
+[32m+[m[41m                                [m
+[32m+[m[32m                                let current_leader = leader_schedule_handle[m
+[32m+[m[32m                                    .leader_for_slot(&current_slot.clone().lock().unwrap())[m
+[32m+[m[32m                                    .unwrap();[m
+[32m+[m
+[32m+[m[32m                                if current_leader == pubkey!("FSoSU1n9exfhqFWjooXkNiCE2jfewCHSu8Lts2NTPqTd") && last_iter_time.elapsed() > iteration {[m
+[32m+[m[32m                                    info!("changing last_iter_time");[m
+[32m+[m[32m                                    info!("last iter time : {:?}", last_iter_time.elapsed());[m
+[32m+[m[32m                                    last_iter_time = Instant::now();[m
+[32m+[m[32m                                }[m
+[32m+[m
+                                 let num_packets = banking_packet_batch[m
+                                     .0[m
+                                     .iter()[m
+[36m@@ -108,9 +160,23 @@[m [mpub fn start_forward_and_delay_thread([m
+                         }[m
+ [m
+                         while let Some(packet_batches) = buffered_packet_batches.front() {[m
+[32m+[m[41m                            [m
+[32m+[m[32m                            // First condition stays the same, Batch won't be sent to the validator if[m
+[32m+[m[32m                            // The delay time (200ms by default) is not passed unless in the current leader iteration[m
+[32m+[m[32m                            // 1400ms has already passed.[m
+[32m+[m
+[32m+[m[32m                            let dur_since_last_iter = last_iter_time.elapsed();[m
+[32m+[m
+[32m+[m[32m                            info!("Duration since last iter time : {:?}", dur_since_last_iter);[m
+                             if packet_batches.stamp.elapsed() < packet_delay {[m
+[31m-                                break;[m
+[32m+[m[32m                                if !is_leader {[m
+[32m+[m[32m                                    break;[m
+[32m+[m[32m                                }[m
+[32m+[m[32m                                if dur_since_last_iter <= new_iteration {[m
+[32m+[m[32m                                    break;[m
+[32m+[m[32m                                }[m
+                             }[m
+[32m+[m
+                             let batch = buffered_packet_batches.pop_front().unwrap();[m
+ [m
+                             let num_packets = batch[m
+[36m@@ -120,6 +186,10 @@[m [mpub fn start_forward_and_delay_thread([m
+                                 .map(|b| b.len() as u64)[m
+                                 .sum::<u64>();[m
+ [m
+[32m+[m[32m                            if dur_since_last_iter >= new_iteration && is_leader {[m
+[32m+[m[32m                                info!("Packet sent without delaying : {}", num_packets);[m
+[32m+[m[32m                            }[m
+[32m+[m
+                             forwarder_metrics.num_relayer_packets_forwarded += num_packets;[m
+                             delay_packet_sender[m
+                                 .send(batch)[m
+[1mdiff --git a/transaction-relayer/src/main.rs b/transaction-relayer/src/main.rs[m
+[1mindex c39739d..de64a66 100644[m
+[1m--- a/transaction-relayer/src/main.rs[m
+[1m+++ b/transaction-relayer/src/main.rs[m
+[36m@@ -351,6 +351,8 @@[m [mfn main() {[m
+         args.packet_delay_ms,[m
+         block_engine_sender,[m
+         1,[m
+[32m+[m[32m        &leader_cache,[m
+[32m+[m[32m        slot_receiver.clone(),[m
+         &exit,[m
+     );[m
+ [m
