@@ -351,6 +351,8 @@ fn main() {
         args.packet_delay_ms,
         block_engine_sender,
         1,
+        &leader_cache,
+        slot_receiver.clone(),
         &exit,
     );
 

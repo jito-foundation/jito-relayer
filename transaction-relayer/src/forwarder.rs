@@ -7,8 +7,10 @@ use std::{
     thread::{Builder, JoinHandle},
     time::{Duration, Instant, SystemTime},
 };
-
+use log::info;
+use solana_sdk::{clock::Slot, pubkey};
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
+use jito_relayer::schedule_cache::{LeaderScheduleCacheUpdater, LeaderScheduleUpdatingHandle};
 use jito_block_engine::block_engine::BlockEnginePackets;
 use jito_relayer::relayer::RelayerPacketBatches;
 use solana_core::banking_trace::BankingPacketBatch;
@@ -25,16 +27,44 @@ pub fn start_forward_and_delay_thread(
     packet_delay_ms: u32,
     block_engine_sender: tokio::sync::mpsc::Sender<BlockEnginePackets>,
     num_threads: u64,
+    leader_cache: &LeaderScheduleCacheUpdater,
+    slot_receiver: Receiver<Slot>,
     exit: &Arc<AtomicBool>,
 ) -> Vec<JoinHandle<()>> {
+    info!("starting forward delay thread");
     const SLEEP_DURATION: Duration = Duration::from_millis(5);
     let packet_delay = Duration::from_millis(packet_delay_ms as u64);
+
+    // Duration of 4 slots which is leader duration
+    let iteration = Duration::from_millis(1700);
+    // Duration of 3.5 slots that would work normally
+    let new_iteration = Duration::from_millis(1400);
+
+    let current_slot = Arc::new(Mutex::new(0));
+
+    // ... (your existing code)
+
+    // Spawn a separate thread for continuously updating the current_slot
+    let current_slot_thread = {
+        let current_slot = current_slot.clone();
+        Builder::new().spawn(move || {
+            loop {
+                if let Ok(new_slot) = slot_receiver.recv() {
+                    // Update the current_slot variable within the mutex
+                    *current_slot.lock().unwrap() = new_slot;
+                }
+            }
+        })
+    };
 
     (0..num_threads)
         .map(|thread_id| {
             let verified_receiver = verified_receiver.clone();
             let delay_packet_sender = delay_packet_sender.clone();
             let block_engine_sender = block_engine_sender.clone();
+            let leader_schedule_handle: LeaderScheduleUpdatingHandle =
+                LeaderScheduleCacheUpdater::handle(&leader_cache);
+            let current_slot = current_slot.clone();
 
             let exit = exit.clone();
             Builder::new()
@@ -50,6 +80,12 @@ pub fn start_forward_and_delay_thread(
                         block_engine_sender.capacity(),
                     );
                     let mut last_metrics_upload = Instant::now();
+
+                    // Last system Time when relayer became Leader's TPU
+                    // Note: It is only for a relayer connected to a single validator
+                    let mut last_iter_time = Instant::now();
+                    let is_leader = false;
+                    
 
                     while !exit.load(Ordering::Relaxed) {
                         if last_metrics_upload.elapsed() >= metrics_interval {
@@ -67,6 +103,22 @@ pub fn start_forward_and_delay_thread(
                             Ok(banking_packet_batch) => {
                                 let instant = Instant::now();
                                 let system_time = SystemTime::now();
+
+                                // When a packet is received we check if it being received for current Leader duration
+                                // or not, Since Since it won't receive packets here if it not the leader
+                                // So very long time gap
+
+                                
+                                let current_leader = leader_schedule_handle
+                                    .leader_for_slot(&current_slot.clone().lock().unwrap())
+                                    .unwrap();
+
+                                if current_leader == pubkey!("FSoSU1n9exfhqFWjooXkNiCE2jfewCHSu8Lts2NTPqTd") && last_iter_time.elapsed() > iteration {
+                                    info!("changing last_iter_time");
+                                    info!("last iter time : {:?}", last_iter_time.elapsed());
+                                    last_iter_time = Instant::now();
+                                }
+
                                 let num_packets = banking_packet_batch
                                     .0
                                     .iter()
@@ -108,9 +160,23 @@ pub fn start_forward_and_delay_thread(
                         }
 
                         while let Some(packet_batches) = buffered_packet_batches.front() {
+                            
+                            // First condition stays the same, Batch won't be sent to the validator if
+                            // The delay time (200ms by default) is not passed unless in the current leader iteration
+                            // 1400ms has already passed.
+
+                            let dur_since_last_iter = last_iter_time.elapsed();
+
+                            info!("Duration since last iter time : {:?}", dur_since_last_iter);
                             if packet_batches.stamp.elapsed() < packet_delay {
-                                break;
+                                if !is_leader {
+                                    break;
+                                }
+                                if dur_since_last_iter <= new_iteration {
+                                    break;
+                                }
                             }
+
                             let batch = buffered_packet_batches.pop_front().unwrap();
 
                             let num_packets = batch
@@ -119,6 +185,10 @@ pub fn start_forward_and_delay_thread(
                                 .iter()
                                 .map(|b| b.len() as u64)
                                 .sum::<u64>();
+
+                            if dur_since_last_iter >= new_iteration && is_leader {
+                                info!("Packet sent without delaying : {}", num_packets);
+                            }
 
                             forwarder_metrics.num_relayer_packets_forwarded += num_packets;
                             delay_packet_sender
