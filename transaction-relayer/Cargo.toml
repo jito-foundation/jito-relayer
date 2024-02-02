@@ -26,7 +26,6 @@ jwt = { workspace = true }
 log = { workspace = true }
 openssl = { workspace = true }
 prost-types = { workspace = true }
-reqwest = { workspace = true }
 solana-address-lookup-table-program = { workspace = true }
 solana-client = { workspace = true }
 solana-core = { workspace = true }
