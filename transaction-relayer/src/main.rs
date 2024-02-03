@@ -257,7 +257,7 @@ fn main() {
         args.public_ip.unwrap()
     } else {
         let entrypoint = solana_net_utils::parse_host_port(args.entrypoint_address.as_str())
-            .expect("parse entryoint");
+            .expect("parse entrypoint");
         info!(
             "Contacting {} to determine the validator's public IP address",
             entrypoint
