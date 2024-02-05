@@ -2596,7 +2596,6 @@ dependencies = [
  "log",
  "openssl",
  "prost-types 0.12.3",
- "reqwest",
  "solana-address-lookup-table-program",
  "solana-client",
  "solana-core",
