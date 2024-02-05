@@ -102,6 +102,9 @@ struct Args {
     )]
     websocket_servers: Vec<String>,
 
+    #[arg(long, env, default_value = "entrypoint.mainnet-beta.solana.com:8001")]
+    entrypoint_address: String,
+
     /// This is the IP address that will be shared with the validator. The validator will
     /// tell the rest of the network to send packets here.
     #[arg(long, env)]
@@ -253,13 +256,15 @@ fn main() {
     let public_ip = if args.public_ip.is_some() {
         args.public_ip.unwrap()
     } else {
-        info!("reading public ip from ifconfig.me...");
-        let response = reqwest::blocking::get("https://ifconfig.me")
-            .expect("response from ifconfig.me")
-            .text()
-            .expect("public ip response");
-        response.parse().unwrap()
+        let entrypoint = solana_net_utils::parse_host_port(args.entrypoint_address.as_str())
+            .expect("parse entrypoint");
+        info!(
+            "Contacting {} to determine the validator's public IP address",
+            entrypoint
+        );
+        solana_net_utils::get_public_ip_addr(&entrypoint).expect("get public ip address")
     };
+
     info!("public ip: {:?}", public_ip);
     assert!(
         public_ip.is_ipv4(),
