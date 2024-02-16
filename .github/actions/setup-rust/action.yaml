@@ -53,17 +53,17 @@ runs:
     - name: Update Rust
       run: |
         rustup update
-        rustup install nightly-2024-02-08 
-        rustup component add rustfmt --toolchain nightly-2024-02-08-x86_64-unknown-linux-gnu
-        rustup component add clippy --toolchain nightly-2024-02-08-x86_64-unknown-linux-gnu
+        rustup install nightly-2024-02-01 
+        rustup component add rustfmt --toolchain nightly-2024-02-01-x86_64-unknown-linux-gnu
+        rustup component add clippy --toolchain nightly-2024-02-01-x86_64-unknown-linux-gnu
       shell: bash
 
     - name: Check rust version after
       run: |
         rustc --version;
         cargo --version;
-        cargo +nightly-2024-02-08-x86_64-unknown-linux-gnu clippy --version;
-        cargo +nightly-2024-02-08-x86_64-unknown-linux-gnu fmt --version;
+        cargo +nightly-2024-02-01-x86_64-unknown-linux-gnu clippy --version;
+        cargo +nightly-2024-02-01-x86_64-unknown-linux-gnu fmt --version;
       shell: bash
 
     - name: Install Cargo Deps
