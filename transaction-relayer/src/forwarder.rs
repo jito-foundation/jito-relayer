@@ -25,6 +25,7 @@ pub fn start_forward_and_delay_thread(
     packet_delay_ms: u32,
     block_engine_sender: tokio::sync::mpsc::Sender<BlockEnginePackets>,
     num_threads: u64,
+    disable_mempool: bool,
     exit: &Arc<AtomicBool>,
 ) -> Vec<JoinHandle<()>> {
     const SLEEP_DURATION: Duration = Duration::from_millis(5);
@@ -77,23 +78,26 @@ pub fn start_forward_and_delay_thread(
 
                                 // try_send because the block engine receiver only drains when it's connected
                                 // and we don't want to OOM on packet_receiver
-                                match block_engine_sender.try_send(BlockEnginePackets {
-                                    banking_packet_batch: banking_packet_batch.clone(),
-                                    stamp: system_time,
-                                    expiration: packet_delay_ms,
-                                }) {
-                                    Ok(_) => {
-                                        forwarder_metrics.num_be_packets_forwarded += num_packets;
-                                    }
-                                    Err(TrySendError::Closed(_)) => {
-                                        panic!(
-                                            "error sending packet batch to block engine handler"
-                                        );
-                                    }
-                                    Err(TrySendError::Full(_)) => {
-                                        // block engine most likely not connected
-                                        forwarder_metrics.num_be_packets_dropped += num_packets;
-                                        forwarder_metrics.num_be_sender_full += 1;
+                                if !disable_mempool {
+                                    match block_engine_sender.try_send(BlockEnginePackets {
+                                        banking_packet_batch: banking_packet_batch.clone(),
+                                        stamp: system_time,
+                                        expiration: packet_delay_ms,
+                                    }) {
+                                        Ok(_) => {
+                                            forwarder_metrics.num_be_packets_forwarded +=
+                                                num_packets;
+                                        }
+                                        Err(TrySendError::Closed(_)) => {
+                                            panic!(
+                                                "error sending packet batch to block engine handler"
+                                            );
+                                        }
+                                        Err(TrySendError::Full(_)) => {
+                                            // block engine most likely not connected
+                                            forwarder_metrics.num_be_packets_dropped += num_packets;
+                                            forwarder_metrics.num_be_sender_full += 1;
+                                        }
                                     }
                                 }
                                 buffered_packet_batches.push_back(RelayerPacketBatches {
