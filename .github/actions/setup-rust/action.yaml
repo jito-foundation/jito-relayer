@@ -55,14 +55,6 @@ runs:
         rustup install nightly-2024-02-08 
         rustup component add rustfmt --toolchain nightly-2024-02-08-x86_64-unknown-linux-gnu
         rustup component add clippy --toolchain nightly-2024-02-08-x86_64-unknown-linux-gnu
-        cargo install cargo-udeps --locked
-        cargo install cargo-sort
-      shell: bash
-
-    - name: Install Cargo Deps
-      run: |
-        cargo install cargo-udeps --locked
-        cargo install cargo-sort
       shell: bash
 
     - name: Check rust version after
@@ -71,4 +63,10 @@ runs:
         cargo --version;
         cargo +nightly-2024-02-08-x86_64-unknown-linux-gnu clippy --version;
         cargo +nightly-2024-02-08-x86_64-unknown-linux-gnu fmt --version;
+      shell: bash
+
+    - name: Install Cargo Deps
+      run: |
+        cargo install cargo-udeps --locked
+        cargo install cargo-sort
       shell: bash
