@@ -50,6 +50,8 @@ use tikv_jemallocator::Jemalloc;
 use tokio::{runtime::Builder, signal, sync::mpsc::channel};
 use tonic::transport::Server;
 
+// no-op change to test ci
+
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
