@@ -114,13 +114,10 @@ impl LoadBalancer {
                                                 );
 
                                                 {
-                                                    let old_slot = highest_slot.fetch_max(slot.slot, Ordering::Relaxed);
-                                                    if slot.slot > old_slot {
-                                                        if let Err(e) = slot_sender.send(slot.slot)
-                                                        {
-                                                            error!("error sending slot: {e}");
-                                                            break;
-                                                        }
+                                                    if let Err(e) = slot_sender.send(slot.slot)
+                                                    {
+                                                        error!("error sending slot: {e}");
+                                                        break;
                                                     }
                                                 }
                                             }
