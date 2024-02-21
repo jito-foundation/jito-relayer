@@ -17,7 +17,7 @@ use clap::Parser;
 use crossbeam_channel::tick;
 use dashmap::DashMap;
 use env_logger::Env;
-use jito_block_engine::block_engine::BlockEngineRelayerHandler;
+use jito_block_engine::block_engine::{BlockEngineConfig, BlockEngineRelayerHandler};
 use jito_core::{
     graceful_panic,
     tpu::{Tpu, TpuSockets},
@@ -49,6 +49,8 @@ use solana_sdk::{
 use tikv_jemallocator::Jemalloc;
 use tokio::{runtime::Builder, signal, sync::mpsc::channel};
 use tonic::transport::Server;
+
+// no-op change to test ci
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
@@ -117,7 +119,7 @@ struct Args {
     /// Address for Jito Block Engine.
     /// See https://jito-labs.gitbook.io/mev/searcher-resources/block-engine#connection-details
     #[arg(long, env)]
-    block_engine_url: String,
+    block_engine_url: Option<String>,
 
     /// Manual override for authentication service address of the block-engine.
     /// Defaults to `--block-engine-url`
@@ -194,6 +196,10 @@ struct Args {
     /// Number of packets to send in each packet batch to the validator
     #[arg(long, env, default_value_t = 4)]
     validator_packet_batch_size: usize,
+
+    /// Disable Mempool forwarding
+    #[arg(long, env, default_value_t = false)]
+    disable_mempool: bool,
 }
 
 #[derive(Debug)]
@@ -356,14 +362,25 @@ fn main() {
         args.packet_delay_ms,
         block_engine_sender,
         1,
+        args.disable_mempool,
         &exit,
     );
 
     let is_connected_to_block_engine = Arc::new(AtomicBool::new(false));
+    let block_engine_config = if !args.disable_mempool && args.block_engine_url.is_some() {
+        let block_engine_url = args.block_engine_url.unwrap();
+        let auth_service_url = args
+            .block_engine_auth_service_url
+            .unwrap_or(block_engine_url.clone());
+        Some(BlockEngineConfig {
+            block_engine_url,
+            auth_service_url,
+        })
+    } else {
+        None
+    };
     let block_engine_forwarder = BlockEngineRelayerHandler::new(
-        args.block_engine_url.clone(),
-        args.block_engine_auth_service_url
-            .unwrap_or(args.block_engine_url),
+        block_engine_config,
         block_engine_receiver,
         keypair,
         exit.clone(),
@@ -479,7 +496,7 @@ fn main() {
         t.join().unwrap();
     }
     lookup_table_refresher.join().unwrap();
-    block_engine_forwarder.join().unwrap();
+    block_engine_forwarder.join();
 }
 
 pub async fn shutdown_signal(exit: Arc<AtomicBool>) {

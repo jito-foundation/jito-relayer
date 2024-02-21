@@ -55,11 +55,9 @@ fn is_ofac_address_in_lookup_table(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, sync::Arc, time::Duration};
+    use std::collections::HashSet;
 
-    use crossbeam_channel::unbounded;
     use dashmap::DashMap;
-    use solana_perf::packet::PacketBatch;
     use solana_sdk::{
         address_lookup_table_account::AddressLookupTableAccount,
         hash::Hash,
@@ -167,7 +165,7 @@ mod tests {
 
         let lookup_table_pubkey = Pubkey::new_unique();
         let lookup_table = AddressLookupTableAccount {
-            key: lookup_table_pubkey.clone(),
+            key: lookup_table_pubkey,
             addresses: vec![ofac_pubkey, Pubkey::new_unique()],
         };
 
@@ -281,7 +279,7 @@ mod tests {
             Hash::default(),
         );
         let random_tx = VersionedTransaction::from(random_tx);
-        let random_packet = Packet::from_data(None, &random_tx).expect("can create packet");
+        let random_packet = Packet::from_data(None, random_tx).expect("can create packet");
 
         let ofac_tx = Transaction::new_signed_with_payer(
             &[Instruction::new_with_bytes(
@@ -298,7 +296,7 @@ mod tests {
             Hash::default(),
         );
         let ofac_tx = VersionedTransaction::from(ofac_tx);
-        let ofac_packet = Packet::from_data(None, &ofac_tx).expect("can create packet");
+        let ofac_packet = Packet::from_data(None, ofac_tx).expect("can create packet");
 
         assert!(!is_tx_ofac_related(
             &random_packet.deserialize_slice(..).unwrap(),
