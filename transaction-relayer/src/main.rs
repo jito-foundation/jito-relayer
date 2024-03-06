@@ -300,6 +300,10 @@ fn main() {
         keypair.pubkey()
     ));
     info!("Relayer started with pubkey: {}", keypair.pubkey());
+    datapoint_info!(
+        "relayer-mempool-enabled",
+        ("mempool_enabled", !args.disable_mempool, bool)
+    );
 
     let exit = graceful_panic(None);
 
