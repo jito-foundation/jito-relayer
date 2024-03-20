@@ -277,6 +277,9 @@ fn main() {
         })
         .collect();
     info!("tpu_quic_sockets: {:?}", tpu_quic_sockets);
+    for i in 0..tpu_ports.len() {
+        assert_eq!(tpu_ports[i] + 6, tpu_quic_sockets[i].0);
+    }
 
     let tpu_fwd_quic_sockets: Vec<_> = tpu_fwd_quic_ports
         .iter()
@@ -285,6 +288,9 @@ fn main() {
         })
         .collect();
     info!("tpu_fwd_quic_sockets: {:?}", tpu_fwd_quic_sockets);
+    for i in 0..tpu_fwd_ports.len() {
+        assert_eq!(tpu_fwd_ports[i] + 6, tpu_fwd_quic_sockets[i].0);
+    }
 
     // Warn about deprecated args
     if args.cluster.is_some() {
