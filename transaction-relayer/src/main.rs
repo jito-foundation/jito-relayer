@@ -58,23 +58,19 @@ static GLOBAL: Jemalloc = Jemalloc;
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// Port to bind to advertise for TPU
-    /// NOTE: There is no longer a socket created at this port since UDP transaction receiving is
-    /// deprecated.
-    #[arg(long, env, default_value_t = 11_222)]
-    tpu_port: u16,
+    /// Number of tpu quic servers to spawn.
+    #[arg(long, env, default_value_t = 8)]
+    num_tpu_quic_servers: usize,
 
-    /// Port to bind to for tpu fwd packets
-    /// NOTE: There is no longer a socket created at this port since UDP transaction receiving is
-    /// deprecated.
-    #[arg(long, env, default_value_t = 11_223)]
-    tpu_fwd_port: u16,
+    /// Number of tpu fwd quic servers to spawn.
+    #[arg(long, env, default_value_t = 8)]
+    num_tpu_fwd_quic_servers: usize,
 
-    /// Port to bind to for tpu packets. Needs to be tpu_port + 6
+    /// Port to bind to for tpu packets. Need to return port - 6 to validators.
     #[arg(long, env, default_value_t = 11_228)]
     tpu_quic_port: u16,
 
-    /// Port to bind to for tpu fwd packets. Needs to be tpu_fwd_port + 6
+    /// Port to bind to for tpu fwd packets. Need to return port - 6 to validators.
     #[arg(long, env, default_value_t = 11_229)]
     tpu_quic_fwd_port: u16,
 
@@ -210,29 +206,42 @@ struct Sockets {
 }
 
 fn get_sockets(args: &Args) -> Sockets {
-    let (tpu_quic_bind_port, mut tpu_quic_sockets) = multi_bind_in_range(
-        IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
-        (args.tpu_quic_port, args.tpu_quic_port + 1),
-        1,
-    )
-    .expect("to bind tpu_quic sockets");
+    let tpu_quic_sockets = (0..args.num_tpu_quic_servers)
+        .map(|i| {
+            multi_bind_in_range(
+                IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
+                (
+                    args.tpu_quic_port + i as u16,
+                    args.tpu_quic_port + 1 + i as u16,
+                ),
+                1,
+            )
+            .unwrap()
+            .1
+        })
+        .flatten()
+        .collect::<Vec<_>>();
 
-    let (tpu_fwd_quic_bind_port, mut tpu_fwd_quic_sockets) = multi_bind_in_range(
-        IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
-        (args.tpu_quic_fwd_port, args.tpu_quic_fwd_port + 1),
-        1,
-    )
-    .expect("to bind tpu_quic sockets");
-
-    assert_eq!(tpu_quic_bind_port, args.tpu_quic_port);
-    assert_eq!(tpu_fwd_quic_bind_port, args.tpu_quic_fwd_port);
-    assert_eq!(args.tpu_port + 6, tpu_quic_bind_port); // QUIC is expected to be at TPU + 6
-    assert_eq!(args.tpu_fwd_port + 6, tpu_fwd_quic_bind_port); // QUIC is expected to be at TPU forward + 6
+    let tpu_fwd_quic_sockets = (0..args.num_tpu_fwd_quic_servers)
+        .map(|i| {
+            multi_bind_in_range(
+                IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
+                (
+                    args.tpu_quic_fwd_port + i as u16,
+                    args.tpu_quic_fwd_port + 1 + i as u16,
+                ),
+                1,
+            )
+            .unwrap()
+            .1
+        })
+        .flatten()
+        .collect::<Vec<_>>();
 
     Sockets {
         tpu_sockets: TpuSockets {
-            transactions_quic_sockets: tpu_quic_sockets.pop().unwrap(),
-            transactions_forwards_quic_sockets: tpu_fwd_quic_sockets.pop().unwrap(),
+            transactions_quic_sockets: tpu_quic_sockets,
+            transactions_forwards_quic_sockets: tpu_fwd_quic_sockets,
         },
         tpu_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
         tpu_fwd_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
@@ -411,8 +420,12 @@ fn main() {
         delay_packet_receiver,
         leader_cache.handle(),
         public_ip,
-        args.tpu_port,
-        args.tpu_fwd_port,
+        (args.tpu_quic_port..args.tpu_quic_port + args.num_tpu_quic_servers as u16)
+            .map(|port| port)
+            .collect(),
+        (args.tpu_quic_fwd_port..args.tpu_quic_fwd_port + args.num_tpu_fwd_quic_servers as u16)
+            .map(|port| port)
+            .collect(),
         health_manager.handle(),
         exit.clone(),
         ofac_addresses,

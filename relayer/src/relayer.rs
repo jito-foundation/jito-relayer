@@ -2,7 +2,7 @@ use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     net::IpAddr,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, RwLock,
     },
     thread,
@@ -402,9 +402,10 @@ impl RelayerHandle {
 }
 
 pub struct RelayerImpl {
-    tpu_port: u16,
-    tpu_fwd_port: u16,
+    tpu_quic_ports: Vec<u16>,
+    tpu_fwd_quic_ports: Vec<u16>,
     public_ip: IpAddr,
+    seq: AtomicU64,
 
     subscription_sender: Sender<Subscription>,
     threads: Vec<JoinHandle<()>>,
@@ -422,8 +423,8 @@ impl RelayerImpl {
         delay_packet_receiver: Receiver<RelayerPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
         public_ip: IpAddr,
-        tpu_port: u16,
-        tpu_fwd_port: u16,
+        tpu_quic_ports: Vec<u16>,
+        tpu_fwd_quic_ports: Vec<u16>,
         health_state: Arc<RwLock<HealthState>>,
         exit: Arc<AtomicBool>,
         ofac_addresses: HashSet<Pubkey>,
@@ -463,13 +464,14 @@ impl RelayerImpl {
         };
 
         Self {
-            tpu_port,
-            tpu_fwd_port,
+            tpu_quic_ports,
+            tpu_fwd_quic_ports,
             subscription_sender,
             public_ip,
             threads: vec![thread],
             health_state,
             packet_subscriptions,
+            seq: AtomicU64::new(0),
         }
     }
 
@@ -796,14 +798,16 @@ impl Relayer for RelayerImpl {
         &self,
         _: Request<GetTpuConfigsRequest>,
     ) -> Result<Response<GetTpuConfigsResponse>, Status> {
+        let seq = self.seq.fetch_add(1, Ordering::Acquire);
         return Ok(Response::new(GetTpuConfigsResponse {
             tpu: Some(Socket {
                 ip: self.public_ip.to_string(),
-                port: self.tpu_port as i64,
+                port: (self.tpu_quic_ports[seq as usize % self.tpu_quic_ports.len()] - 6) as i64,
             }),
             tpu_forward: Some(Socket {
                 ip: self.public_ip.to_string(),
-                port: self.tpu_fwd_port as i64,
+                port: (self.tpu_fwd_quic_ports[seq as usize % self.tpu_fwd_quic_ports.len()] - 6)
+                    as i64,
             }),
         }));
     }
