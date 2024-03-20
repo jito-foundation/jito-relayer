@@ -61,20 +61,19 @@ struct Args {
     #[arg(long, env, default_value_t = 11_222)]
     tpu_port: u16,
 
-    /// Port to bind to for tpu fwd packets
-    /// NOTE: There is no longer a socket created at this port since UDP transaction receiving is
-    /// deprecated.
-    #[arg(long, env, default_value_t = 11_223)]
-    tpu_fwd_port: u16,
-
-    /// Port to bind to for tpu packets. Needs to be tpu_port + 6
-    #[arg(long, env, default_value_t = 11_228)]
-    tpu_quic_port: u16,
-
-    /// Port to bind to for tpu fwd packets. Needs to be tpu_fwd_port + 6
-    #[arg(long, env, default_value_t = 11_229)]
-    tpu_quic_fwd_port: u16,
-
+    // /// Port to bind to for tpu fwd packets
+    // /// NOTE: There is no longer a socket created at this port since UDP transaction receiving is
+    // /// deprecated.
+    // #[arg(long, env, default_value_t = 11_223)]
+    // tpu_fwd_port: u16,
+    //
+    // /// Port to bind to for tpu packets. Needs to be tpu_port + 6
+    // #[arg(long, env, default_value_t = 11_228)]
+    // tpu_quic_port: u16,
+    //
+    // /// Port to bind to for tpu fwd packets. Needs to be tpu_fwd_port + 6
+    // #[arg(long, env, default_value_t = 11_229)]
+    // tpu_quic_fwd_port: u16,
     /// Bind IP address for GRPC server
     #[arg(long, env, default_value_t = IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)))]
     grpc_bind_ip: IpAddr,
