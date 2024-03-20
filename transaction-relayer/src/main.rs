@@ -71,7 +71,7 @@ struct Args {
     tpu_quic_port: u16,
 
     /// Port to bind to for tpu fwd packets. Need to return port - 6 to validators.
-    #[arg(long, env, default_value_t = 11_229)]
+    #[arg(long, env, default_value_t = 12_229)]
     tpu_quic_fwd_port: u16,
 
     /// Bind IP address for GRPC server
