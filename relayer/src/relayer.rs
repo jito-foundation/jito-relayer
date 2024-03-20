@@ -1,3 +1,4 @@
+use std::sync::atomic::AtomicU64;
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     net::IpAddr,
@@ -402,8 +403,10 @@ impl RelayerHandle {
 }
 
 pub struct RelayerImpl {
-    tpu_port: u16,
-    tpu_fwd_port: u16,
+    tpu_ports: Vec<u16>,
+    tpu_fwd_ports: Vec<u16>,
+    idx: AtomicU64,
+
     public_ip: IpAddr,
 
     subscription_sender: Sender<Subscription>,
@@ -422,8 +425,8 @@ impl RelayerImpl {
         delay_packet_receiver: Receiver<RelayerPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
         public_ip: IpAddr,
-        tpu_port: u16,
-        tpu_fwd_port: u16,
+        tpu_ports: Vec<u16>,
+        tpu_fwd_ports: Vec<u16>,
         health_state: Arc<RwLock<HealthState>>,
         exit: Arc<AtomicBool>,
         ofac_addresses: HashSet<Pubkey>,
@@ -463,8 +466,9 @@ impl RelayerImpl {
         };
 
         Self {
-            tpu_port,
-            tpu_fwd_port,
+            tpu_ports,
+            tpu_fwd_ports,
+            idx: AtomicU64::new(0),
             subscription_sender,
             public_ip,
             threads: vec![thread],
@@ -796,14 +800,16 @@ impl Relayer for RelayerImpl {
         &self,
         _: Request<GetTpuConfigsRequest>,
     ) -> Result<Response<GetTpuConfigsResponse>, Status> {
+        let idx = self.idx.fetch_add(1, Ordering::Acquire);
+
         return Ok(Response::new(GetTpuConfigsResponse {
             tpu: Some(Socket {
                 ip: self.public_ip.to_string(),
-                port: self.tpu_port as i64,
+                port: self.tpu_ports[idx as usize % self.tpu_ports.len()] as i64,
             }),
             tpu_forward: Some(Socket {
                 ip: self.public_ip.to_string(),
-                port: self.tpu_fwd_port as i64,
+                port: self.tpu_fwd_ports[idx as usize % self.tpu_fwd_ports.len()] as i64,
             }),
         }));
     }

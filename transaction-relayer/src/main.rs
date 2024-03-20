@@ -18,10 +18,7 @@ use crossbeam_channel::tick;
 use dashmap::DashMap;
 use env_logger::Env;
 use jito_block_engine::block_engine::{BlockEngineConfig, BlockEngineRelayerHandler};
-use jito_core::{
-    graceful_panic,
-    tpu::{Tpu, TpuSockets},
-};
+use jito_core::{graceful_panic, tpu::Tpu};
 use jito_protos::{
     auth::auth_service_server::AuthServiceServer, relayer::relayer_server::RelayerServer,
 };
@@ -202,42 +199,42 @@ struct Args {
     disable_mempool: bool,
 }
 
-#[derive(Debug)]
-struct Sockets {
-    tpu_sockets: TpuSockets,
-    tpu_ip: IpAddr,
-    tpu_fwd_ip: IpAddr,
-}
+// #[derive(Debug)]
+// struct Sockets {
+//     tpu_sockets: TpuSockets,
+//     tpu_ip: IpAddr,
+//     tpu_fwd_ip: IpAddr,
+// }
 
-fn get_sockets(args: &Args) -> Sockets {
-    let (tpu_quic_bind_port, mut tpu_quic_sockets) = multi_bind_in_range(
-        IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
-        (args.tpu_quic_port, args.tpu_quic_port + 1),
-        1,
-    )
-    .expect("to bind tpu_quic sockets");
-
-    let (tpu_fwd_quic_bind_port, mut tpu_fwd_quic_sockets) = multi_bind_in_range(
-        IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
-        (args.tpu_quic_fwd_port, args.tpu_quic_fwd_port + 1),
-        1,
-    )
-    .expect("to bind tpu_quic sockets");
-
-    assert_eq!(tpu_quic_bind_port, args.tpu_quic_port);
-    assert_eq!(tpu_fwd_quic_bind_port, args.tpu_quic_fwd_port);
-    assert_eq!(args.tpu_port + 6, tpu_quic_bind_port); // QUIC is expected to be at TPU + 6
-    assert_eq!(args.tpu_fwd_port + 6, tpu_fwd_quic_bind_port); // QUIC is expected to be at TPU forward + 6
-
-    Sockets {
-        tpu_sockets: TpuSockets {
-            transactions_quic_sockets: tpu_quic_sockets.pop().unwrap(),
-            transactions_forwards_quic_sockets: tpu_fwd_quic_sockets.pop().unwrap(),
-        },
-        tpu_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-        tpu_fwd_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-    }
-}
+// fn get_sockets(args: &Args) -> Sockets {
+//     let (tpu_quic_bind_port, mut tpu_quic_sockets) = multi_bind_in_range(
+//         IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
+//         (args.tpu_quic_port, args.tpu_quic_port + 1),
+//         1,
+//     )
+//     .expect("to bind tpu_quic sockets");
+//
+//     let (tpu_fwd_quic_bind_port, mut tpu_fwd_quic_sockets) = multi_bind_in_range(
+//         IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
+//         (args.tpu_quic_fwd_port, args.tpu_quic_fwd_port + 1),
+//         1,
+//     )
+//     .expect("to bind tpu_quic sockets");
+//
+//     assert_eq!(tpu_quic_bind_port, args.tpu_quic_port);
+//     assert_eq!(tpu_fwd_quic_bind_port, args.tpu_quic_fwd_port);
+//     assert_eq!(args.tpu_port + 6, tpu_quic_bind_port); // QUIC is expected to be at TPU + 6
+//     assert_eq!(args.tpu_fwd_port + 6, tpu_fwd_quic_bind_port); // QUIC is expected to be at TPU forward + 6
+//
+//     Sockets {
+//         tpu_sockets: TpuSockets {
+//             transactions_quic_sockets: tpu_quic_sockets.pop().unwrap(),
+//             transactions_forwards_quic_sockets: tpu_fwd_quic_sockets.pop().unwrap(),
+//         },
+//         tpu_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+//         tpu_fwd_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+//     }
+// }
 
 fn main() {
     const MAX_BUFFERED_REQUESTS: usize = 10;
@@ -250,6 +247,44 @@ fn main() {
 
     let args: Args = Args::parse();
     info!("args: {:?}", args);
+
+    let tpu_ports: Vec<u16> = (args.tpu_port..args.tpu_port + 6).collect();
+    let tpu_quic_ports: Vec<u16> = (args.tpu_port + 6..args.tpu_port + 12).collect();
+    assert_eq!(tpu_ports.len(), 6);
+    assert_eq!(tpu_quic_ports.len(), 6);
+    for idx in 0..tpu_ports.len() {
+        assert_eq!(tpu_ports[idx] + 6, tpu_quic_ports[idx]);
+    }
+
+    let tpu_fwd_ports: Vec<u16> = (args.tpu_port + 12..args.tpu_port + 18).collect();
+    let tpu_fwd_quic_ports: Vec<u16> = (args.tpu_port + 18..args.tpu_port + 24).collect();
+    assert_eq!(tpu_fwd_ports.len(), 6);
+    assert_eq!(tpu_fwd_quic_ports.len(), 6);
+    for idx in 0..tpu_fwd_ports.len() {
+        assert_eq!(tpu_fwd_ports[idx] + 6, tpu_fwd_quic_ports[idx]);
+    }
+
+    info!("tpu_ports: {:?}", tpu_ports);
+    info!("tpu_quic_ports: {:?}", tpu_quic_ports);
+
+    info!("tpu_fwd_ports: {:?}", tpu_fwd_ports);
+    info!("tpu_fwd_quic_ports: {:?}", tpu_fwd_quic_ports);
+
+    let tpu_quic_sockets: Vec<_> = tpu_quic_ports
+        .iter()
+        .map(|p| {
+            multi_bind_in_range(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), (*p, *p + 1), 1).unwrap()
+        })
+        .collect();
+    info!("tpu_quic_sockets: {:?}", tpu_quic_sockets);
+
+    let tpu_fwd_quic_sockets: Vec<_> = tpu_fwd_quic_ports
+        .iter()
+        .map(|p| {
+            multi_bind_in_range(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), (*p, *p + 1), 1).unwrap()
+        })
+        .collect();
+    info!("tpu_fwd_quic_sockets: {:?}", tpu_fwd_quic_sockets);
 
     // Warn about deprecated args
     if args.cluster.is_some() {
@@ -289,8 +324,8 @@ fn main() {
     // challenge requests.
     assert!(args.grpc_bind_ip.is_ipv4(), "must bind to IPv4 address");
 
-    let sockets = get_sockets(&args);
-    info!("Relayer listening at: {sockets:?}");
+    // let sockets = get_sockets(&args);
+    // info!("Relayer listening at: {sockets:?}");
 
     let keypair =
         Arc::new(read_keypair_file(args.keypair_path).expect("keypair file does not exist"));
@@ -339,11 +374,12 @@ fn main() {
     );
 
     let (tpu, verified_receiver) = Tpu::new(
-        sockets.tpu_sockets,
+        tpu_quic_sockets,
+        tpu_fwd_quic_sockets,
         &exit,
         &keypair,
-        &sockets.tpu_ip,
-        &sockets.tpu_fwd_ip,
+        &IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+        &IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
         &rpc_load_balancer,
         args.max_unstaked_quic_connections,
     );
@@ -411,8 +447,8 @@ fn main() {
         delay_packet_receiver,
         leader_cache.handle(),
         public_ip,
-        args.tpu_port,
-        args.tpu_fwd_port,
+        tpu_ports,
+        tpu_fwd_ports,
         health_manager.handle(),
         exit.clone(),
         ofac_addresses,
