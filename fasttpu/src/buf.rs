@@ -7,7 +7,7 @@ use std::{
 use libc::{iovec, mmsghdr, sockaddr_storage};
 
 pub const EVENT_CNT: usize = 4096;
-pub const PKT_BUF_SZ: usize = 8192;
+pub const PKT_BUF_SZ: usize = 4096;
 
 const _: () = assert!(EVENT_CNT <= u16::MAX as usize);
 
@@ -77,5 +77,11 @@ impl PktBuf {
             socket2::SockAddr::new(self.addrs[i], self.msgs[i].msg_hdr.msg_namelen).as_socket()?
         };
         Some((data, sender))
+    }
+
+    pub fn reset_iovlens(&mut self, cnt: usize) {
+        for i in 0..cnt {
+            self.iovs[i].iov_len = PKT_BUF_SZ;
+        }
     }
 }
