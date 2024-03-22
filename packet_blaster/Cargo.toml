@@ -13,6 +13,7 @@ log = { workspace = true }
 once_cell = { workspace = true }
 quinn = { workspace = true }
 rustls = { workspace = true }
+solana-connection-cache = { workspace = true }
 solana-client = { workspace = true }
 solana-net-utils = { workspace = true }
 solana-perf = { workspace = true }

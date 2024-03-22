@@ -22,6 +22,7 @@ use solana_client::{
     rpc_client::RpcClient,
     tpu_connection::TpuConnection,
 };
+use solana_connection_cache::connection_cache_stats::ConnectionCacheStats;
 use solana_sdk::{
     native_token::LAMPORTS_PER_SOL,
     pubkey::Pubkey,
@@ -297,16 +298,15 @@ impl TpuSender {
     // source taken from https://github.com/solana-labs/solana/blob/527e2d4f59c6429a4a959d279738c872b97e56b5/client/src/nonblocking/quic_client.rs#L93
     // original code doesn't allow specifying source socket
     fn create_endpoint(send_addr: SocketAddr) -> quinn::Endpoint {
-        let (certs, priv_key) =
-            solana_streamer::tls_certificates::new_self_signed_tls_certificate_chain(
-                &Keypair::new(),
-                send_addr.ip(),
-            )
-            .expect("Failed to create QUIC client certificate");
+        let (cert, priv_key) = solana_streamer::tls_certificates::new_self_signed_tls_certificate(
+            &Keypair::new(),
+            send_addr.ip(),
+        )
+        .expect("Failed to create QUIC client certificate");
         let mut crypto = rustls::ClientConfig::builder()
             .with_safe_defaults()
             .with_custom_certificate_verifier(SkipServerVerification::new())
-            .with_single_cert(certs, priv_key)
+            .with_client_auth_cert(vec![cert], priv_key)
             .expect("Failed to set QUIC client certificates");
         crypto.enable_early_data = true;
         crypto.alpn_protocols =
@@ -316,13 +316,11 @@ impl TpuSender {
         let mut config = quinn::ClientConfig::new(Arc::new(crypto));
 
         let mut transport_config = quinn::TransportConfig::default();
-        let timeout = quinn::IdleTimeout::from(quinn::VarInt::from_u32(
-            solana_sdk::quic::QUIC_MAX_TIMEOUT_MS * 100, /* Hack for when relayer is backed up and not accepting connections */
-        ));
+        let timeout = quinn::IdleTimeout::from(quinn::VarInt::from_u64(
+            solana_sdk::quic::QUIC_MAX_TIMEOUT.as_millis() as u64 * 100, /* Hack for when relayer is backed up and not accepting connections */
+        ).unwrap());
         transport_config.max_idle_timeout(Some(timeout));
-        transport_config.keep_alive_interval(Some(Duration::from_millis(
-            solana_sdk::quic::QUIC_KEEP_ALIVE_MS,
-        )));
+        transport_config.keep_alive_interval(Some(solana_sdk::quic::QUIC_KEEP_ALIVE));
         config.transport_config(Arc::new(transport_config));
 
         endpoint.set_default_client_config(config);
@@ -441,7 +439,7 @@ impl TpuSender {
             }
             TpuSender::Quic { client } => {
                 vec![client
-                    .send_wire_transaction_batch_async(serialized_txns)
+                    .send_data_batch_async(serialized_txns)
                     .map_err(PacketBlasterError::TransportError)]
             }
         }
