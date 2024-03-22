@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashSet, HashMap},
+    collections::{BinaryHeap, HashMap, HashSet},
     net::SocketAddr,
     ops::AddAssign,
     os::fd::AsRawFd,
@@ -10,7 +10,13 @@ use std::{
     },
 };
 
-use libc::{c_int, c_uint, recvmmsg};
+use boring::{
+    pkey::PKey,
+    ssl::{SslContextBuilder, SslMethod, SslVersion},
+    x509::X509,
+};
+use ed25519_dalek::Keypair;
+use libc::{c_int, c_uint, recvmmsg, sendmmsg};
 use quiche::ConnectionId;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use socket2::SockAddr;
@@ -27,6 +33,9 @@ pub struct ServerMetrics {
     pub rx_pkt_drop_garbage_cnt: AtomicU64,
     pub rx_pkt_drop_martian_cnt: AtomicU64,
     pub rx_pkt_drop_unknown_cnt: AtomicU64,
+    pub tx_pkt_cnt: AtomicU64,
+    pub tx_drop_cnt: AtomicU64,
+    pub quic_accept_cnt: AtomicU64,
 }
 
 impl AddAssign for ServerMetrics {
@@ -41,6 +50,12 @@ impl AddAssign for ServerMetrics {
             .fetch_add(rhs.rx_pkt_drop_martian_cnt.load(Relaxed), Relaxed);
         self.rx_pkt_drop_unknown_cnt
             .fetch_add(rhs.rx_pkt_drop_unknown_cnt.load(Relaxed), Relaxed);
+        self.tx_pkt_cnt
+            .fetch_add(rhs.tx_pkt_cnt.load(Relaxed), Relaxed);
+        self.tx_drop_cnt
+            .fetch_add(rhs.tx_drop_cnt.load(Relaxed), Relaxed);
+        self.quic_accept_cnt
+            .fetch_add(rhs.quic_accept_cnt.load(Relaxed), Relaxed);
     }
 }
 
@@ -52,6 +67,9 @@ impl Clone for ServerMetrics {
             rx_pkt_drop_garbage_cnt: AtomicU64::new(self.rx_pkt_drop_garbage_cnt.load(Relaxed)),
             rx_pkt_drop_martian_cnt: AtomicU64::new(self.rx_pkt_drop_martian_cnt.load(Relaxed)),
             rx_pkt_drop_unknown_cnt: AtomicU64::new(self.rx_pkt_drop_unknown_cnt.load(Relaxed)),
+            tx_pkt_cnt: AtomicU64::new(self.tx_pkt_cnt.load(Relaxed)),
+            tx_drop_cnt: AtomicU64::new(self.tx_drop_cnt.load(Relaxed)),
+            quic_accept_cnt: AtomicU64::new(self.quic_accept_cnt.load(Relaxed)),
         }
     }
 }
@@ -66,20 +84,34 @@ pub struct ServerTile {
     q_initial: Vec<u16>,
     q_handshake: Vec<(u16, ICID)>,
     q_established: Vec<(u16, ICID)>,
-    conns: HashMap<ICID, Conn>, // Should probably be a LinkedList instead
+    conns: HashMap<ICID, Conn>, // Should probably be a LinkedList
     conn_ids: HashMap<SCID, ICID>,
     conns_max: usize,
     rng: SmallRng,
     quiche_cfg: quiche::Config,
     next_icid: u64,
+    pending_conns: BinaryHeap<ICID>, // Connections pending serve (this is probably slow)
 }
 
 impl ServerTile {
-    pub fn new(udp_fd: c_int, self_addr: SocketAddr, conns_max: usize) -> Self {
+    pub fn new(udp_fd: c_int, self_addr: SocketAddr, keypair: &Keypair, conns_max: usize) -> Self {
         let conns = HashMap::with_capacity(conns_max);
         let conn_ids = HashMap::with_capacity(conns_max * 4);
 
-        let mut quiche_cfg = quiche::Config::new(1).unwrap();
+        // TODO should probably only sign this once
+        let (cert_bytes, cert_key_bytes) = crate::cert::new_dummy_x509_certificate(keypair);
+        let cert = X509::from_der(&cert_bytes).unwrap();
+        let cert_key = PKey::private_key_from_der(&cert_key_bytes).unwrap();
+
+        let mut tls_cfg = SslContextBuilder::new(SslMethod::tls_server()).unwrap();
+        tls_cfg.set_certificate(&cert).unwrap();
+        tls_cfg.set_private_key(&cert_key).unwrap();
+        tls_cfg
+            .set_min_proto_version(Some(SslVersion::TLS1_3))
+            .unwrap();
+
+        let mut quiche_cfg = quiche::Config::with_boring_ssl_ctx_builder(1, tls_cfg).unwrap();
+        quiche_cfg.set_application_protos(&[b"solana-tpu"]).unwrap();
 
         Self {
             udp_fd,
@@ -95,6 +127,7 @@ impl ServerTile {
             rng: SmallRng::from_entropy(),
             quiche_cfg,
             next_icid: 0u64,
+            pending_conns: BinaryHeap::with_capacity(EVENT_CNT),
         }
     }
 
@@ -112,16 +145,16 @@ impl ServerTile {
         self.q_initial.clear();
         self.q_handshake.clear();
         self.q_established.clear();
+        self.pending_conns.clear();
 
         // TODO timeout management
         let msg_cnt: usize;
         unsafe {
-            let recvmmsg_flags: c_int = libc::MSG_DONTWAIT;
             let msg_cnt_s = recvmmsg(
                 self.udp_fd,
                 self.pkt_buf.msgs.as_mut_ptr(),
                 EVENT_CNT as c_uint,
-                recvmmsg_flags,
+                libc::MSG_DONTWAIT,
                 null_mut(),
             );
             self.metrics.rx_mmsg_cnt.fetch_add(1, Relaxed);
@@ -129,7 +162,7 @@ impl ServerTile {
                 let last_err = std::io::Error::last_os_error();
                 match last_err.kind() {
                     std::io::ErrorKind::WouldBlock => return,
-                    _ => panic!("recvmmsg() failed: {}", std::io::Error::last_os_error())
+                    _ => panic!("recvmmsg() failed: {}", std::io::Error::last_os_error()),
                 }
             }
             msg_cnt = msg_cnt_s as usize;
@@ -147,10 +180,10 @@ impl ServerTile {
             };
             let from_ip_addr = from_sock_addr.ip();
             let from_udp_port = from_sock_addr.port();
-            if matches!(from_udp_port, 53 | 443) || !crate::ip::is_global(&from_ip_addr) {
-                self.metrics.rx_pkt_drop_martian_cnt.fetch_add(1, Relaxed);
-                continue;
-            }
+            //if matches!(from_udp_port, 53 | 443) || !crate::ip::is_global(&from_ip_addr) {
+            //    self.metrics.rx_pkt_drop_martian_cnt.fetch_add(1, Relaxed);
+            //    continue;
+            //}
 
             // Parse the QUIC packet's header.
             let hdr = match quiche::Header::from_slice(pkt_buf, quiche::MAX_CONN_ID_LEN) {
@@ -171,6 +204,10 @@ impl ServerTile {
             // handshaking connection, an established connection, or is
             // garbage.
             let dcid_bytes: &[u8] = hdr.dcid.as_ref();
+            if dcid_bytes.len() != 8 {
+                self.metrics.rx_pkt_drop_garbage_cnt.fetch_add(1, Relaxed);
+                continue 'triage;
+            }
             let dcid = u64::from_le_bytes(dcid_bytes.try_into().unwrap()) as SCID;
 
             // Reject if connection is not known
@@ -204,8 +241,8 @@ impl ServerTile {
             };
 
             // TODO handle conn packet
-            let conn = conn.conn.as_mut().unwrap();
-            match conn.recv(
+            let quiche_conn = conn.conn.as_mut().unwrap();
+            match quiche_conn.recv(
                 pkt_buf,
                 quiche::RecvInfo {
                     from: from_sock_addr,
@@ -219,7 +256,9 @@ impl ServerTile {
                 }
             };
 
-            Self::update_scids(icid, conn, &mut self.conn_ids, &mut self.rng);
+            Self::update_scids(icid, quiche_conn, &mut self.conn_ids, &mut self.rng);
+
+            self.pending_conns.push(icid);
         }
 
         // Handle packets currently handshaking
@@ -252,6 +291,8 @@ impl ServerTile {
             };
 
             Self::update_scids(icid, conn, &mut self.conn_ids, &mut self.rng);
+
+            self.pending_conns.push(icid);
         }
 
         // Handle packets relating to connection requests
@@ -276,7 +317,7 @@ impl ServerTile {
             let new_dcid_u: u64 = self.rng.gen();
             let new_dcid_b = new_dcid_u.to_le_bytes();
             let new_dcid = ConnectionId::from_ref(&new_dcid_b[..]);
-            let quiche_conn = quiche::accept(
+            let mut quiche_conn = quiche::accept(
                 &new_dcid,
                 None,
                 self.self_addr,
@@ -284,12 +325,97 @@ impl ServerTile {
                 &mut self.quiche_cfg,
             )
             .unwrap();
-            let conn = Conn {
-                conn: Some(quiche_conn),
+
+            // Handle coalesced packet content
+            match quiche_conn.recv(
+                pkt_buf,
+                quiche::RecvInfo {
+                    from: from_sock_addr,
+                    to: self.self_addr,
+                },
+            ) {
+                Ok(v) => {
+                    //eprintln!("OK");
+                    v
+                }
+                Err(err) => {
+                    //eprintln!("recv failed: {:?}", err);
+                    self.metrics.rx_pkt_drop_garbage_cnt.fetch_add(1, Relaxed);
+                    continue 'initial;
+                }
             };
 
+            self.pending_conns.push(new_icid);
+            self.metrics.quic_accept_cnt.fetch_add(1, Relaxed);
+
+            let conn = Conn {
+                conn: Some(quiche_conn), // expensive copy :(
+            };
             self.conns.insert(new_icid, conn);
             self.conn_ids.insert(new_dcid_u as SCID, new_icid as ICID);
+        }
+
+        // At this point, we read all incoming packets.
+        // We can now reuse our receive buffer for sending.
+        // We assume that we won't ever generate more outgoing packets
+        // than there are incoming packets.  (This is a reasonable
+        // assumption because the TPU server has no outgoing traffic
+        // other than QUIC mgmt things and ACKs)
+        let mut send_pkt_cnt = 0usize;
+        'respond: for icid in self.pending_conns.drain() {
+            let conn = match self.conns.get_mut(&icid) {
+                Some(conn) => conn,
+                None => {
+                    eprintln!("conn vanished");
+                    self.conn_ids.remove(&icid);
+                    continue 'respond;
+                }
+            };
+            let conn = conn.conn.as_mut().unwrap();
+
+            'genpkt: loop {
+                if send_pkt_cnt >= EVENT_CNT {
+                    break 'respond;
+                }
+                let buf = &mut self.pkt_buf.bufs[send_pkt_cnt];
+                let (out_len, send_info) = match conn.send(&mut buf[..]) {
+                    Ok(v) => v,
+                    Err(quiche::Error::Done) => break 'genpkt,
+                    Err(err) => panic!("send failed {}", err),
+                };
+                self.pkt_buf.addrs[send_pkt_cnt] = SockAddr::from(send_info.to).as_storage();
+                self.pkt_buf.msgs[send_pkt_cnt].msg_len = out_len as u32;
+                send_pkt_cnt += 1;
+            }
+        }
+
+        if send_pkt_cnt == 0 {
+            return; // nothing to do
+        }
+
+        unsafe {
+            let msg_cnt_s = sendmmsg(
+                self.udp_fd,
+                self.pkt_buf.msgs.as_mut_ptr(),
+                send_pkt_cnt as c_uint,
+                libc::MSG_DONTWAIT,
+            );
+            if msg_cnt_s < 0 {
+                let last_err = std::io::Error::last_os_error();
+                match last_err.kind() {
+                    std::io::ErrorKind::WouldBlock => {
+                        self.metrics
+                            .tx_drop_cnt
+                            .fetch_add(send_pkt_cnt as u64, Relaxed);
+                        return;
+                    }
+                    _ => panic!("sendmmsg() failed: {}", std::io::Error::last_os_error()),
+                }
+            } else if (msg_cnt_s as usize) < send_pkt_cnt {
+                self.metrics
+                    .tx_drop_cnt
+                    .fetch_add(send_pkt_cnt as u64 - msg_cnt_s as u64, Relaxed);
+            }
         }
     }
 
@@ -347,7 +473,11 @@ pub struct ServerConfig {
 }
 
 impl Server {
-    pub fn new(config: &ServerConfig, cnc: Arc<Cnc>) -> Result<Self, std::io::Error> {
+    pub fn new(
+        config: &ServerConfig,
+        cnc: Arc<Cnc>,
+        keypair: &Keypair,
+    ) -> Result<Self, std::io::Error> {
         let sock = socket2::Socket::new(
             socket2::Domain::IPV4,
             socket2::Type::DGRAM,
@@ -358,7 +488,7 @@ impl Server {
         let udp_fd = sock.as_raw_fd();
 
         let tiles = (0..config.tile_cnt)
-            .map(|_| ServerTile::new(udp_fd, config.listen_addr, config.conn_cnt))
+            .map(|_| ServerTile::new(udp_fd, config.listen_addr, keypair, config.conn_cnt))
             .collect::<Vec<ServerTile>>();
         let tile_metrics = tiles.iter().map(|tile| tile.metrics()).collect();
 

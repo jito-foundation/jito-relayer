@@ -9,7 +9,9 @@ license = { workspace = true }
 publish = false
 
 [dependencies]
+boring = "4.5.0"
+ed25519-dalek = { workspace = true }
 libc = "0.2.150"
-quiche = "0.20.1"
+quiche = { version = "0.20.1", features = ["boringssl-boring-crate"] }
 rand = { workspace = true, features = ["small_rng"] }
 socket2 = { version = "0.5.6", features = ["all"] }

@@ -1,11 +1,13 @@
 use std::{net::SocketAddr, ptr::null_mut, str::FromStr, sync::Arc};
 
+use ed25519_dalek::Keypair;
 use jito_fasttpu::{
     cnc::Cnc,
     server::{Server, ServerConfig, ServerMetrics},
 };
 
 fn main() {
+    let keypair = Keypair::generate(&mut rand::rngs::OsRng);
     let cnc = Arc::new(Cnc::new());
     let mut server = Server::new(
         &ServerConfig {
@@ -14,6 +16,7 @@ fn main() {
             conn_cnt: 10000,
         },
         Arc::clone(&cnc),
+        &keypair,
     )
     .expect("Failed to init server");
     server.start();
