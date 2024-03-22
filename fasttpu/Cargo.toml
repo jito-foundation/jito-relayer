@@ -11,4 +11,5 @@ publish = false
 [dependencies]
 libc = "0.2.150"
 quiche = "0.20.1"
+rand = { workspace = true, features = ["small_rng"] }
 socket2 = { version = "0.5.6", features = ["all"] }
