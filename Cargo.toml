@@ -2,6 +2,7 @@
 members = [
     "block_engine",
     "core",
+    "fasttpu",
     "jito-protos",
     #    "packet_blaster", // TODO (LB): fix
     "relayer",
