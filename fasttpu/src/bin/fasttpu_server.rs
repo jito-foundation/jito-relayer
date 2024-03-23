@@ -3,7 +3,8 @@ use std::{net::SocketAddr, ptr::null_mut, str::FromStr, sync::Arc};
 use ed25519_dalek::Keypair;
 use jito_fasttpu::{
     cnc::Cnc,
-    server::{Server, ServerConfig, ServerMetrics},
+    metrics::ServerMetrics,
+    server::{Server, ServerConfig},
 };
 
 fn main() {
