@@ -1,0 +1,19 @@
+[package]
+name = "jito-fasttpu"
+description = "Jito fast TPU server"
+version = { workspace = true }
+authors = ["Richard Patel <ripatel@jumptrading.com>"]
+homepage = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+publish = false
+
+[dependencies]
+boring = "4.5.0"
+ed25519-dalek = { workspace = true }
+env_logger = { workspace = true }
+libc = "0.2.150"
+quiche = { version = "0.20.1", features = ["boringssl-boring-crate"] }
+rand = { workspace = true, features = ["small_rng", "getrandom"] }
+siphasher = "1.0.1"
+socket2 = { version = "0.5.6", features = ["all"] }
