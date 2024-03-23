@@ -2614,6 +2614,7 @@ dependencies = [
  "libc",
  "quiche",
  "rand 0.7.3",
+ "siphasher 1.0.1",
  "socket2 0.5.6",
 ]
 
@@ -4817,6 +4818,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "38b58827f4464d87d377d175e90bf58eb00fd8716ff0a62f80356b5e61555d0d"
 
 [[package]]
+name = "siphasher"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56199f7ddabf13fe5074ce809e7d3f42b42ae711800501b5b16ea82ad029c39d"
+
+[[package]]
 name = "sized-chunks"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5961,7 +5968,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "siphasher",
+ "siphasher 0.3.11",
  "solana-accounts-db",
  "solana-address-lookup-table-program",
  "solana-bpf-loader-program",

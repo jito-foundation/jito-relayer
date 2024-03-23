@@ -13,7 +13,7 @@ fn main() {
     let cnc = Arc::new(Cnc::new());
     let mut server = Server::new(
         &ServerConfig {
-            tile_cnt: 4,
+            tile_cnt: 1,
             listen_addr: SocketAddr::from_str("127.0.0.1:8080").unwrap(),
             conn_cnt: 10000,
         },

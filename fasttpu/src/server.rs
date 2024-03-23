@@ -1,5 +1,5 @@
 use std::{
-    collections::{BinaryHeap, HashMap, HashSet},
+    collections::{BinaryHeap, HashMap},
     net::SocketAddr,
     ops::AddAssign,
     os::fd::AsRawFd,
@@ -18,12 +18,17 @@ use boring::{
 use ed25519_dalek::Keypair;
 use libc::{c_int, c_uint, recvmmsg, sendmmsg};
 use quiche::ConnectionId;
-use rand::{rngs::SmallRng, Rng, SeedableRng};
+use rand::{
+    rngs::{OsRng, SmallRng},
+    Rng, RngCore, SeedableRng,
+};
+use siphasher::sip::SipHasher24;
 use socket2::SockAddr;
 
 use crate::{
-    buf::{PktBufBox, EVENT_CNT},
+    buf::{PktBufBox, EVENT_CNT, REASM_DEPTH},
     cnc::Cnc,
+    reasm::Reasm,
 };
 
 #[derive(Default, Debug)]
@@ -35,7 +40,10 @@ pub struct ServerMetrics {
     pub rx_pkt_drop_unknown_cnt: AtomicU64,
     pub tx_pkt_cnt: AtomicU64,
     pub tx_drop_cnt: AtomicU64,
+    pub quic_conn_cnt: AtomicU64,
     pub quic_accept_cnt: AtomicU64,
+    pub tpu_txn_cnt: AtomicU64,
+    pub tpu_txn_drop_cnt: AtomicU64,
 }
 
 impl AddAssign for ServerMetrics {
@@ -56,6 +64,12 @@ impl AddAssign for ServerMetrics {
             .fetch_add(rhs.tx_drop_cnt.load(Relaxed), Relaxed);
         self.quic_accept_cnt
             .fetch_add(rhs.quic_accept_cnt.load(Relaxed), Relaxed);
+        self.quic_conn_cnt
+            .fetch_add(rhs.quic_conn_cnt.load(Relaxed), Relaxed);
+        self.tpu_txn_cnt
+            .fetch_add(rhs.tpu_txn_cnt.load(Relaxed), Relaxed);
+        self.tpu_txn_drop_cnt
+            .fetch_add(rhs.tpu_txn_drop_cnt.load(Relaxed), Relaxed);
     }
 }
 
@@ -70,6 +84,9 @@ impl Clone for ServerMetrics {
             tx_pkt_cnt: AtomicU64::new(self.tx_pkt_cnt.load(Relaxed)),
             tx_drop_cnt: AtomicU64::new(self.tx_drop_cnt.load(Relaxed)),
             quic_accept_cnt: AtomicU64::new(self.quic_accept_cnt.load(Relaxed)),
+            quic_conn_cnt: AtomicU64::new(self.quic_conn_cnt.load(Relaxed)),
+            tpu_txn_cnt: AtomicU64::new(self.tpu_txn_cnt.load(Relaxed)),
+            tpu_txn_drop_cnt: AtomicU64::new(self.tpu_txn_drop_cnt.load(Relaxed)),
         }
     }
 }
@@ -90,7 +107,16 @@ pub struct ServerTile {
     rng: SmallRng,
     quiche_cfg: quiche::Config,
     next_icid: u64,
-    pending_conns: BinaryHeap<ICID>, // Connections pending serve (this is probably slow)
+
+    // Connections pending serve (this is probably slow)
+    pending_conns: BinaryHeap<ICID>,
+
+    // Cheap mechanism to sign retry requests
+    // Chosen over MAC or OTM functions for better performance
+    retry_signer: SipHasher24,
+
+    // Reassembler for fragmented transaction data
+    reasm: Reasm,
 }
 
 impl ServerTile {
@@ -117,7 +143,7 @@ impl ServerTile {
         quiche_cfg.set_application_protos(&[b"solana-tpu"]).unwrap();
         quiche_cfg.set_initial_max_data(15000);
         quiche_cfg.set_initial_max_streams_uni(168);
-        quiche_cfg.set_initial_max_stream_data_uni(4096);
+        quiche_cfg.set_initial_max_stream_data_uni(crate::buf::TXN_MAX_SZ as u64);
         quiche_cfg.set_max_idle_timeout(3000u64);
 
         Self {
@@ -135,6 +161,8 @@ impl ServerTile {
             quiche_cfg,
             next_icid: 0u64,
             pending_conns: BinaryHeap::with_capacity(EVENT_CNT),
+            retry_signer: SipHasher24::new_with_keys(OsRng.next_u64(), OsRng.next_u64()),
+            reasm: Reasm::new(REASM_DEPTH),
         }
     }
 
@@ -189,10 +217,18 @@ impl ServerTile {
             };
             let from_ip_addr = from_sock_addr.ip();
             let from_udp_port = from_sock_addr.port();
-            //if matches!(from_udp_port, 53 | 443) || !crate::ip::is_global(&from_ip_addr) {
-            //    self.metrics.rx_pkt_drop_martian_cnt.fetch_add(1, Relaxed);
-            //    continue;
-            //}
+
+            // If the packet comes from a suspiciously well-known port
+            // number, it was likely bounced off a UDP server via a
+            // reflection attack.
+            let is_reflected = matches!(from_udp_port, 53 | 443 | 51820);
+            //let is_global = crate::ip::is_global(&from_ip_addr);
+            let is_global = false;
+
+            if is_reflected || is_global {
+                self.metrics.rx_pkt_drop_martian_cnt.fetch_add(1, Relaxed);
+                continue;
+            }
 
             // Parse the QUIC packet's header.
             let hdr = match quiche::Header::from_slice(pkt_buf, 8) {
@@ -228,8 +264,13 @@ impl ServerTile {
             };
         }
 
-        // Handle packets relating to established conns first
-        'established: for (pkt_idx, icid) in self.q_established.drain(..) {
+        // Handle packets relating to established conns first, then
+        // process handshaking
+        'known: for (pkt_idx, icid) in self
+            .q_established
+            .drain(..)
+            .chain(self.q_handshake.drain(..))
+        {
             let (pkt_buf, from_sock_addr) = self.pkt_buf.get_packet(pkt_idx as usize).unwrap();
 
             let conn = match self.conns.get_mut(&icid) {
@@ -238,9 +279,15 @@ impl ServerTile {
                     // This should never happen
                     self.conn_ids.remove(&icid);
                     self.metrics.rx_pkt_drop_unknown_cnt.fetch_add(1, Relaxed);
-                    continue 'established;
+                    continue 'known;
                 }
             };
+
+            // Upgrade reference to static lifetime to allow multiple
+            // mutable borrows on the HashMap.  Assumes that conn is
+            // not dropped from the hashmap in this scope.  Assumes that
+            // this reference does not escape this scope.
+            let conn = unsafe { (conn as *mut Conn).as_mut::<'static>().unwrap() };
 
             // TODO handle conn packet
             let quiche_conn = conn.conn.as_mut().unwrap();
@@ -252,9 +299,9 @@ impl ServerTile {
                 },
             ) {
                 Ok(v) => v,
-                Err(err) => {
+                Err(_) => {
                     self.metrics.rx_pkt_drop_garbage_cnt.fetch_add(1, Relaxed);
-                    continue 'established;
+                    continue 'known;
                 }
             };
 
@@ -262,37 +309,32 @@ impl ServerTile {
             self.pending_conns.push(icid);
 
             for stream_id in quiche_conn.readable() {
-                let mut stream_buf = [0u8; 4096];
-                while let Ok((read, fin)) = quiche_conn.stream_recv(stream_id, &mut stream_buf) {}
-            }
-        }
-
-        // Handle packets currently handshaking
-        'handshake: for (pkt_idx, icid) in self.q_handshake.drain(..) {
-            let (pkt_buf, from_sock_addr) = self.pkt_buf.get_packet(pkt_idx as usize).unwrap();
-
-            let conn = match self.conns.get_mut(&icid) {
-                Some(conn) => conn,
-                None => panic!("icid {} vanished", icid),
-            };
-
-            let quiche_conn = conn.conn.as_mut().unwrap();
-            match quiche_conn.recv(
-                pkt_buf,
-                quiche::RecvInfo {
-                    from: from_sock_addr,
-                    to: self.self_addr,
-                },
-            ) {
-                Ok(v) => v,
-                Err(err) => {
-                    self.metrics.rx_pkt_drop_garbage_cnt.fetch_add(1, Relaxed);
-                    continue 'handshake;
+                let reasm_id = (icid, stream_id);
+                let (reasm_slot, evicted_slot) = self.reasm.acquire(reasm_id);
+                if let Some((evictee_icid, evictee_stream_id)) = evicted_slot {
+                    if let Some(evictee_conn) = self.conns.get_mut(&evictee_icid) {
+                        let _ = evictee_conn.conn.as_mut().unwrap().stream_shutdown(
+                            evictee_stream_id,
+                            quiche::Shutdown::Read,
+                            0,
+                        );
+                        self.metrics.tpu_txn_drop_cnt.fetch_add(1, Relaxed);
+                    }
                 }
-            };
 
-            Self::update_scids(icid, quiche_conn, &mut self.conn_ids, &mut self.rng);
-            self.pending_conns.push(icid);
+                let mut stream_buf = [0u8; 4096];
+                'stream: while let Ok((read, fin)) =
+                    quiche_conn.stream_recv(stream_id, &mut stream_buf)
+                {
+                    reasm_slot.append(&stream_buf[..read]);
+                    if fin {
+                        let _data = self.reasm.finish(reasm_id);
+                        self.metrics.tpu_txn_cnt.fetch_add(1, Relaxed);
+                        // TODO handle data
+                        break 'stream;
+                    }
+                }
+            }
         }
 
         // Handle packets relating to connection requests
@@ -353,10 +395,10 @@ impl ServerTile {
             self.metrics.quic_accept_cnt.fetch_add(1, Relaxed);
         }
 
-        self.pkt_buf.reset_iovlens(rx_pkt_cnt);
-
         // At this point, we read all incoming packets.
         // We can now reuse our receive buffer for sending.
+        self.pkt_buf.reset_iovlens(rx_pkt_cnt); // TODO is this required?
+
         // We assume that we won't ever generate more outgoing packets
         // than there are incoming packets.  (This is a reasonable
         // assumption because the TPU server has no outgoing traffic
@@ -372,27 +414,6 @@ impl ServerTile {
             };
             let conn = conn.conn.as_mut().unwrap();
 
-            //
-            //unsafe {
-            //    let storage = socket2::SockAddr::from(send_info.to).as_storage();
-            //    let mut iov = libc::iovec {
-            //        iov_base: buf.as_ptr() as *mut _,
-            //        iov_len: out_len,
-            //    };
-            //    libc::sendmsg(
-            //        self.udp_fd,
-            //        &msghdr {
-            //            msg_name: &storage as *const _ as *mut _,
-            //            msg_namelen: std::mem::size_of_val(&storage) as u32,
-            //            msg_iov: &mut iov,
-            //            msg_iovlen: 1,
-            //            msg_control: null_mut(),
-            //            msg_controllen: 0,
-            //            msg_flags: 0,
-            //        },
-            //        0,
-            //    );
-            //}
             'genpkt: loop {
                 if send_pkt_cnt >= EVENT_CNT {
                     break 'respond;
