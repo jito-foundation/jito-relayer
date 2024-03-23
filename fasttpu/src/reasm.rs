@@ -16,6 +16,7 @@ pub(crate) struct ReasmSlot {
     state: ReasmState,
     pub(crate) sz: u16,
     pub(crate) data: [u8; crate::buf::TXN_MAX_SZ],
+    pub(crate) frag_cnt: u8, // Used to prevent slowloris attacks
 }
 
 impl Default for ReasmSlot {
@@ -24,12 +25,17 @@ impl Default for ReasmSlot {
             state: ReasmState::Free,
             data: [0; crate::buf::TXN_MAX_SZ],
             sz: 0,
+            frag_cnt: 0,
         }
     }
 }
 
 impl ReasmSlot {
     pub(crate) fn append(&mut self, data: &[u8]) -> bool {
+        self.frag_cnt += 1;
+        if self.frag_cnt as usize > crate::buf::TXN_MAX_FRAGS {
+            return false;
+        }
         let new_sz = self.sz + data.len() as u16;
         if new_sz <= crate::buf::TXN_MAX_SZ as u16 {
             self.data[self.sz as usize..new_sz as usize].copy_from_slice(data);
@@ -75,6 +81,7 @@ impl Reasm {
                 };
                 next_slot.state = ReasmState::Busy(id);
                 next_slot.sz = 0;
+                next_slot.frag_cnt = 0;
                 entry.insert(next_slot_idx as u16);
                 self.idx = (next_slot_idx + 1) % slot_cnt;
                 (next_slot, evicted_id)

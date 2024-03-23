@@ -245,9 +245,15 @@ impl ServerTile {
             self.pending_conns.push(icid);
 
             for stream_id in quiche_conn.readable() {
+                // Allocate the oldest slot
                 let reasm_id = (icid, stream_id);
                 let (reasm_slot, evicted_slot) = self.reasm.acquire(reasm_id);
+
+                // If the oldest slot is still occupied, free it.
                 if let Some((evictee_icid, evictee_stream_id)) = evicted_slot {
+                    // Make sure that the stream associated with this
+                    // slot gets destroyed to prevent it from reclaiming
+                    // a new slot.
                     if let Some(evictee_conn) = self.conns.get_mut(&evictee_icid) {
                         let _ = evictee_conn.conn.as_mut().unwrap().stream_shutdown(
                             evictee_stream_id,
@@ -258,12 +264,23 @@ impl ServerTile {
                     }
                 }
 
+                // Read stream fragments into the newly allocated slot.
                 let mut stream_buf = [0u8; 4096];
                 'stream: while let Ok((read, fin)) =
                     quiche_conn.stream_recv(stream_id, &mut stream_buf)
                 {
-                    reasm_slot.append(&stream_buf[..read]);
+                    if !reasm_slot.append(&stream_buf[..read]) {
+                        // Transaction too large or too fragmented.
+                        // TODO Consider stronger punishment.
+                        let _data = self.reasm.finish(reasm_id);
+                        let _ = quiche_conn.stream_shutdown(stream_id, quiche::Shutdown::Read, 0);
+                        self.metrics.tpu_txn_drop_cnt.fetch_add(1, Relaxed);
+                        self.metrics.rx_pkt_drop_garbage_cnt.fetch_add(1, Relaxed);
+                        continue 'known; // ignore rest of packet
+                    }
                     if fin {
+                        // Transaction reassembled successfully.
+                        // Free the slot.
                         let _data = self.reasm.finish(reasm_id);
                         self.metrics.tpu_txn_cnt.fetch_add(1, Relaxed);
                         // TODO handle data
