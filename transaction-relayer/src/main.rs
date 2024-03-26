@@ -59,20 +59,30 @@ static GLOBAL: Jemalloc = Jemalloc;
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
+    /// DEPRECATED, will be removed in a future release.
+    #[arg(long, env, default_value_t = 0)]
+    tpu_port: u16,
+
+    /// DEPRECATED, will be removed in a future release.
+    #[arg(long, env, default_value_t = 0)]
+    tpu_fwd_port: u16,
+
     /// Number of tpu quic servers to spawn.
-    #[arg(long, env, default_value_t = 8)]
+    #[arg(long, env, default_value_t = 1)]
     num_tpu_quic_servers: usize,
 
     /// Number of tpu fwd quic servers to spawn.
-    #[arg(long, env, default_value_t = 8)]
+    #[arg(long, env, default_value_t = 1)]
     num_tpu_fwd_quic_servers: usize,
 
     /// Port to bind to for tpu packets. Need to return port - 6 to validators.
+    /// Make sure to not overlap any tpu forward ports with the normal tpu ports.
+    /// The TPU will bind to all ports in the range of (tpu_quic_port, tpu_quic_port + num_tpu_quic_servers).
     #[arg(long, env, default_value_t = 11_228)]
     tpu_quic_port: u16,
 
     /// Port to bind to for tpu fwd packets. Need to return port - 6 to validators.
-    #[arg(long, env, default_value_t = 12_229)]
+    #[arg(long, env, default_value_t = 11_229)]
     tpu_quic_fwd_port: u16,
 
     /// Bind IP address for GRPC server
