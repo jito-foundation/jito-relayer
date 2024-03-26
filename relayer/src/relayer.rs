@@ -375,17 +375,14 @@ pub enum RelayerError {
 
 pub type RelayerResult<T> = Result<T, RelayerError>;
 
+type PacketSubscriptions =
+    Arc<RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>>;
 pub struct RelayerHandle {
-    packet_subscriptions:
-        Arc<RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>>,
+    packet_subscriptions: PacketSubscriptions,
 }
 
 impl RelayerHandle {
-    pub fn new(
-        packet_subscriptions: &Arc<
-            RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>,
-        >,
-    ) -> RelayerHandle {
+    pub fn new(packet_subscriptions: &PacketSubscriptions) -> RelayerHandle {
         RelayerHandle {
             packet_subscriptions: packet_subscriptions.clone(),
         }
@@ -410,8 +407,7 @@ pub struct RelayerImpl {
     subscription_sender: Sender<Subscription>,
     threads: Vec<JoinHandle<()>>,
     health_state: Arc<RwLock<HealthState>>,
-    packet_subscriptions:
-        Arc<RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>>,
+    packet_subscriptions: PacketSubscriptions,
 }
 
 impl RelayerImpl {
@@ -488,9 +484,7 @@ impl RelayerImpl {
         leader_lookahead: u64,
         health_state: Arc<RwLock<HealthState>>,
         exit: Arc<AtomicBool>,
-        packet_subscriptions: &Arc<
-            RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>,
-        >,
+        packet_subscriptions: &PacketSubscriptions,
         ofac_addresses: HashSet<Pubkey>,
         address_lookup_table_cache: Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
         validator_packet_batch_size: usize,
@@ -584,9 +578,7 @@ impl RelayerImpl {
 
     fn drop_connections(
         disconnected_pubkeys: Vec<Pubkey>,
-        subscriptions: &Arc<
-            RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>,
-        >,
+        subscriptions: &PacketSubscriptions,
         relayer_metrics: &mut RelayerMetrics,
     ) {
         relayer_metrics.num_removed_connections += disconnected_pubkeys.len() as u64;
@@ -604,9 +596,7 @@ impl RelayerImpl {
     }
 
     fn handle_heartbeat(
-        subscriptions: &Arc<
-            RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>,
-        >,
+        subscriptions: &PacketSubscriptions,
         relayer_metrics: &mut RelayerMetrics,
     ) -> Vec<Pubkey> {
         let failed_pubkey_updates = subscriptions
@@ -640,9 +630,7 @@ impl RelayerImpl {
     /// Returns pubkeys of subscribers that failed to send
     fn forward_packets(
         maybe_packet_batches: Result<RelayerPacketBatches, RecvError>,
-        subscriptions: &Arc<
-            RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>,
-        >,
+        subscriptions: &PacketSubscriptions,
         slot_leaders: &HashSet<Pubkey>,
         relayer_metrics: &mut RelayerMetrics,
         ofac_addresses: &HashSet<Pubkey>,
@@ -732,9 +720,7 @@ impl RelayerImpl {
 
     fn handle_subscription(
         maybe_subscription: Result<Subscription, RecvError>,
-        subscriptions: &Arc<
-            RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>,
-        >,
+        subscriptions: &PacketSubscriptions,
         relayer_metrics: &mut RelayerMetrics,
     ) -> RelayerResult<()> {
         match maybe_subscription? {

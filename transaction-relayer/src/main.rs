@@ -207,7 +207,7 @@ struct Sockets {
 
 fn get_sockets(args: &Args) -> Sockets {
     let tpu_quic_sockets = (0..args.num_tpu_quic_servers)
-        .map(|i| {
+        .flat_map(|i| {
             multi_bind_in_range(
                 IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
                 (
@@ -219,11 +219,10 @@ fn get_sockets(args: &Args) -> Sockets {
             .unwrap()
             .1
         })
-        .flatten()
         .collect::<Vec<_>>();
 
     let tpu_fwd_quic_sockets = (0..args.num_tpu_fwd_quic_servers)
-        .map(|i| {
+        .flat_map(|i| {
             multi_bind_in_range(
                 IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
                 (
@@ -235,7 +234,6 @@ fn get_sockets(args: &Args) -> Sockets {
             .unwrap()
             .1
         })
-        .flatten()
         .collect::<Vec<_>>();
 
     Sockets {
@@ -421,10 +419,8 @@ fn main() {
         leader_cache.handle(),
         public_ip,
         (args.tpu_quic_port..args.tpu_quic_port + args.num_tpu_quic_servers as u16)
-            .map(|port| port)
             .collect(),
         (args.tpu_quic_fwd_port..args.tpu_quic_fwd_port + args.num_tpu_fwd_quic_servers as u16)
-            .map(|port| port)
             .collect(),
         health_manager.handle(),
         exit.clone(),
