@@ -2,7 +2,7 @@ use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     net::IpAddr,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, RwLock,
     },
     thread,
@@ -375,17 +375,14 @@ pub enum RelayerError {
 
 pub type RelayerResult<T> = Result<T, RelayerError>;
 
+type PacketSubscriptions =
+    Arc<RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>>;
 pub struct RelayerHandle {
-    packet_subscriptions:
-        Arc<RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>>,
+    packet_subscriptions: PacketSubscriptions,
 }
 
 impl RelayerHandle {
-    pub fn new(
-        packet_subscriptions: &Arc<
-            RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>,
-        >,
-    ) -> RelayerHandle {
+    pub fn new(packet_subscriptions: &PacketSubscriptions) -> RelayerHandle {
         RelayerHandle {
             packet_subscriptions: packet_subscriptions.clone(),
         }
@@ -402,15 +399,15 @@ impl RelayerHandle {
 }
 
 pub struct RelayerImpl {
-    tpu_port: u16,
-    tpu_fwd_port: u16,
+    tpu_quic_ports: Vec<u16>,
+    tpu_fwd_quic_ports: Vec<u16>,
     public_ip: IpAddr,
+    seq: AtomicU64,
 
     subscription_sender: Sender<Subscription>,
     threads: Vec<JoinHandle<()>>,
     health_state: Arc<RwLock<HealthState>>,
-    packet_subscriptions:
-        Arc<RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>>,
+    packet_subscriptions: PacketSubscriptions,
 }
 
 impl RelayerImpl {
@@ -422,8 +419,8 @@ impl RelayerImpl {
         delay_packet_receiver: Receiver<RelayerPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
         public_ip: IpAddr,
-        tpu_port: u16,
-        tpu_fwd_port: u16,
+        tpu_quic_ports: Vec<u16>,
+        tpu_fwd_quic_ports: Vec<u16>,
         health_state: Arc<RwLock<HealthState>>,
         exit: Arc<AtomicBool>,
         ofac_addresses: HashSet<Pubkey>,
@@ -463,13 +460,14 @@ impl RelayerImpl {
         };
 
         Self {
-            tpu_port,
-            tpu_fwd_port,
+            tpu_quic_ports,
+            tpu_fwd_quic_ports,
             subscription_sender,
             public_ip,
             threads: vec![thread],
             health_state,
             packet_subscriptions,
+            seq: AtomicU64::new(0),
         }
     }
 
@@ -486,9 +484,7 @@ impl RelayerImpl {
         leader_lookahead: u64,
         health_state: Arc<RwLock<HealthState>>,
         exit: Arc<AtomicBool>,
-        packet_subscriptions: &Arc<
-            RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>,
-        >,
+        packet_subscriptions: &PacketSubscriptions,
         ofac_addresses: HashSet<Pubkey>,
         address_lookup_table_cache: Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
         validator_packet_batch_size: usize,
@@ -582,9 +578,7 @@ impl RelayerImpl {
 
     fn drop_connections(
         disconnected_pubkeys: Vec<Pubkey>,
-        subscriptions: &Arc<
-            RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>,
-        >,
+        subscriptions: &PacketSubscriptions,
         relayer_metrics: &mut RelayerMetrics,
     ) {
         relayer_metrics.num_removed_connections += disconnected_pubkeys.len() as u64;
@@ -602,9 +596,7 @@ impl RelayerImpl {
     }
 
     fn handle_heartbeat(
-        subscriptions: &Arc<
-            RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>,
-        >,
+        subscriptions: &PacketSubscriptions,
         relayer_metrics: &mut RelayerMetrics,
     ) -> Vec<Pubkey> {
         let failed_pubkey_updates = subscriptions
@@ -638,9 +630,7 @@ impl RelayerImpl {
     /// Returns pubkeys of subscribers that failed to send
     fn forward_packets(
         maybe_packet_batches: Result<RelayerPacketBatches, RecvError>,
-        subscriptions: &Arc<
-            RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>,
-        >,
+        subscriptions: &PacketSubscriptions,
         slot_leaders: &HashSet<Pubkey>,
         relayer_metrics: &mut RelayerMetrics,
         ofac_addresses: &HashSet<Pubkey>,
@@ -730,9 +720,7 @@ impl RelayerImpl {
 
     fn handle_subscription(
         maybe_subscription: Result<Subscription, RecvError>,
-        subscriptions: &Arc<
-            RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>,
-        >,
+        subscriptions: &PacketSubscriptions,
         relayer_metrics: &mut RelayerMetrics,
     ) -> RelayerResult<()> {
         match maybe_subscription? {
@@ -796,14 +784,16 @@ impl Relayer for RelayerImpl {
         &self,
         _: Request<GetTpuConfigsRequest>,
     ) -> Result<Response<GetTpuConfigsResponse>, Status> {
+        let seq = self.seq.fetch_add(1, Ordering::Acquire);
         return Ok(Response::new(GetTpuConfigsResponse {
             tpu: Some(Socket {
                 ip: self.public_ip.to_string(),
-                port: self.tpu_port as i64,
+                port: (self.tpu_quic_ports[seq as usize % self.tpu_quic_ports.len()] - 6) as i64,
             }),
             tpu_forward: Some(Socket {
                 ip: self.public_ip.to_string(),
-                port: self.tpu_fwd_port as i64,
+                port: (self.tpu_fwd_quic_ports[seq as usize % self.tpu_fwd_quic_ports.len()] - 6)
+                    as i64,
             }),
         }));
     }

@@ -33,8 +33,8 @@ pub const MAX_QUIC_CONNECTIONS_PER_IP: usize = 8;
 
 #[derive(Debug)]
 pub struct TpuSockets {
-    pub transactions_quic_sockets: UdpSocket,
-    pub transactions_forwards_quic_sockets: UdpSocket,
+    pub transactions_quic_sockets: Vec<UdpSocket>,
+    pub transactions_forwards_quic_sockets: Vec<UdpSocket>,
 }
 
 pub struct Tpu {
@@ -75,37 +75,51 @@ impl Tpu {
         let (tpu_forwards_sender, tpu_forwards_receiver) =
             crossbeam_channel::bounded(Tpu::TPU_QUEUE_CAPACITY);
 
-        let (_, tpu_quic_t) = spawn_server(
-            "quic_streamer_tpu",
-            transactions_quic_sockets,
-            keypair,
-            *tpu_ip,
-            tpu_sender.clone(),
-            exit.clone(),
-            MAX_QUIC_CONNECTIONS_PER_PEER,
-            staked_nodes.clone(),
-            MAX_STAKED_CONNECTIONS,
-            max_unstaked_quic_connections,
-            DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
-            Duration::from_millis(DEFAULT_TPU_COALESCE_MS),
-        )
-        .unwrap();
+        let mut quic_tasks = transactions_quic_sockets
+            .into_iter()
+            .map(|sock| {
+                spawn_server(
+                    "quic_streamer_tpu",
+                    sock,
+                    keypair,
+                    *tpu_ip,
+                    tpu_sender.clone(),
+                    exit.clone(),
+                    MAX_QUIC_CONNECTIONS_PER_PEER,
+                    staked_nodes.clone(),
+                    MAX_STAKED_CONNECTIONS,
+                    max_unstaked_quic_connections,
+                    DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
+                    Duration::from_millis(DEFAULT_TPU_COALESCE_MS),
+                )
+                .unwrap()
+                .1
+            })
+            .collect::<Vec<_>>();
 
-        let (_, tpu_forwards_quic_t) = spawn_server(
-            "quic_streamer_tpu_forwards",
-            transactions_forwards_quic_sockets,
-            keypair,
-            *tpu_fwd_ip,
-            tpu_forwards_sender,
-            exit.clone(),
-            MAX_QUIC_CONNECTIONS_PER_PEER,
-            staked_nodes.clone(),
-            MAX_STAKED_CONNECTIONS.saturating_add(max_unstaked_quic_connections),
-            0, // Prevent unstaked nodes from forwarding transactions
-            DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
-            Duration::from_millis(DEFAULT_TPU_COALESCE_MS),
-        )
-        .unwrap();
+        quic_tasks.extend(
+            transactions_forwards_quic_sockets
+                .into_iter()
+                .map(|sock| {
+                    spawn_server(
+                        "quic_streamer_tpu_forwards",
+                        sock,
+                        keypair,
+                        *tpu_fwd_ip,
+                        tpu_forwards_sender.clone(),
+                        exit.clone(),
+                        MAX_QUIC_CONNECTIONS_PER_PEER,
+                        staked_nodes.clone(),
+                        MAX_STAKED_CONNECTIONS.saturating_add(max_unstaked_quic_connections),
+                        0, // Prevent unstaked nodes from forwarding transactions
+                        DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
+                        Duration::from_millis(DEFAULT_TPU_COALESCE_MS),
+                    )
+                    .unwrap()
+                    .1
+                })
+                .collect::<Vec<_>>(),
+        );
 
         let fetch_stage = FetchStage::new(tpu_forwards_receiver, tpu_sender, exit.clone());
 
@@ -122,7 +136,7 @@ impl Tpu {
                 fetch_stage,
                 staked_nodes_updater_service,
                 sigverify_stage,
-                thread_handles: vec![tpu_quic_t, tpu_forwards_quic_t],
+                thread_handles: quic_tasks,
             },
             banking_packet_receiver,
         )

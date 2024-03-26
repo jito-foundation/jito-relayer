@@ -2,6 +2,7 @@ use std::{
     collections::HashSet,
     fs,
     net::{IpAddr, Ipv4Addr, SocketAddr},
+    ops::Range,
     path::PathBuf,
     str::FromStr,
     sync::{
@@ -58,23 +59,29 @@ static GLOBAL: Jemalloc = Jemalloc;
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// Port to bind to advertise for TPU
-    /// NOTE: There is no longer a socket created at this port since UDP transaction receiving is
-    /// deprecated.
-    #[arg(long, env, default_value_t = 11_222)]
+    /// DEPRECATED, will be removed in a future release.
+    #[arg(long, env, default_value_t = 0)]
     tpu_port: u16,
 
-    /// Port to bind to for tpu fwd packets
-    /// NOTE: There is no longer a socket created at this port since UDP transaction receiving is
-    /// deprecated.
-    #[arg(long, env, default_value_t = 11_223)]
+    /// DEPRECATED, will be removed in a future release.
+    #[arg(long, env, default_value_t = 0)]
     tpu_fwd_port: u16,
 
-    /// Port to bind to for tpu packets. Needs to be tpu_port + 6
+    /// Number of tpu quic servers to spawn.
+    #[arg(long, env, default_value_t = 1)]
+    num_tpu_quic_servers: usize,
+
+    /// Number of tpu fwd quic servers to spawn.
+    #[arg(long, env, default_value_t = 1)]
+    num_tpu_fwd_quic_servers: usize,
+
+    /// Port to bind to for tpu packets. Need to return port - 6 to validators.
+    /// Make sure to not overlap any tpu forward ports with the normal tpu ports.
+    /// The TPU will bind to all ports in the range of (tpu_quic_port, tpu_quic_port + num_tpu_quic_servers).
     #[arg(long, env, default_value_t = 11_228)]
     tpu_quic_port: u16,
 
-    /// Port to bind to for tpu fwd packets. Needs to be tpu_fwd_port + 6
+    /// Port to bind to for tpu fwd packets. Need to return port - 6 to validators.
     #[arg(long, env, default_value_t = 11_229)]
     tpu_quic_fwd_port: u16,
 
@@ -210,29 +217,64 @@ struct Sockets {
 }
 
 fn get_sockets(args: &Args) -> Sockets {
-    let (tpu_quic_bind_port, mut tpu_quic_sockets) = multi_bind_in_range(
-        IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
-        (args.tpu_quic_port, args.tpu_quic_port + 1),
-        1,
-    )
-    .expect("to bind tpu_quic sockets");
+    assert!(args.num_tpu_quic_servers < u16::MAX as usize);
+    assert!(args.num_tpu_fwd_quic_servers < u16::MAX as usize);
 
-    let (tpu_fwd_quic_bind_port, mut tpu_fwd_quic_sockets) = multi_bind_in_range(
-        IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
-        (args.tpu_quic_fwd_port, args.tpu_quic_fwd_port + 1),
-        1,
-    )
-    .expect("to bind tpu_quic sockets");
+    let tpu_ports = Range {
+        start: args.tpu_quic_port,
+        end: args
+            .tpu_quic_port
+            .checked_add(args.num_tpu_quic_servers as u16)
+            .unwrap(),
+    };
+    let tpu_fwd_ports = Range {
+        start: args.tpu_quic_fwd_port,
+        end: args
+            .tpu_quic_fwd_port
+            .checked_add(args.num_tpu_fwd_quic_servers as u16)
+            .unwrap(),
+    };
 
-    assert_eq!(tpu_quic_bind_port, args.tpu_quic_port);
-    assert_eq!(tpu_fwd_quic_bind_port, args.tpu_quic_fwd_port);
-    assert_eq!(args.tpu_port + 6, tpu_quic_bind_port); // QUIC is expected to be at TPU + 6
-    assert_eq!(args.tpu_fwd_port + 6, tpu_fwd_quic_bind_port); // QUIC is expected to be at TPU forward + 6
+    for tpu_port in tpu_ports.start..tpu_ports.end {
+        assert!(!tpu_fwd_ports.contains(&tpu_port));
+    }
+
+    let (tpu_p, tpu_quic_sockets): (Vec<_>, Vec<_>) = (0..args.num_tpu_quic_servers)
+        .map(|i| {
+            let (port, mut sock) = multi_bind_in_range(
+                IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
+                (tpu_ports.start + i as u16, tpu_ports.start + 1 + i as u16),
+                1,
+            )
+            .unwrap();
+
+            (port, sock.pop().unwrap())
+        })
+        .unzip();
+
+    let (tpu_fwd_p, tpu_fwd_quic_sockets): (Vec<_>, Vec<_>) = (0..args.num_tpu_fwd_quic_servers)
+        .map(|i| {
+            let (port, mut sock) = multi_bind_in_range(
+                IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
+                (
+                    tpu_fwd_ports.start + i as u16,
+                    tpu_fwd_ports.start + 1 + i as u16,
+                ),
+                1,
+            )
+            .unwrap();
+
+            (port, sock.pop().unwrap())
+        })
+        .unzip();
+
+    assert_eq!(tpu_ports.collect::<Vec<_>>(), tpu_p);
+    assert_eq!(tpu_fwd_ports.collect::<Vec<_>>(), tpu_fwd_p);
 
     Sockets {
         tpu_sockets: TpuSockets {
-            transactions_quic_sockets: tpu_quic_sockets.pop().unwrap(),
-            transactions_forwards_quic_sockets: tpu_fwd_quic_sockets.pop().unwrap(),
+            transactions_quic_sockets: tpu_quic_sockets,
+            transactions_forwards_quic_sockets: tpu_fwd_quic_sockets,
         },
         tpu_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
         tpu_fwd_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
@@ -411,8 +453,9 @@ fn main() {
         delay_packet_receiver,
         leader_cache.handle(),
         public_ip,
-        args.tpu_port,
-        args.tpu_fwd_port,
+        (args.tpu_quic_port..args.tpu_quic_port + args.num_tpu_quic_servers as u16).collect(),
+        (args.tpu_quic_fwd_port..args.tpu_quic_fwd_port + args.num_tpu_fwd_quic_servers as u16)
+            .collect(),
         health_manager.handle(),
         exit.clone(),
         ofac_addresses,
