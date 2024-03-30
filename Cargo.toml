@@ -93,3 +93,4 @@ lto = "thin"
 solana-program = {git = "https://github.com/lijunwangs/solana.git", rev = "45ee16c52bd6c4f39e05fc9f0525be00dba652fa"}
 solana-zk-token-sdk = {git = "https://github.com/lijunwangs/solana.git", rev = "45ee16c52bd6c4f39e05fc9f0525be00dba652fa"}
 
+
