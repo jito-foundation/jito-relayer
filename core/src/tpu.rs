@@ -84,8 +84,8 @@ impl Tpu {
             exit.clone(),
             MAX_QUIC_CONNECTIONS_PER_PEER,
             staked_nodes.clone(),
-            MAX_STAKED_CONNECTIONS,
-            max_unstaked_quic_connections,
+            8000, // MAX_STAKED_CONNECTIONS,
+            8000, // max_unstaked_quic_connections,
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
             Duration::from_millis(DEFAULT_TPU_COALESCE_MS),
         )
