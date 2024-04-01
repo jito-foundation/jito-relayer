@@ -50,7 +50,7 @@ prost = "0.12.1"
 prost-types = "0.12.1"
 protobuf-src = "1.1.0"
 quinn = "0.10"
-rand = "0.7"
+rand = "0.8.5"
 rayon = "1.7.0"
 rustls = { version = "0.21", features = ["dangerous_configuration", "quic"] }
 serde = { version = "1.0.160", features = ["derive"] }
