@@ -20,7 +20,7 @@ use solana_core::{
 use solana_sdk::signature::Keypair;
 use solana_streamer::{
     nonblocking::quic::DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
-    quic::{spawn_server, SpawnServerResult, MAX_STAKED_CONNECTIONS},
+    quic::{spawn_server, MAX_STAKED_CONNECTIONS},
     streamer::StakedNodes,
 };
 
@@ -75,11 +75,7 @@ impl Tpu {
         let (tpu_forwards_sender, tpu_forwards_receiver) =
             crossbeam_channel::bounded(Tpu::TPU_QUEUE_CAPACITY);
 
-        let SpawnServerResult {
-            endpoints: _,
-            thread: tpu_quic_t,
-            key_updater: _,
-        } = spawn_server(
+        let (_, tpu_quic_t) = spawn_server(
             "quic_streamer_tpu",
             transactions_quic_sockets,
             keypair,
@@ -88,18 +84,14 @@ impl Tpu {
             exit.clone(),
             MAX_QUIC_CONNECTIONS_PER_PEER,
             staked_nodes.clone(),
-            8000, // MAX_STAKED_CONNECTIONS,
-            8000, // max_unstaked_quic_connections,
+            MAX_STAKED_CONNECTIONS,
+            max_unstaked_quic_connections,
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
             Duration::from_millis(DEFAULT_TPU_COALESCE_MS),
         )
         .unwrap();
 
-        let SpawnServerResult {
-            endpoints: _,
-            thread: tpu_forwards_quic_t,
-            key_updater: _,
-        } = spawn_server(
+        let (_, tpu_forwards_quic_t) = spawn_server(
             "quic_streamer_tpu_forwards",
             transactions_forwards_quic_sockets,
             keypair,
