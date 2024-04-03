@@ -202,7 +202,12 @@ struct Args {
     #[arg(long, env, default_value_t = false)]
     disable_mempool: bool,
 
-    /// Staked Nodes Overrides
+    /// Staked Nodes Overrides Path
+    /// "Provide path to a yaml file with custom overrides for stakes of specific
+    ///  identities. Overriding the amount of stake this validator considers as valid
+    ///  for other peers in network. The stake amount is used for calculating the
+    ///  number of QUIC streams permitted from the peer and vote packet sender stage.
+    ///  Format of the file: `staked_map_id: {<pubkey>: <SOL stake amount>}"
     #[arg(long, env)]
     staked_nodes_overrides: Option<String>,
 }
