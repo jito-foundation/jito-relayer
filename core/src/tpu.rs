@@ -1,7 +1,7 @@
 //! The `tpu` module implements the Transaction Processing Unit, a
 //! multi-stage transaction processing pipeline in software.
-
 use std::{
+    collections::HashMap,
     net::{IpAddr, UdpSocket},
     sync::{atomic::AtomicBool, Arc, RwLock},
     thread,
@@ -17,7 +17,7 @@ use solana_core::{
     sigverify_stage::SigVerifyStage,
     tpu::MAX_QUIC_CONNECTIONS_PER_PEER,
 };
-use solana_sdk::signature::Keypair;
+use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 use solana_streamer::{
     nonblocking::quic::DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
     quic::{spawn_server, MAX_STAKED_CONNECTIONS},
@@ -55,6 +55,7 @@ impl Tpu {
         tpu_fwd_ip: &IpAddr,
         rpc_load_balancer: &Arc<LoadBalancer>,
         max_unstaked_quic_connections: usize,
+        staked_nodes_overrides: Arc<RwLock<HashMap<Pubkey, u64>>>,
     ) -> (Self, Receiver<BankingPacketBatch>) {
         let TpuSockets {
             transactions_quic_sockets,
@@ -66,6 +67,7 @@ impl Tpu {
             exit.clone(),
             rpc_load_balancer.clone(),
             staked_nodes.clone(),
+            staked_nodes_overrides,
         );
 
         // sender tracked as fetch_stage-channel_stats.tpu_sender_len

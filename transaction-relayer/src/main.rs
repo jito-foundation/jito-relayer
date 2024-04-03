@@ -1,12 +1,12 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::PathBuf,
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, RwLock,
     },
     thread,
     thread::JoinHandle,
@@ -38,6 +38,7 @@ use jito_transaction_relayer::forwarder::start_forward_and_delay_thread;
 use jwt::{AlgorithmType, PKeyWithDigest};
 use log::{debug, error, info, warn};
 use openssl::{hash::MessageDigest, pkey::PKey};
+use serde::{de::Deserializer, Deserialize};
 use solana_address_lookup_table_program::state::AddressLookupTable;
 use solana_metrics::{datapoint_error, datapoint_info};
 use solana_net_utils::multi_bind_in_range;
@@ -200,6 +201,10 @@ struct Args {
     /// Disable Mempool forwarding
     #[arg(long, env, default_value_t = false)]
     disable_mempool: bool,
+
+    /// Staked Nodes Overrides
+    #[arg(long, env)]
+    staked_nodes_overrides: Option<String>,
 }
 
 #[derive(Debug)]
@@ -338,6 +343,21 @@ fn main() {
         &exit,
     );
 
+    let staked_nodes_overrides = match args.staked_nodes_overrides {
+        None => StakedNodesOverrides::default(),
+        Some(p) => {
+            let file = fs::File::open(&p).expect(&format!(
+                "Failed to open staked nodes overrides file: {:?}",
+                &p
+            ));
+            serde_yaml::from_reader(file).expect(&format!(
+                "Failed to read staked nodes overrides file: {:?}",
+                &p,
+            ))
+        }
+    };
+    let staked_nodes_overrides = Arc::new(RwLock::new(staked_nodes_overrides.staked_map_id));
+
     let (tpu, verified_receiver) = Tpu::new(
         sockets.tpu_sockets,
         &exit,
@@ -346,6 +366,7 @@ fn main() {
         &sockets.tpu_fwd_ip,
         &rpc_load_balancer,
         args.max_unstaked_quic_connections,
+        staked_nodes_overrides,
     );
 
     let leader_cache = LeaderScheduleCacheUpdater::new(&rpc_load_balancer, &exit);
@@ -643,4 +664,24 @@ fn refresh_address_lookup_table(
     lookup_table.retain(|pubkey, _| new_pubkeys.contains(pubkey));
 
     Ok(())
+}
+
+#[derive(Default, Deserialize, Clone)]
+pub struct StakedNodesOverrides {
+    #[serde(deserialize_with = "deserialize_pubkey_map")]
+    pub staked_map_id: HashMap<Pubkey, u64>,
+}
+
+fn deserialize_pubkey_map<'de, D>(des: D) -> std::result::Result<HashMap<Pubkey, u64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let container: HashMap<String, u64> = serde::Deserialize::deserialize(des)?;
+    let mut container_typed: HashMap<Pubkey, u64> = HashMap::new();
+    for (key, value) in container.iter() {
+        let typed_key = Pubkey::try_from(key.as_str())
+            .map_err(|_| serde::de::Error::invalid_type(serde::de::Unexpected::Map, &"PubKey"))?;
+        container_typed.insert(typed_key, *value);
+    }
+    Ok(container_typed)
 }
