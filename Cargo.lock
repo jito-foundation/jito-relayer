@@ -2508,7 +2508,7 @@ checksum = "af150ab688ff2122fcef229be89cb50dd66af9e01a4ff320cc137eecc9bacc38"
 
 [[package]]
 name = "jito-block-engine"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "cached",
  "dashmap 5.5.3",
@@ -2528,7 +2528,7 @@ dependencies = [
 
 [[package]]
 name = "jito-core"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "bincode",
  "crossbeam-channel",
@@ -2554,7 +2554,7 @@ dependencies = [
 
 [[package]]
 name = "jito-protos"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "bytes",
  "prost 0.12.3",
@@ -2568,7 +2568,7 @@ dependencies = [
 
 [[package]]
 name = "jito-relayer"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "chrono",
  "crossbeam-channel",
@@ -2599,7 +2599,7 @@ dependencies = [
 
 [[package]]
 name = "jito-relayer-web"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "axum 0.5.17",
  "jito-relayer",
@@ -2613,7 +2613,7 @@ dependencies = [
 
 [[package]]
 name = "jito-rpc"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "crossbeam-channel",
  "dashmap 5.5.3",
@@ -2625,7 +2625,7 @@ dependencies = [
 
 [[package]]
 name = "jito-transaction-relayer"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "bincode",
  "clap 4.4.8",
