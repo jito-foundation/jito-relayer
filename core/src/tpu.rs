@@ -55,7 +55,7 @@ impl Tpu {
         tpu_fwd_ip: &IpAddr,
         rpc_load_balancer: &Arc<LoadBalancer>,
         max_unstaked_quic_connections: usize,
-        staked_nodes_overrides: Arc<RwLock<HashMap<Pubkey, u64>>>,
+        staked_nodes_overrides: HashMap<Pubkey, u64>,
     ) -> (Self, Receiver<BankingPacketBatch>) {
         let TpuSockets {
             transactions_quic_sockets,
@@ -67,7 +67,7 @@ impl Tpu {
             exit.clone(),
             rpc_load_balancer.clone(),
             staked_nodes.clone(),
-            staked_nodes_overrides,
+            staked_nodes_overrides.clone(),
         );
 
         // sender tracked as fetch_stage-channel_stats.tpu_sender_len

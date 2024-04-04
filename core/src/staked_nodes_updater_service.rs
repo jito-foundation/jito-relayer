@@ -25,7 +25,7 @@ impl StakedNodesUpdaterService {
         exit: Arc<AtomicBool>,
         rpc_load_balancer: Arc<LoadBalancer>,
         shared_staked_nodes: Arc<RwLock<StakedNodes>>,
-        staked_nodes_overrides: Arc<RwLock<HashMap<Pubkey, u64>>>,
+        staked_nodes_overrides: HashMap<Pubkey, u64>,
     ) -> Self {
         let thread_hdl = Builder::new()
             .name("staked_nodes_updater_thread".to_string())
@@ -38,8 +38,7 @@ impl StakedNodesUpdaterService {
                         &mut stake_map,
                         &rpc_load_balancer,
                     ) {
-                        let overrides = staked_nodes_overrides.read().unwrap().clone();
-                        let shared = StakedNodes::new(stake_map, overrides);
+                        let shared = StakedNodes::new(stake_map, staked_nodes_overrides.clone());
                         *shared_staked_nodes.write().unwrap() = shared;
                     }
                 }

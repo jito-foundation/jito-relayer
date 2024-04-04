@@ -6,7 +6,7 @@ use std::{
     str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, RwLock,
+        Arc,
     },
     thread,
     thread::JoinHandle,
@@ -361,8 +361,6 @@ fn main() {
             ))
         }
     };
-    let staked_nodes_overrides = Arc::new(RwLock::new(staked_nodes_overrides.staked_map_id));
-
     let (tpu, verified_receiver) = Tpu::new(
         sockets.tpu_sockets,
         &exit,
@@ -371,7 +369,7 @@ fn main() {
         &sockets.tpu_fwd_ip,
         &rpc_load_balancer,
         args.max_unstaked_quic_connections,
-        staked_nodes_overrides,
+        staked_nodes_overrides.staked_map_id,
     );
 
     let leader_cache = LeaderScheduleCacheUpdater::new(&rpc_load_balancer, &exit);
