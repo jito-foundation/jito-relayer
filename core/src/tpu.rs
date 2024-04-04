@@ -67,7 +67,7 @@ impl Tpu {
             exit.clone(),
             rpc_load_balancer.clone(),
             staked_nodes.clone(),
-            staked_nodes_overrides.clone(),
+            staked_nodes_overrides,
         );
 
         // sender tracked as fetch_stage-channel_stats.tpu_sender_len

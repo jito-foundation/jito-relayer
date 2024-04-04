@@ -209,7 +209,7 @@ struct Args {
     ///  number of QUIC streams permitted from the peer and vote packet sender stage.
     ///  Format of the file: `staked_map_id: {<pubkey>: <SOL stake amount>}"
     #[arg(long, env)]
-    staked_nodes_overrides: Option<String>,
+    staked_nodes_overrides: Option<PathBuf>,
 }
 
 #[derive(Debug)]
