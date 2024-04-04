@@ -36,6 +36,7 @@ solana-net-utils = { workspace = true }
 solana-perf = { workspace = true }
 solana-program = { workspace = true }
 solana-sdk = { workspace = true }
+solana-validator = { workspace = true }
 tikv-jemallocator = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }

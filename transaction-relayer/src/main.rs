@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     fs,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::PathBuf,
@@ -38,7 +38,6 @@ use jito_transaction_relayer::forwarder::start_forward_and_delay_thread;
 use jwt::{AlgorithmType, PKeyWithDigest};
 use log::{debug, error, info, warn};
 use openssl::{hash::MessageDigest, pkey::PKey};
-use serde::{de::Deserializer, Deserialize};
 use solana_address_lookup_table_program::state::AddressLookupTable;
 use solana_metrics::{datapoint_error, datapoint_info};
 use solana_net_utils::multi_bind_in_range;
@@ -47,6 +46,7 @@ use solana_sdk::{
     pubkey::Pubkey,
     signature::{read_keypair_file, Signer},
 };
+use solana_validator::admin_rpc_service::StakedNodesOverrides;
 use tikv_jemallocator::Jemalloc;
 use tokio::{runtime::Builder, signal, sync::mpsc::channel};
 use tonic::transport::Server;
@@ -669,24 +669,4 @@ fn refresh_address_lookup_table(
     lookup_table.retain(|pubkey, _| new_pubkeys.contains(pubkey));
 
     Ok(())
-}
-
-#[derive(Default, Deserialize, Clone)]
-pub struct StakedNodesOverrides {
-    #[serde(deserialize_with = "deserialize_pubkey_map")]
-    pub staked_map_id: HashMap<Pubkey, u64>,
-}
-
-fn deserialize_pubkey_map<'de, D>(des: D) -> std::result::Result<HashMap<Pubkey, u64>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let container: HashMap<String, u64> = serde::Deserialize::deserialize(des)?;
-    let mut container_typed: HashMap<Pubkey, u64> = HashMap::new();
-    for (key, value) in container.iter() {
-        let typed_key = Pubkey::try_from(key.as_str())
-            .map_err(|_| serde::de::Error::invalid_type(serde::de::Unexpected::Map, &"PubKey"))?;
-        container_typed.insert(typed_key, *value);
-    }
-    Ok(container_typed)
 }
