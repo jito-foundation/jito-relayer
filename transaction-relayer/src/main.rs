@@ -71,9 +71,10 @@ struct Args {
     tpu_fwd_port: u16,
 
     /// Port to bind to for tpu quic packets.
-    /// Note: get_tpu_configs will return ths port - 6 to validators to match old UDP TPU definition.
-    /// Make sure to not overlap any tpu forward ports with the normal tpu ports.
     /// The TPU will bind to all ports in the range of (tpu_quic_port, tpu_quic_port + num_tpu_quic_servers).
+    /// Open firewall ports for this entire range
+    /// Make sure to not overlap any tpu forward ports with the normal tpu ports.
+    /// Note: get_tpu_configs will return ths port - 6 to validators to match old UDP TPU definition.
     #[arg(long, env, default_value_t = 11_228)]
     tpu_quic_port: u16,
 
@@ -82,8 +83,11 @@ struct Args {
     num_tpu_quic_servers: u16,
 
     /// Port to bind to for tpu quic fwd packets.
+    /// Make sure to set this to at least (num_tpu_fwd_quic_servers + 6) higher than tpu_fwd_quic_port,
+    /// to avoid overlap any tpu forward ports with the normal tpu ports.
+    /// TPU_FWD will bind to all ports in the range of (tpu_fwd_quic_port, tpu_fwd_quic_port + num_tpu_fwd_quic_servers).
+    /// Open firewall ports for this entire range
     /// Note: get_tpu_configs will return ths port - 6 to validators to match old UDP TPU definition.
-    /// Make sure to set this to at least (num_tpu_quic_servers + 6) higher than tpu quick port.
     #[arg(long, env, default_value_t = 11_229)]
     tpu_quic_fwd_port: u16,
 
