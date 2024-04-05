@@ -47,6 +47,7 @@ use solana_sdk::{
     pubkey::Pubkey,
     signature::{read_keypair_file, Signer},
 };
+use solana_validator::admin_rpc_service::StakedNodesOverrides;
 use tikv_jemallocator::Jemalloc;
 use tokio::{runtime::Builder, signal, sync::mpsc::channel};
 use tonic::transport::Server;
@@ -211,6 +212,15 @@ struct Args {
     /// Disable Mempool forwarding
     #[arg(long, env, default_value_t = false)]
     disable_mempool: bool,
+
+    /// Staked Nodes Overrides Path
+    /// "Provide path to a yaml file with custom overrides for stakes of specific
+    ///  identities. Overriding the amount of stake this validator considers as valid
+    ///  for other peers in network. The stake amount is used for calculating the
+    ///  number of QUIC streams permitted from the peer and vote packet sender stage.
+    ///  Format of the file: `staked_map_id: {<pubkey>: <SOL stake amount>}"
+    #[arg(long, env)]
+    staked_nodes_overrides: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -381,6 +391,19 @@ fn main() {
         &exit,
     );
 
+    let staked_nodes_overrides = match args.staked_nodes_overrides {
+        None => StakedNodesOverrides::default(),
+        Some(p) => {
+            let file = fs::File::open(&p).expect(&format!(
+                "Failed to open staked nodes overrides file: {:?}",
+                &p
+            ));
+            serde_yaml::from_reader(file).expect(&format!(
+                "Failed to read staked nodes overrides file: {:?}",
+                &p,
+            ))
+        }
+    };
     let (tpu, verified_receiver) = Tpu::new(
         sockets.tpu_sockets,
         &exit,
@@ -389,6 +412,7 @@ fn main() {
         &sockets.tpu_fwd_ip,
         &rpc_load_balancer,
         args.max_unstaked_quic_connections,
+        staked_nodes_overrides.staked_map_id,
     );
 
     let leader_cache = LeaderScheduleCacheUpdater::new(&rpc_load_balancer, &exit);
