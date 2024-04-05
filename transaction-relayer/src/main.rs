@@ -70,14 +70,6 @@ struct Args {
     #[arg(long, env, default_value_t = 0)]
     tpu_fwd_port: u16,
 
-    /// Number of tpu quic servers to spawn.
-    #[arg(long, env, default_value_t = 1)]
-    num_tpu_quic_servers: u16,
-
-    /// Number of tpu fwd quic servers to spawn.
-    #[arg(long, env, default_value_t = 1)]
-    num_tpu_fwd_quic_servers: u16,
-
     /// Port to bind to for tpu quic packets.
     /// Note: get_tpu_configs will return ths port - 6 to validators to match old UDP TPU definition.
     /// Make sure to not overlap any tpu forward ports with the normal tpu ports.
@@ -85,10 +77,19 @@ struct Args {
     #[arg(long, env, default_value_t = 11_228)]
     tpu_quic_port: u16,
 
+    /// Number of tpu quic servers to spawn.
+    #[arg(long, env, default_value_t = 1)]
+    num_tpu_quic_servers: u16,
+
     /// Port to bind to for tpu quic fwd packets.
     /// Note: get_tpu_configs will return ths port - 6 to validators to match old UDP TPU definition.
+    /// Make sure to set this to at least (num_tpu_quic_servers + 6) higher than tpu quick port.
     #[arg(long, env, default_value_t = 11_229)]
     tpu_quic_fwd_port: u16,
+
+    /// Number of tpu fwd quic servers to spawn.
+    #[arg(long, env, default_value_t = 1)]
+    num_tpu_fwd_quic_servers: u16,
 
     /// Bind IP address for GRPC server
     #[arg(long, env, default_value_t = IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)))]
