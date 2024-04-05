@@ -55,6 +55,7 @@ impl Tpu {
         tpu_fwd_ip: &IpAddr,
         rpc_load_balancer: &Arc<LoadBalancer>,
         max_unstaked_quic_connections: usize,
+        max_staked_quic_connections: usize,
         staked_nodes_overrides: HashMap<Pubkey, u64>,
     ) -> (Self, Receiver<BankingPacketBatch>) {
         let TpuSockets {
@@ -89,7 +90,7 @@ impl Tpu {
                     exit.clone(),
                     MAX_QUIC_CONNECTIONS_PER_PEER,
                     staked_nodes.clone(),
-                    MAX_STAKED_CONNECTIONS,
+                    max_staked_quic_connections,
                     max_unstaked_quic_connections,
                     DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
                     Duration::from_millis(DEFAULT_TPU_COALESCE_MS),
@@ -112,7 +113,7 @@ impl Tpu {
                         exit.clone(),
                         MAX_QUIC_CONNECTIONS_PER_PEER,
                         staked_nodes.clone(),
-                        MAX_STAKED_CONNECTIONS.saturating_add(max_unstaked_quic_connections),
+                        max_staked_quic_connections.saturating_add(max_unstaked_quic_connections),
                         0, // Prevent unstaked nodes from forwarding transactions
                         DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
                         Duration::from_millis(DEFAULT_TPU_COALESCE_MS),
