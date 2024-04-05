@@ -77,13 +77,15 @@ struct Args {
     #[arg(long, env, default_value_t = 1)]
     num_tpu_fwd_quic_servers: u16,
 
-    /// Port to bind to for tpu packets. Need to return port - 6 to validators.
+    /// Port to bind to for tpu quic packets.
+    /// Note: get_tpu_configs will return ths port - 6 to validators to match old UDP TPU definition.
     /// Make sure to not overlap any tpu forward ports with the normal tpu ports.
     /// The TPU will bind to all ports in the range of (tpu_quic_port, tpu_quic_port + num_tpu_quic_servers).
     #[arg(long, env, default_value_t = 11_228)]
     tpu_quic_port: u16,
 
-    /// Port to bind to for tpu fwd packets. Need to return port - 6 to validators.
+    /// Port to bind to for tpu quic fwd packets.
+    /// Note: get_tpu_configs will return ths port - 6 to validators to match old UDP TPU definition.
     #[arg(long, env, default_value_t = 11_229)]
     tpu_quic_fwd_port: u16,
 
