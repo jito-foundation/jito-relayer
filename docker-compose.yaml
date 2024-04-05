@@ -13,10 +13,10 @@ services:
       - KEYPAIR_PATH=/etc/solana/id.json
       - PUBLIC_IP=127.0.0.1
       - TPU_BIND_IP=0.0.0.0
-      - TPU_PORT=10000
-      - TPU_FWD_PORT=10001
       - TPU_QUIC_PORT=10006
-      - TPU_QUIC_FWD_PORT=10007
+      - NUM_TPU_QUIC_SERVERS=10
+      - TPU_QUIC_FWD_PORT=10016
+      - NUM_TPU_FWD_QUIC_SERVERS=10
       - GRPC_BIND_IP=0.0.0.0
       - GRPC_BIND_PORT=11226
       - NUM_TPU_BINDS=32
