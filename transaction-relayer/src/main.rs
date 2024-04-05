@@ -60,20 +60,22 @@ static GLOBAL: Jemalloc = Jemalloc;
 #[clap(author, version, about, long_about = None)]
 struct Args {
     /// DEPRECATED, will be removed in a future release.
+    #[deprecated(since = "0.1.8", note = "UDP TPU disabled")]
     #[arg(long, env, default_value_t = 0)]
     tpu_port: u16,
 
     /// DEPRECATED, will be removed in a future release.
+    #[deprecated(since = "0.1.8", note = "UDP TPU_FWD disabled")]
     #[arg(long, env, default_value_t = 0)]
     tpu_fwd_port: u16,
 
     /// Number of tpu quic servers to spawn.
     #[arg(long, env, default_value_t = 1)]
-    num_tpu_quic_servers: usize,
+    num_tpu_quic_servers: u16,
 
     /// Number of tpu fwd quic servers to spawn.
     #[arg(long, env, default_value_t = 1)]
-    num_tpu_fwd_quic_servers: usize,
+    num_tpu_fwd_quic_servers: u16,
 
     /// Port to bind to for tpu packets. Need to return port - 6 to validators.
     /// Make sure to not overlap any tpu forward ports with the normal tpu ports.
@@ -217,21 +219,21 @@ struct Sockets {
 }
 
 fn get_sockets(args: &Args) -> Sockets {
-    assert!(args.num_tpu_quic_servers < u16::MAX as usize);
-    assert!(args.num_tpu_fwd_quic_servers < u16::MAX as usize);
+    assert!(args.num_tpu_quic_servers < u16::MAX);
+    assert!(args.num_tpu_fwd_quic_servers < u16::MAX);
 
     let tpu_ports = Range {
         start: args.tpu_quic_port,
         end: args
             .tpu_quic_port
-            .checked_add(args.num_tpu_quic_servers as u16)
+            .checked_add(args.num_tpu_quic_servers)
             .unwrap(),
     };
     let tpu_fwd_ports = Range {
         start: args.tpu_quic_fwd_port,
         end: args
             .tpu_quic_fwd_port
-            .checked_add(args.num_tpu_fwd_quic_servers as u16)
+            .checked_add(args.num_tpu_fwd_quic_servers)
             .unwrap(),
     };
 
@@ -243,7 +245,7 @@ fn get_sockets(args: &Args) -> Sockets {
         .map(|i| {
             let (port, mut sock) = multi_bind_in_range(
                 IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
-                (tpu_ports.start + i as u16, tpu_ports.start + 1 + i as u16),
+                (tpu_ports.start + i, tpu_ports.start + 1 + i),
                 1,
             )
             .unwrap();
@@ -256,10 +258,7 @@ fn get_sockets(args: &Args) -> Sockets {
         .map(|i| {
             let (port, mut sock) = multi_bind_in_range(
                 IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
-                (
-                    tpu_fwd_ports.start + i as u16,
-                    tpu_fwd_ports.start + 1 + i as u16,
-                ),
+                (tpu_fwd_ports.start + i, tpu_fwd_ports.start + 1 + i),
                 1,
             )
             .unwrap();
