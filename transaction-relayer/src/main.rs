@@ -40,10 +40,11 @@ use log::{debug, error, info, warn};
 use openssl::{hash::MessageDigest, pkey::PKey};
 use solana_address_lookup_table_program::state::AddressLookupTable;
 use solana_metrics::{datapoint_error, datapoint_info};
-use solana_net_utils::multi_bind_in_range;
+use solana_net_utils::{bind_more_reuseport, multi_bind_in_range};
 use solana_sdk::{
     address_lookup_table_account::AddressLookupTableAccount,
     pubkey::Pubkey,
+    quic::QUIC_ENDPOINTS,
     signature::{read_keypair_file, Signer},
 };
 use tikv_jemallocator::Jemalloc;
@@ -229,10 +230,15 @@ fn get_sockets(args: &Args) -> Sockets {
     assert_eq!(args.tpu_port + 6, tpu_quic_bind_port); // QUIC is expected to be at TPU + 6
     assert_eq!(args.tpu_fwd_port + 6, tpu_fwd_quic_bind_port); // QUIC is expected to be at TPU forward + 6
 
+    let transactions_quic_sockets =
+        bind_more_reuseport(tpu_quic_sockets.pop().unwrap(), QUIC_ENDPOINTS);
+    let transactions_forwards_quic_sockets =
+        bind_more_reuseport(tpu_fwd_quic_sockets.pop().unwrap(), QUIC_ENDPOINTS);
+
     Sockets {
         tpu_sockets: TpuSockets {
-            transactions_quic_sockets: tpu_quic_sockets.pop().unwrap(),
-            transactions_forwards_quic_sockets: tpu_fwd_quic_sockets.pop().unwrap(),
+            transactions_quic_sockets,
+            transactions_forwards_quic_sockets,
         },
         tpu_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
         tpu_fwd_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
