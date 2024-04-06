@@ -33,8 +33,8 @@ pub const MAX_QUIC_CONNECTIONS_PER_IP: usize = 8;
 
 #[derive(Debug)]
 pub struct TpuSockets {
-    pub transactions_quic_sockets: UdpSocket,
-    pub transactions_forwards_quic_sockets: UdpSocket,
+    pub transactions_quic_sockets: Vec<UdpSocket>,
+    pub transactions_forwards_quic_sockets: Vec<UdpSocket>,
 }
 
 pub struct Tpu {
