@@ -201,6 +201,10 @@ struct Args {
     /// Disable Mempool forwarding
     #[arg(long, env, default_value_t = false)]
     disable_mempool: bool,
+
+    /// Number of endpoints per QUIC server
+    #[arg(long, env, default_value_t = 10)]
+    num_quic_endpoints: usize,
 }
 
 #[derive(Debug)]
@@ -231,9 +235,9 @@ fn get_sockets(args: &Args) -> Sockets {
     assert_eq!(args.tpu_fwd_port + 6, tpu_fwd_quic_bind_port); // QUIC is expected to be at TPU forward + 6
 
     let transactions_quic_sockets =
-        bind_more_reuseport(tpu_quic_sockets.pop().unwrap(), QUIC_ENDPOINTS);
+        bind_more_reuseport(tpu_quic_sockets.pop().unwrap(), args.num_quic_endpoints);
     let transactions_forwards_quic_sockets =
-        bind_more_reuseport(tpu_fwd_quic_sockets.pop().unwrap(), QUIC_ENDPOINTS);
+        bind_more_reuseport(tpu_fwd_quic_sockets.pop().unwrap(), args.num_quic_endpoints);
 
     Sockets {
         tpu_sockets: TpuSockets {
