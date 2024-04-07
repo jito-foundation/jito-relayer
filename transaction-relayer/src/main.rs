@@ -194,6 +194,10 @@ struct Args {
     #[arg(long, env, default_value_t = 500)]
     max_unstaked_quic_connections: usize,
 
+    /// Max unstaked connections for the QUIC server
+    #[arg(long, env, default_value_t = 2000)]
+    max_staked_quic_connections: usize,
+
     /// Number of packets to send in each packet batch to the validator
     #[arg(long, env, default_value_t = 4)]
     validator_packet_batch_size: usize,
@@ -356,6 +360,7 @@ fn main() {
         &sockets.tpu_fwd_ip,
         &rpc_load_balancer,
         args.max_unstaked_quic_connections,
+        args.max_staked_quic_connections,
     );
 
     let leader_cache = LeaderScheduleCacheUpdater::new(&rpc_load_balancer, &exit);
