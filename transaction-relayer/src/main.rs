@@ -358,15 +358,15 @@ fn main() {
     // to --rpc-send-transaction-tpu-peer
     for s in &sockets.tpu_sockets.transactions_quic_sockets {
         info!(
-            "TPU quic socket is listening at: {:?}:{}",
-            sockets.tpu_ip.to_string(),
+            "TPU quic socket is listening at: {}:{}",
+            public_ip.to_string(),
             s.local_addr().unwrap().port()
         );
     }
     for s in &sockets.tpu_sockets.transactions_quic_sockets {
         info!(
-            "TPU forward quic socket is listening at: {:?}:{}",
-            sockets.tpu_fwd_ip.to_string(),
+            "TPU forward quic socket is listening at: {}:{}",
+            public_ip.to_string(),
             s.local_addr().unwrap().port()
         );
     }
