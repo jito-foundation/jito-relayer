@@ -352,7 +352,24 @@ fn main() {
     assert!(args.grpc_bind_ip.is_ipv4(), "must bind to IPv4 address");
 
     let sockets = get_sockets(&args);
-    info!("Relayer listening at: {sockets:?}");
+
+    // make sure to allow your firewall to accept UDP packets on these ports
+    // if you're using staked overrides, you can provide one of these addresses
+    // to --rpc-send-transaction-tpu-peer
+    for s in &sockets.tpu_sockets.transactions_quic_sockets {
+        info!(
+            "TPU quic socket is listening at: {}:{}",
+            public_ip.to_string(),
+            s.local_addr().unwrap().port()
+        );
+    }
+    for s in &sockets.tpu_sockets.transactions_forwards_quic_sockets {
+        info!(
+            "TPU forward quic socket is listening at: {}:{}",
+            public_ip.to_string(),
+            s.local_addr().unwrap().port()
+        );
+    }
 
     let keypair =
         Arc::new(read_keypair_file(args.keypair_path).expect("keypair file does not exist"));

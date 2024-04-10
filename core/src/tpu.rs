@@ -19,9 +19,7 @@ use solana_core::{
 };
 use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 use solana_streamer::{
-    nonblocking::quic::DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
-    quic::{spawn_server, MAX_STAKED_CONNECTIONS},
-    streamer::StakedNodes,
+    nonblocking::quic::DEFAULT_WAIT_FOR_CHUNK_TIMEOUT, quic::spawn_server, streamer::StakedNodes,
 };
 
 use crate::{fetch_stage::FetchStage, staked_nodes_updater_service::StakedNodesUpdaterService};
