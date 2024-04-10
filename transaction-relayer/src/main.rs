@@ -363,7 +363,7 @@ fn main() {
             s.local_addr().unwrap().port()
         );
     }
-    for s in &sockets.tpu_sockets.transactions_quic_sockets {
+    for s in &sockets.tpu_sockets.transactions_forwards_quic_sockets {
         info!(
             "TPU forward quic socket is listening at: {}:{}",
             public_ip.to_string(),
