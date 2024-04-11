@@ -249,18 +249,22 @@ fn get_sockets(args: &Args) -> Sockets {
         start: args.tpu_quic_port,
         end: args
             .tpu_quic_port
-            .checked_add(args.num_tpu_quic_servers)
-            .unwrap()
-            .checked_mul(args.num_quic_endpoints)
+            .checked_add(
+                args.num_tpu_quic_servers
+                    .checked_mul(args.num_quic_endpoints)
+                    .unwrap(),
+            )
             .unwrap(),
     };
     let tpu_fwd_ports = Range {
         start: args.tpu_quic_fwd_port,
         end: args
             .tpu_quic_fwd_port
-            .checked_add(args.num_tpu_fwd_quic_servers)
-            .unwrap()
-            .checked_mul(args.num_quic_endpoints)
+            .checked_add(
+                args.num_tpu_fwd_quic_servers
+                    .checked_mul(args.num_quic_endpoints)
+                    .unwrap(),
+            )
             .unwrap(),
     };
 
