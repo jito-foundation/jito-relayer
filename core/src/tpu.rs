@@ -19,7 +19,9 @@ use solana_core::{
 };
 use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 use solana_streamer::{
-    nonblocking::quic::DEFAULT_WAIT_FOR_CHUNK_TIMEOUT, quic::spawn_server, streamer::StakedNodes,
+    nonblocking::quic::{TpuType, DEFAULT_WAIT_FOR_CHUNK_TIMEOUT},
+    quic::spawn_server_multi,
+    streamer::StakedNodes,
 };
 
 use crate::{fetch_stage::FetchStage, staked_nodes_updater_service::StakedNodesUpdaterService};
@@ -31,8 +33,8 @@ pub const MAX_QUIC_CONNECTIONS_PER_IP: usize = 8;
 
 #[derive(Debug)]
 pub struct TpuSockets {
-    pub transactions_quic_sockets: Vec<UdpSocket>,
-    pub transactions_forwards_quic_sockets: Vec<UdpSocket>,
+    pub transactions_quic_sockets: Vec<Vec<UdpSocket>>,
+    pub transactions_forwards_quic_sockets: Vec<Vec<UdpSocket>>,
 }
 
 pub struct Tpu {
@@ -79,8 +81,9 @@ impl Tpu {
         let mut quic_tasks = transactions_quic_sockets
             .into_iter()
             .map(|sock| {
-                spawn_server(
+                spawn_server_multi(
                     "quic_streamer_tpu",
+                    TpuType::Regular,
                     sock,
                     keypair,
                     *tpu_ip,
@@ -90,6 +93,7 @@ impl Tpu {
                     staked_nodes.clone(),
                     max_staked_quic_connections,
                     max_unstaked_quic_connections,
+                    25_000 / 10,
                     DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
                     Duration::from_millis(DEFAULT_TPU_COALESCE_MS),
                 )
@@ -102,8 +106,9 @@ impl Tpu {
             transactions_forwards_quic_sockets
                 .into_iter()
                 .map(|sock| {
-                    spawn_server(
+                    spawn_server_multi(
                         "quic_streamer_tpu_forwards",
+                        TpuType::Staked,
                         sock,
                         keypair,
                         *tpu_fwd_ip,
@@ -113,6 +118,7 @@ impl Tpu {
                         staked_nodes.clone(),
                         max_staked_quic_connections.saturating_add(max_unstaked_quic_connections),
                         0, // Prevent unstaked nodes from forwarding transactions
+                        5_000 / 10,
                         DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
                         Duration::from_millis(DEFAULT_TPU_COALESCE_MS),
                     )
