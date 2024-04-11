@@ -81,17 +81,21 @@ struct Args {
     num_tpu_quic_servers: u16,
 
     /// Port to bind to for tpu quic fwd packets.
-    /// Make sure to set this to at least (num_tpu_fwd_quic_servers + 6) higher than tpu_fwd_quic_port,
+    /// Make sure to set this to at least (num_tpu_fwd_quic_servers * num_quic_endpoints + 6) higher than tpu_quic_port,
     /// to avoid overlap any tpu forward ports with the normal tpu ports.
     /// TPU_FWD will bind to all ports in the range of (tpu_fwd_quic_port, tpu_fwd_quic_port + num_tpu_fwd_quic_servers).
     /// Open firewall ports for this entire range
     /// Note: get_tpu_configs will return ths port - 6 to validators to match old UDP TPU definition.
-    #[arg(long, env, default_value_t = 11_232)]
+    #[arg(long, env, default_value_t = 11_238)]
     tpu_quic_fwd_port: u16,
 
     /// Number of tpu fwd quic servers to spawn.
     #[arg(long, env, default_value_t = 1)]
     num_tpu_fwd_quic_servers: u16,
+
+    /// Number of endpoints per quic server
+    #[arg(long, env, default_value_t = 4)]
+    num_quic_endpoints: u16,
 
     /// Bind IP address for GRPC server
     #[arg(long, env, default_value_t = IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)))]
@@ -228,10 +232,6 @@ struct Args {
     ///  Format of the file: `staked_map_id: {<pubkey>: <SOL stake amount>}"
     #[arg(long, env)]
     staked_nodes_overrides: Option<PathBuf>,
-
-    /// Number of endpoints per QUIC server
-    #[arg(long, env, default_value_t = 10)]
-    num_quic_endpoints: u16,
 }
 
 #[derive(Debug)]
