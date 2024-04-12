@@ -399,8 +399,8 @@ impl RelayerHandle {
 }
 
 pub struct RelayerImpl {
-    tpu_quic_ports: Vec<u16>,
-    tpu_fwd_quic_ports: Vec<u16>,
+    tpu_quic_ports: Vec<Vec<u16>>,
+    tpu_fwd_quic_ports: Vec<Vec<u16>>,
     public_ip: IpAddr,
     seq: AtomicU64,
 
@@ -419,8 +419,8 @@ impl RelayerImpl {
         delay_packet_receiver: Receiver<RelayerPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
         public_ip: IpAddr,
-        tpu_quic_ports: Vec<u16>,
-        tpu_fwd_quic_ports: Vec<u16>,
+        tpu_quic_ports: Vec<Vec<u16>>,
+        tpu_fwd_quic_ports: Vec<Vec<u16>>,
         health_state: Arc<RwLock<HealthState>>,
         exit: Arc<AtomicBool>,
         ofac_addresses: HashSet<Pubkey>,
@@ -801,11 +801,13 @@ impl Relayer for RelayerImpl {
         return Ok(Response::new(GetTpuConfigsResponse {
             tpu: Some(Socket {
                 ip: self.public_ip.to_string(),
-                port: (self.tpu_quic_ports[seq as usize % self.tpu_quic_ports.len()] - 6) as i64,
+                // give first port of multi-quic server
+                port: (self.tpu_quic_ports[seq as usize % self.tpu_quic_ports.len()][0] - 6) as i64,
             }),
             tpu_forward: Some(Socket {
                 ip: self.public_ip.to_string(),
-                port: (self.tpu_fwd_quic_ports[seq as usize % self.tpu_fwd_quic_ports.len()] - 6)
+                // give first port of multi-quic server
+                port: (self.tpu_fwd_quic_ports[seq as usize % self.tpu_fwd_quic_ports.len()][0] - 6)
                     as i64,
             }),
         }));

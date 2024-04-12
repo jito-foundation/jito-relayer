@@ -14,6 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use agave_validator::admin_rpc_service::StakedNodesOverrides;
 use clap::Parser;
 use crossbeam_channel::tick;
 use dashmap::DashMap;
@@ -41,18 +42,15 @@ use log::{debug, error, info, warn};
 use openssl::{hash::MessageDigest, pkey::PKey};
 use solana_address_lookup_table_program::state::AddressLookupTable;
 use solana_metrics::{datapoint_error, datapoint_info};
-use solana_net_utils::multi_bind_in_range;
+use solana_net_utils::{bind_more_with_config, multi_bind_in_range, SocketConfig};
 use solana_sdk::{
     address_lookup_table_account::AddressLookupTableAccount,
     pubkey::Pubkey,
     signature::{read_keypair_file, Signer},
 };
-use solana_validator::admin_rpc_service::StakedNodesOverrides;
 use tikv_jemallocator::Jemalloc;
 use tokio::{runtime::Builder, signal, sync::mpsc::channel};
 use tonic::transport::Server;
-
-// no-op change to test ci
 
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
@@ -83,17 +81,21 @@ struct Args {
     num_tpu_quic_servers: u16,
 
     /// Port to bind to for tpu quic fwd packets.
-    /// Make sure to set this to at least (num_tpu_fwd_quic_servers + 6) higher than tpu_fwd_quic_port,
+    /// Make sure to set this to at least (num_tpu_fwd_quic_servers * num_quic_endpoints + 6) higher than tpu_quic_port,
     /// to avoid overlap any tpu forward ports with the normal tpu ports.
     /// TPU_FWD will bind to all ports in the range of (tpu_fwd_quic_port, tpu_fwd_quic_port + num_tpu_fwd_quic_servers).
     /// Open firewall ports for this entire range
     /// Note: get_tpu_configs will return ths port - 6 to validators to match old UDP TPU definition.
-    #[arg(long, env, default_value_t = 11_229)]
+    #[arg(long, env, default_value_t = 11_238)]
     tpu_quic_fwd_port: u16,
 
     /// Number of tpu fwd quic servers to spawn.
     #[arg(long, env, default_value_t = 1)]
     num_tpu_fwd_quic_servers: u16,
+
+    /// Number of endpoints per quic server
+    #[arg(long, env, default_value_t = 4)]
+    num_quic_endpoints: u16,
 
     /// Bind IP address for GRPC server
     #[arg(long, env, default_value_t = IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)))]
@@ -253,14 +255,22 @@ fn get_sockets(args: &Args) -> Sockets {
         start: args.tpu_quic_port,
         end: args
             .tpu_quic_port
-            .checked_add(args.num_tpu_quic_servers)
+            .checked_add(
+                args.num_tpu_quic_servers
+                    .checked_mul(args.num_quic_endpoints)
+                    .unwrap(),
+            )
             .unwrap(),
     };
     let tpu_fwd_ports = Range {
         start: args.tpu_quic_fwd_port,
         end: args
             .tpu_quic_fwd_port
-            .checked_add(args.num_tpu_fwd_quic_servers)
+            .checked_add(
+                args.num_tpu_fwd_quic_servers
+                    .checked_mul(args.num_quic_endpoints)
+                    .unwrap(),
+            )
             .unwrap(),
     };
 
@@ -268,34 +278,77 @@ fn get_sockets(args: &Args) -> Sockets {
         assert!(!tpu_fwd_ports.contains(&tpu_port));
     }
 
-    let (tpu_p, tpu_quic_sockets): (Vec<_>, Vec<_>) = (0..args.num_tpu_quic_servers)
+    let (tpu_p, tpu_quic_sockets): (Vec<Vec<_>>, Vec<Vec<_>>) = (0..args.num_tpu_quic_servers)
         .map(|i| {
             let (port, mut sock) = multi_bind_in_range(
                 IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
-                (tpu_ports.start + i, tpu_ports.start + 1 + i),
+                (
+                    tpu_ports.start + i * args.num_quic_endpoints,
+                    tpu_ports.start + i * args.num_quic_endpoints + 1,
+                ),
                 1,
             )
             .unwrap();
 
-            (port, sock.pop().unwrap())
+            let quic_config = SocketConfig {
+                reuseaddr: false,
+                reuseport: true,
+            };
+
+            let transactions_quic_sockets = bind_more_with_config(
+                sock.pop().unwrap(),
+                args.num_quic_endpoints.into(),
+                quic_config.clone(),
+            )
+            .unwrap();
+
+            (
+                (port..port + args.num_quic_endpoints).collect(),
+                transactions_quic_sockets,
+            )
         })
         .unzip();
 
-    let (tpu_fwd_p, tpu_fwd_quic_sockets): (Vec<_>, Vec<_>) = (0..args.num_tpu_fwd_quic_servers)
+    let (tpu_fwd_p, tpu_fwd_quic_sockets): (Vec<Vec<_>>, Vec<Vec<_>>) = (0..args
+        .num_tpu_fwd_quic_servers)
         .map(|i| {
             let (port, mut sock) = multi_bind_in_range(
                 IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
-                (tpu_fwd_ports.start + i, tpu_fwd_ports.start + 1 + i),
+                (
+                    tpu_fwd_ports.start + i * args.num_quic_endpoints,
+                    tpu_fwd_ports.start + i * args.num_quic_endpoints + 1,
+                ),
                 1,
             )
             .unwrap();
 
-            (port, sock.pop().unwrap())
+            let quic_config = SocketConfig {
+                reuseaddr: false,
+                reuseport: true,
+            };
+
+            let transactions_forwards_quic_sockets = bind_more_with_config(
+                sock.pop().unwrap(),
+                args.num_quic_endpoints.into(),
+                quic_config,
+            )
+            .unwrap();
+
+            (
+                (port..port + args.num_quic_endpoints).collect(),
+                transactions_forwards_quic_sockets,
+            )
         })
         .unzip();
 
-    assert_eq!(tpu_ports.collect::<Vec<_>>(), tpu_p);
-    assert_eq!(tpu_fwd_ports.collect::<Vec<_>>(), tpu_fwd_p);
+    assert_eq!(
+        tpu_ports.collect::<Vec<_>>(),
+        tpu_p.into_iter().flatten().collect::<Vec<_>>()
+    );
+    assert_eq!(
+        tpu_fwd_ports.collect::<Vec<_>>(),
+        tpu_fwd_p.into_iter().flatten().collect::<Vec<_>>()
+    );
 
     Sockets {
         tpu_sockets: TpuSockets {
@@ -362,14 +415,25 @@ fn main() {
     // make sure to allow your firewall to accept UDP packets on these ports
     // if you're using staked overrides, you can provide one of these addresses
     // to --rpc-send-transaction-tpu-peer
-    for s in &sockets.tpu_sockets.transactions_quic_sockets {
+    for s in sockets
+        .tpu_sockets
+        .transactions_quic_sockets
+        .iter()
+        .flatten()
+    {
         info!(
             "TPU quic socket is listening at: {}:{}",
             public_ip.to_string(),
             s.local_addr().unwrap().port()
         );
     }
-    for s in &sockets.tpu_sockets.transactions_forwards_quic_sockets {
+
+    for s in sockets
+        .tpu_sockets
+        .transactions_forwards_quic_sockets
+        .iter()
+        .flatten()
+    {
         info!(
             "TPU forward quic socket is listening at: {}:{}",
             public_ip.to_string(),
@@ -511,8 +575,19 @@ fn main() {
         delay_packet_receiver,
         leader_cache.handle(),
         public_ip,
-        (args.tpu_quic_port..args.tpu_quic_port + args.num_tpu_quic_servers as u16).collect(),
-        (args.tpu_quic_fwd_port..args.tpu_quic_fwd_port + args.num_tpu_fwd_quic_servers as u16)
+        (0..args.num_tpu_quic_servers)
+            .map(|i| {
+                (args.tpu_quic_port + i * args.num_quic_endpoints
+                    ..args.tpu_quic_port + (i + 1) * args.num_quic_endpoints)
+                    .collect()
+            })
+            .collect(),
+        (0..args.num_tpu_quic_servers)
+            .map(|i| {
+                (args.tpu_quic_fwd_port + i * args.num_quic_endpoints
+                    ..args.tpu_quic_fwd_port + (i + 1) * args.num_quic_endpoints)
+                    .collect()
+            })
             .collect(),
         health_manager.handle(),
         exit.clone(),
