@@ -684,11 +684,15 @@ impl RelayerImpl {
         let l_subscriptions = subscriptions.read().unwrap();
 
         let senders = if forward_all {
-            l_subscriptions.iter()
+            l_subscriptions.iter().collect::<Vec<(
+                &Pubkey,
+                &TokioSender<Result<SubscribePacketsResponse, Status>>,
+            )>>()
         } else {
             slot_leaders
                 .iter()
                 .filter_map(|pubkey| l_subscriptions.get(pubkey).map(|sender| (pubkey, sender)))
+                .collect()
         };
 
         let mut failed_forwards = Vec::new();
@@ -699,7 +703,7 @@ impl RelayerImpl {
                 continue;
             }
 
-            for (pubkey, sender) in senders {
+            for (pubkey, sender) in &senders {
                 // try send because it's a bounded channel and we don't want to block if the channel is full
                 match sender.try_send(Ok(SubscribePacketsResponse {
                     header: Some(Header {
@@ -718,7 +722,7 @@ impl RelayerImpl {
                     }
                     Err(TrySendError::Closed(_)) => {
                         error!("channel is closed for pubkey: {:?}", pubkey);
-                        failed_forwards.push(*pubkey);
+                        failed_forwards.push(**pubkey);
                         break;
                     }
                 }
