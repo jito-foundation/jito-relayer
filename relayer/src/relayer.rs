@@ -683,6 +683,14 @@ impl RelayerImpl {
 
         let l_subscriptions = subscriptions.read().unwrap();
 
+        let senders = if forward_all {
+            l_subscriptions.iter()
+        } else {
+            slot_leaders
+                .iter()
+                .filter_map(|pubkey| l_subscriptions.get(pubkey).map(|sender| (pubkey, sender)))
+        };
+
         let mut failed_forwards = Vec::new();
         for batch in &proto_packet_batches {
             // NOTE: this is important to avoid divide-by-0 inside the validator if packets
@@ -691,13 +699,7 @@ impl RelayerImpl {
                 continue;
             }
 
-            for (pubkey, sender) in if forward_all {
-                l_subscriptions.iter()
-            } else {
-                slot_leaders
-                    .iter()
-                    .filter_map(|pubkey| l_subscriptions.get(pubkey).map(|sender| (pubkey, sender)))
-            } {
+            for (pubkey, sender) in senders {
                 // try send because it's a bounded channel and we don't want to block if the channel is full
                 match sender.try_send(Ok(SubscribePacketsResponse {
                     header: Some(Header {

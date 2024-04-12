@@ -222,7 +222,8 @@ struct Args {
     #[arg(long, env, default_value_t = false)]
     disable_mempool: bool,
 
-    /// Forward all received packets, regardless of leader schedule
+    /// Forward all received packets to all connected validators,
+    /// regardless of leader schedule
     #[arg(long, env, default_value_t = false)]
     forward_all: bool,
 
