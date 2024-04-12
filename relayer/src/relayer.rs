@@ -691,19 +691,13 @@ impl RelayerImpl {
                 continue;
             }
 
-            let senders = if forward_all {
-                l_subscriptions.iter().collect::<Vec<(
-                    &Pubkey,
-                    &TokioSender<Result<SubscribePacketsResponse, Status>>,
-                )>>()
+            for (pubkey, sender) in if forward_all {
+                l_subscriptions.iter()
             } else {
                 slot_leaders
                     .iter()
                     .filter_map(|pubkey| l_subscriptions.get(pubkey).map(|sender| (pubkey, sender)))
-                    .collect()
-            };
-
-            for (pubkey, sender) in senders {
+            } {
                 // try send because it's a bounded channel and we don't want to block if the channel is full
                 match sender.try_send(Ok(SubscribePacketsResponse {
                     header: Some(Header {
