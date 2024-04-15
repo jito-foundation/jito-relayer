@@ -494,7 +494,7 @@ impl RelayerImpl {
     ) -> RelayerResult<()> {
         let mut highest_slot = Slot::default();
 
-        let heartbeat_tick = crossbeam_channel::tick(Duration::from_millis(500));
+        let heartbeat_tick = crossbeam_channel::tick(Duration::from_millis(200));
         let metrics_tick = crossbeam_channel::tick(Duration::from_millis(1000));
 
         let mut relayer_metrics = RelayerMetrics::new(
