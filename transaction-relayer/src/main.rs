@@ -222,12 +222,18 @@ struct Args {
     #[arg(long, env, default_value_t = false)]
     disable_mempool: bool,
 
+    /// Forward all received packets to all connected validators,
+    /// regardless of leader schedule.  
+    /// Note: This is required to be true for Stake Weighted Quality of Service (SWQOS)!
+    #[arg(long, env, default_value_t = false)]
+    forward_all: bool,
+
     /// Staked Nodes Overrides Path
-    /// "Provide path to a yaml file with custom overrides for stakes of specific
+    /// Provide path to a yaml file with custom overrides for stakes of specific
     ///  identities. Overriding the amount of stake this validator considers as valid
     ///  for other peers in network. The stake amount is used for calculating the
     ///  number of QUIC streams permitted from the peer and vote packet sender stage.
-    ///  Format of the file: `staked_map_id: {<pubkey>: <SOL stake amount>}"
+    ///  Format of the file: `staked_map_id: {<pubkey>: <SOL stake amount>}
     #[arg(long, env)]
     staked_nodes_overrides: Option<PathBuf>,
 }
@@ -513,6 +519,7 @@ fn main() {
         ofac_addresses,
         address_lookup_table_cache,
         args.validator_packet_batch_size,
+        args.forward_all,
     );
 
     let priv_key = fs::read(&args.signing_key_pem_path).unwrap_or_else(|_| {
