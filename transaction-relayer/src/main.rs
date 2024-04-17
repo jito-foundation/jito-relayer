@@ -223,7 +223,8 @@ struct Args {
     disable_mempool: bool,
 
     /// Forward all received packets to all connected validators,
-    /// regardless of leader schedule
+    /// regardless of leader schedule.  
+    /// Note: This is required to be true for Stake Weighted Quality of Service (SWQOS)!
     #[arg(long, env, default_value_t = false)]
     forward_all: bool,
 
