@@ -12,7 +12,7 @@ members = [
 resolver = "1"
 
 [workspace.package]
-version = "0.1.11"
+version = "0.1.12"
 authors = ["Jito Network <support@jito.network>"]
 repository = "https://github.com/jito-foundation/jito-relayer"
 homepage = "https://jito.network/"
@@ -34,12 +34,12 @@ futures-util = "0.3"
 histogram = "0.6.9"
 hostname = "0.3"
 itertools = "0.10.5"
-jito-block-engine = { path = "block_engine", version = "=0.1.11" }
-jito-core = { path = "core", version = "=0.1.11" }
-jito-protos = { path = "jito-protos", version = "=0.1.11" }
-jito-relayer = { path = "relayer", version = "=0.1.11" }
-jito-relayer-web = { path = "web", version = "=0.1.11" }
-jito-rpc = { path = "rpc", version = "=0.1.11" }
+jito-block-engine = { path = "block_engine", version = "=0.1.12" }
+jito-core = { path = "core", version = "=0.1.12" }
+jito-protos = { path = "jito-protos", version = "=0.1.12" }
+jito-relayer = { path = "relayer", version = "=0.1.12" }
+jito-relayer-web = { path = "web", version = "=0.1.12" }
+jito-rpc = { path = "rpc", version = "=0.1.12" }
 jwt = { version = "0.16.0", features = ["openssl"] }
 keyed_priority_queue = "0.4.1"
 lazy_static = "1.4.0"
@@ -57,20 +57,20 @@ serde = { version = "1.0.160", features = ["derive"] }
 serde_json = "1.0.96"
 serde_yaml = "0.9.32"
 sha2 = "0.10.6"
-solana-address-lookup-table-program = "=1.17.28"
-solana-client = "=1.17.28"
-solana-core = "=1.17.28"
-solana-gossip = "=1.17.28"
-solana-measure = "=1.17.28"
-solana-metrics = "=1.17.28"
-solana-net-utils = "=1.17.28"
-solana-perf = "=1.17.28"
-solana-program = "=1.17.28"
-solana-rayon-threadlimit = "=1.17.28"
-solana-runtime = "=1.17.28"
-solana-sdk = "=1.17.28"
-solana-streamer = "=1.17.28"
-solana-validator = "=1.17.28"
+solana-address-lookup-table-program = "=1.17.31"
+solana-client = "=1.17.31"
+solana-core = "=1.17.31"
+solana-gossip = "=1.17.31"
+solana-measure = "=1.17.31"
+solana-metrics = "=1.17.31"
+solana-net-utils = "=1.17.31"
+solana-perf = "=1.17.31"
+solana-program = "=1.17.31"
+solana-rayon-threadlimit = "=1.17.31"
+solana-runtime = "=1.17.31"
+solana-sdk = "=1.17.31"
+solana-streamer = "=1.17.31"
+solana-validator = "=1.17.31"
 thiserror = "1.0.40"
 tikv-jemallocator = { version = "0.4", features = ["profiling"] }
 tokio = { version = "1.29.1", features = ["full"] }
