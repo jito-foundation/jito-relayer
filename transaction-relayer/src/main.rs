@@ -81,12 +81,12 @@ struct Args {
     num_tpu_quic_servers: u16,
 
     /// Port to bind to for tpu quic fwd packets.
-    /// Make sure to set this to at least (num_tpu_fwd_quic_servers * num_quic_endpoints + 6) higher than tpu_quic_port,
+    /// Make sure to set this to at least (num_tpu_fwd_quic_servers + 6) higher than tpu_quic_port,
     /// to avoid overlap any tpu forward ports with the normal tpu ports.
     /// TPU_FWD will bind to all ports in the range of (tpu_fwd_quic_port, tpu_fwd_quic_port + num_tpu_fwd_quic_servers).
     /// Open firewall ports for this entire range
     /// Note: get_tpu_configs will return ths port - 6 to validators to match old UDP TPU definition.
-    #[arg(long, env, default_value_t = 11_238)]
+    #[arg(long, env, default_value_t = 11_229)]
     tpu_quic_fwd_port: u16,
 
     /// Number of tpu fwd quic servers to spawn.
@@ -94,7 +94,7 @@ struct Args {
     num_tpu_fwd_quic_servers: u16,
 
     /// Number of endpoints per quic server
-    #[arg(long, env, default_value_t = 4)]
+    #[arg(long, env, default_value_t = 10)]
     num_quic_endpoints: u16,
 
     /// Bind IP address for GRPC server
@@ -255,22 +255,14 @@ fn get_sockets(args: &Args) -> Sockets {
         start: args.tpu_quic_port,
         end: args
             .tpu_quic_port
-            .checked_add(
-                args.num_tpu_quic_servers
-                    .checked_mul(args.num_quic_endpoints)
-                    .unwrap(),
-            )
+            .checked_add(args.num_tpu_quic_servers)
             .unwrap(),
     };
     let tpu_fwd_ports = Range {
         start: args.tpu_quic_fwd_port,
         end: args
             .tpu_quic_fwd_port
-            .checked_add(
-                args.num_tpu_fwd_quic_servers
-                    .checked_mul(args.num_quic_endpoints)
-                    .unwrap(),
-            )
+            .checked_add(args.num_tpu_fwd_quic_servers)
             .unwrap(),
     };
 
@@ -278,14 +270,11 @@ fn get_sockets(args: &Args) -> Sockets {
         assert!(!tpu_fwd_ports.contains(&tpu_port));
     }
 
-    let (tpu_p, tpu_quic_sockets): (Vec<Vec<_>>, Vec<Vec<_>>) = (0..args.num_tpu_quic_servers)
+    let (tpu_p, tpu_quic_sockets): (Vec<_>, Vec<Vec<_>>) = (0..args.num_tpu_quic_servers)
         .map(|i| {
             let (port, mut sock) = multi_bind_in_range(
                 IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
-                (
-                    tpu_ports.start + i * args.num_quic_endpoints,
-                    tpu_ports.start + i * args.num_quic_endpoints + 1,
-                ),
+                (tpu_ports.start + i, tpu_ports.start + i + 1),
                 1,
             )
             .unwrap();
@@ -309,15 +298,12 @@ fn get_sockets(args: &Args) -> Sockets {
         })
         .unzip();
 
-    let (tpu_fwd_p, tpu_fwd_quic_sockets): (Vec<Vec<_>>, Vec<Vec<_>>) = (0..args
+    let (tpu_fwd_p, tpu_fwd_quic_sockets): (Vec<_>, Vec<Vec<_>>) = (0..args
         .num_tpu_fwd_quic_servers)
         .map(|i| {
             let (port, mut sock) = multi_bind_in_range(
                 IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
-                (
-                    tpu_fwd_ports.start + i * args.num_quic_endpoints,
-                    tpu_fwd_ports.start + i * args.num_quic_endpoints + 1,
-                ),
+                (tpu_fwd_ports.start + i, tpu_fwd_ports.start + i + 1),
                 1,
             )
             .unwrap();
@@ -341,14 +327,8 @@ fn get_sockets(args: &Args) -> Sockets {
         })
         .unzip();
 
-    assert_eq!(
-        tpu_ports.collect::<Vec<_>>(),
-        tpu_p.into_iter().flatten().collect::<Vec<_>>()
-    );
-    assert_eq!(
-        tpu_fwd_ports.collect::<Vec<_>>(),
-        tpu_fwd_p.into_iter().flatten().collect::<Vec<_>>()
-    );
+    assert_eq!(tpu_ports.collect::<Vec<_>>(), tpu_p);
+    assert_eq!(tpu_fwd_ports.collect::<Vec<_>>(), tpu_fwd_p);
 
     Sockets {
         tpu_sockets: TpuSockets {
@@ -576,11 +556,7 @@ fn main() {
         leader_cache.handle(),
         public_ip,
         (0..args.num_tpu_quic_servers)
-            .map(|i| {
-                (args.tpu_quic_port + i * args.num_quic_endpoints
-                    ..args.tpu_quic_port + (i + 1) * args.num_quic_endpoints)
-                    .collect()
-            })
+            .map(|i| (args.tpu_quic_port + i..args.tpu_quic_port + i + 1).collect())
             .collect(),
         (0..args.num_tpu_quic_servers)
             .map(|i| {
