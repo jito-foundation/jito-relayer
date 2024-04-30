@@ -13,7 +13,7 @@ services:
       - KEYPAIR_PATH=/etc/solana/id.json
       - PUBLIC_IP=127.0.0.1
       - TPU_BIND_IP=0.0.0.0
-      - NUM_QUIC_ENDPOINTS=4
+      - NUM_QUIC_ENDPOINTS=10
       - TPU_QUIC_PORT=10006
       - NUM_TPU_QUIC_SERVERS=10
       - TPU_QUIC_FWD_PORT=10016
