@@ -291,10 +291,7 @@ fn get_sockets(args: &Args) -> Sockets {
             )
             .unwrap();
 
-            (
-                (port..port + args.num_quic_endpoints).collect(),
-                transactions_quic_sockets,
-            )
+            (port, transactions_quic_sockets)
         })
         .unzip();
 
@@ -320,10 +317,7 @@ fn get_sockets(args: &Args) -> Sockets {
             )
             .unwrap();
 
-            (
-                (port..port + args.num_quic_endpoints).collect(),
-                transactions_forwards_quic_sockets,
-            )
+            (port, transactions_forwards_quic_sockets)
         })
         .unzip();
 
