@@ -66,7 +66,7 @@ dependencies = [
 [[package]]
 name = "agave-geyser-plugin-interface"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "log",
  "solana-sdk",
@@ -77,7 +77,7 @@ dependencies = [
 [[package]]
 name = "agave-validator"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "agave-geyser-plugin-interface",
  "chrono",
@@ -4972,7 +4972,7 @@ dependencies = [
 [[package]]
 name = "solana-account-decoder"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "Inflector",
  "base64 0.21.5",
@@ -4996,7 +4996,7 @@ dependencies = [
 [[package]]
 name = "solana-accounts-db"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "arrayref",
  "bincode",
@@ -5054,7 +5054,7 @@ dependencies = [
 [[package]]
 name = "solana-address-lookup-table-program"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "bincode",
  "bytemuck",
@@ -5074,7 +5074,7 @@ dependencies = [
 [[package]]
 name = "solana-banks-client"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "borsh 0.10.3",
  "futures 0.3.29",
@@ -5090,7 +5090,7 @@ dependencies = [
 [[package]]
 name = "solana-banks-interface"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "serde",
  "solana-sdk",
@@ -5100,7 +5100,7 @@ dependencies = [
 [[package]]
 name = "solana-banks-server"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "bincode",
  "crossbeam-channel",
@@ -5119,7 +5119,7 @@ dependencies = [
 [[package]]
 name = "solana-bloom"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "bv",
  "fnv",
@@ -5137,7 +5137,7 @@ dependencies = [
 [[package]]
 name = "solana-bpf-loader-program"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "bincode",
  "byteorder",
@@ -5155,7 +5155,7 @@ dependencies = [
 [[package]]
 name = "solana-bucket-map"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "bv",
  "bytemuck",
@@ -5172,7 +5172,7 @@ dependencies = [
 [[package]]
 name = "solana-clap-utils"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "chrono",
  "clap 2.34.0",
@@ -5188,7 +5188,7 @@ dependencies = [
 [[package]]
 name = "solana-cli-config"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "dirs-next",
  "lazy_static",
@@ -5203,7 +5203,7 @@ dependencies = [
 [[package]]
 name = "solana-cli-output"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "Inflector",
  "base64 0.21.5",
@@ -5229,7 +5229,7 @@ dependencies = [
 [[package]]
 name = "solana-client"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "async-trait",
  "bincode",
@@ -5261,7 +5261,7 @@ dependencies = [
 [[package]]
 name = "solana-compute-budget-program"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "solana-program-runtime",
  "solana-sdk",
@@ -5270,7 +5270,7 @@ dependencies = [
 [[package]]
 name = "solana-config-program"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "bincode",
  "chrono",
@@ -5283,7 +5283,7 @@ dependencies = [
 [[package]]
 name = "solana-connection-cache"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "async-trait",
  "bincode",
@@ -5304,7 +5304,7 @@ dependencies = [
 [[package]]
 name = "solana-core"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "base64 0.21.5",
  "bincode",
@@ -5377,7 +5377,7 @@ dependencies = [
 [[package]]
 name = "solana-cost-model"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "lazy_static",
  "log",
@@ -5400,7 +5400,7 @@ dependencies = [
 [[package]]
 name = "solana-download-utils"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "console",
  "indicatif",
@@ -5413,7 +5413,7 @@ dependencies = [
 [[package]]
 name = "solana-entry"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "bincode",
  "crossbeam-channel",
@@ -5434,7 +5434,7 @@ dependencies = [
 [[package]]
 name = "solana-faucet"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "bincode",
  "byteorder",
@@ -5457,7 +5457,7 @@ dependencies = [
 [[package]]
 name = "solana-frozen-abi"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "ahash 0.8.5",
  "blake3",
@@ -5486,7 +5486,7 @@ dependencies = [
 [[package]]
 name = "solana-frozen-abi-macro"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5497,7 +5497,7 @@ dependencies = [
 [[package]]
 name = "solana-genesis-utils"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "log",
  "solana-accounts-db",
@@ -5509,7 +5509,7 @@ dependencies = [
 [[package]]
 name = "solana-geyser-plugin-manager"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "agave-geyser-plugin-interface",
  "bs58",
@@ -5535,7 +5535,7 @@ dependencies = [
 [[package]]
 name = "solana-gossip"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "assert_matches",
  "bincode",
@@ -5584,7 +5584,7 @@ dependencies = [
 [[package]]
 name = "solana-ledger"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "assert_matches",
  "bincode",
@@ -5649,7 +5649,7 @@ dependencies = [
 [[package]]
 name = "solana-loader-v4-program"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "log",
  "solana-measure",
@@ -5661,7 +5661,7 @@ dependencies = [
 [[package]]
 name = "solana-logger"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "env_logger",
  "lazy_static",
@@ -5671,7 +5671,7 @@ dependencies = [
 [[package]]
 name = "solana-measure"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "log",
  "solana-sdk",
@@ -5680,7 +5680,7 @@ dependencies = [
 [[package]]
 name = "solana-merkle-tree"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "fast-math",
  "solana-program",
@@ -5689,7 +5689,7 @@ dependencies = [
 [[package]]
 name = "solana-metrics"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "crossbeam-channel",
  "gethostname",
@@ -5703,7 +5703,7 @@ dependencies = [
 [[package]]
 name = "solana-net-utils"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "bincode",
  "clap 3.2.25",
@@ -5724,7 +5724,7 @@ dependencies = [
 [[package]]
 name = "solana-perf"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "ahash 0.8.5",
  "bincode",
@@ -5752,7 +5752,7 @@ dependencies = [
 [[package]]
 name = "solana-poh"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "core_affinity",
  "crossbeam-channel",
@@ -5769,7 +5769,7 @@ dependencies = [
 [[package]]
 name = "solana-program"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "ark-bn254",
  "ark-ec",
@@ -5822,7 +5822,7 @@ dependencies = [
 [[package]]
 name = "solana-program-runtime"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "base64 0.21.5",
  "bincode",
@@ -5849,7 +5849,7 @@ dependencies = [
 [[package]]
 name = "solana-program-test"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "assert_matches",
  "async-trait",
@@ -5878,7 +5878,7 @@ dependencies = [
 [[package]]
 name = "solana-pubsub-client"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "crossbeam-channel",
  "futures-util",
@@ -5902,7 +5902,7 @@ dependencies = [
 [[package]]
 name = "solana-quic-client"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "async-mutex",
  "async-trait",
@@ -5928,7 +5928,7 @@ dependencies = [
 [[package]]
 name = "solana-rayon-threadlimit"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "lazy_static",
  "num_cpus",
@@ -5937,7 +5937,7 @@ dependencies = [
 [[package]]
 name = "solana-remote-wallet"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "console",
  "dialoguer",
@@ -5955,7 +5955,7 @@ dependencies = [
 [[package]]
 name = "solana-rpc"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "base64 0.21.5",
  "bincode",
@@ -6011,7 +6011,7 @@ dependencies = [
 [[package]]
 name = "solana-rpc-client"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "async-trait",
  "base64 0.21.5",
@@ -6036,7 +6036,7 @@ dependencies = [
 [[package]]
 name = "solana-rpc-client-api"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "base64 0.21.5",
  "bs58",
@@ -6057,7 +6057,7 @@ dependencies = [
 [[package]]
 name = "solana-rpc-client-nonce-utils"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "clap 2.34.0",
  "solana-clap-utils",
@@ -6069,7 +6069,7 @@ dependencies = [
 [[package]]
 name = "solana-runtime"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "arrayref",
  "base64 0.21.5",
@@ -6145,7 +6145,7 @@ dependencies = [
 [[package]]
 name = "solana-sdk"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "assert_matches",
  "base64 0.21.5",
@@ -6198,7 +6198,7 @@ dependencies = [
 [[package]]
 name = "solana-sdk-macro"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "bs58",
  "proc-macro2",
@@ -6216,7 +6216,7 @@ checksum = "468aa43b7edb1f9b7b7b686d5c3aeb6630dc1708e86e31343499dd5c4d775183"
 [[package]]
 name = "solana-send-transaction-service"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "crossbeam-channel",
  "log",
@@ -6231,7 +6231,7 @@ dependencies = [
 [[package]]
 name = "solana-stake-program"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "bincode",
  "log",
@@ -6245,7 +6245,7 @@ dependencies = [
 [[package]]
 name = "solana-storage-bigtable"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "backoff",
  "bincode",
@@ -6278,7 +6278,7 @@ dependencies = [
 [[package]]
 name = "solana-storage-proto"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "bincode",
  "bs58",
@@ -6294,7 +6294,7 @@ dependencies = [
 [[package]]
 name = "solana-streamer"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "async-channel",
  "bytes",
@@ -6328,7 +6328,7 @@ dependencies = [
 [[package]]
 name = "solana-system-program"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "bincode",
  "log",
@@ -6341,7 +6341,7 @@ dependencies = [
 [[package]]
 name = "solana-test-validator"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "base64 0.21.5",
  "bincode",
@@ -6372,7 +6372,7 @@ dependencies = [
 [[package]]
 name = "solana-thin-client"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "bincode",
  "log",
@@ -6386,7 +6386,7 @@ dependencies = [
 [[package]]
 name = "solana-tpu-client"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "async-trait",
  "bincode",
@@ -6409,7 +6409,7 @@ dependencies = [
 [[package]]
 name = "solana-transaction-status"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "Inflector",
  "base64 0.21.5",
@@ -6433,7 +6433,7 @@ dependencies = [
 [[package]]
 name = "solana-turbine"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "bincode",
  "bytes",
@@ -6469,7 +6469,7 @@ dependencies = [
 [[package]]
 name = "solana-udp-client"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "async-trait",
  "solana-connection-cache",
@@ -6483,7 +6483,7 @@ dependencies = [
 [[package]]
 name = "solana-version"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "log",
  "rustc_version",
@@ -6498,7 +6498,7 @@ dependencies = [
 [[package]]
 name = "solana-vote"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "crossbeam-channel",
  "itertools 0.10.5",
@@ -6516,7 +6516,7 @@ dependencies = [
 [[package]]
 name = "solana-vote-program"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "bincode",
  "log",
@@ -6537,7 +6537,7 @@ dependencies = [
 [[package]]
 name = "solana-zk-token-proof-program"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "bytemuck",
  "num-derive 0.3.3",
@@ -6550,7 +6550,7 @@ dependencies = [
 [[package]]
 name = "solana-zk-token-sdk"
 version = "1.17.32"
-source = "git+https://github.com/lijunwangs/solana.git?rev=46d7dd624085ddd86cda225017f38e713898482c#46d7dd624085ddd86cda225017f38e713898482c"
+source = "git+https://github.com/lijunwangs/solana.git?rev=51193a912c782ecd57441aeb3a3cbf1584515424#51193a912c782ecd57441aeb3a3cbf1584515424"
 dependencies = [
  "aes-gcm-siv",
  "base64 0.21.5",
