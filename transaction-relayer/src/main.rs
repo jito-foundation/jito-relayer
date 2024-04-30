@@ -81,7 +81,7 @@ struct Args {
     num_tpu_quic_servers: u16,
 
     /// Port to bind to for tpu quic fwd packets.
-    /// Make sure to set this to at least (num_tpu_fwd_quic_servers + 6) higher than tpu_forward_quic_port,
+    /// Make sure to set this to at least (num_tpu_fwd_quic_servers + 6) higher than tpu_fwd_quic_port,
     /// to avoid overlap any tpu forward ports with the normal tpu ports.
     /// TPU_FWD will bind to all ports in the range of (tpu_fwd_quic_port, tpu_fwd_quic_port + num_tpu_fwd_quic_servers).
     /// Open firewall ports for this entire range
