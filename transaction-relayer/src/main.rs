@@ -244,7 +244,9 @@ struct Args {
 struct Sockets {
     tpu_sockets: TpuSockets,
     tpu_ip: IpAddr,
+    tpu_ports: Range<u16>,
     tpu_fwd_ip: IpAddr,
+    tpu_fwd_ports: Range<u16>,
 }
 
 fn get_sockets(args: &Args) -> Sockets {
@@ -270,6 +272,8 @@ fn get_sockets(args: &Args) -> Sockets {
         assert!(!tpu_fwd_ports.contains(&tpu_port));
     }
 
+    // this contains a list of tpu_ports and a 2d array of multi-bound quic endpoints,
+    // where each outer array maps to the port in the first array
     let (tpu_p, tpu_quic_sockets): (Vec<_>, Vec<Vec<_>>) = (0..args.num_tpu_quic_servers)
         .map(|i| {
             let (port, mut sock) = multi_bind_in_range(
@@ -295,6 +299,8 @@ fn get_sockets(args: &Args) -> Sockets {
         })
         .unzip();
 
+    // this contains a list of tpu_forward_ports and a 2d array of multi-bound quic endpoints,
+    // where each outer array maps to the port in the first array
     let (tpu_fwd_p, tpu_fwd_quic_sockets): (Vec<_>, Vec<Vec<_>>) = (0..args
         .num_tpu_fwd_quic_servers)
         .map(|i| {
@@ -321,8 +327,8 @@ fn get_sockets(args: &Args) -> Sockets {
         })
         .unzip();
 
-    assert_eq!(tpu_ports.collect::<Vec<_>>(), tpu_p);
-    assert_eq!(tpu_fwd_ports.collect::<Vec<_>>(), tpu_fwd_p);
+    assert_eq!(tpu_ports.clone().collect::<Vec<_>>(), tpu_p);
+    assert_eq!(tpu_fwd_ports.clone().collect::<Vec<_>>(), tpu_fwd_p);
 
     Sockets {
         tpu_sockets: TpuSockets {
@@ -330,7 +336,9 @@ fn get_sockets(args: &Args) -> Sockets {
             transactions_forwards_quic_sockets: tpu_fwd_quic_sockets,
         },
         tpu_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+        tpu_ports,
         tpu_fwd_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+        tpu_fwd_ports,
     }
 }
 
@@ -549,8 +557,8 @@ fn main() {
         delay_packet_receiver,
         leader_cache.handle(),
         public_ip,
-        (args.tpu_quic_port..args.tpu_quic_port + args.num_tpu_quic_servers).collect(),
-        (args.tpu_quic_fwd_port..args.tpu_quic_fwd_port + args.num_tpu_fwd_quic_servers).collect(),
+        sockets.tpu_ports.collect(),
+        sockets.tpu_fwd_ports.collect(),
         health_manager.handle(),
         exit.clone(),
         ofac_addresses,
