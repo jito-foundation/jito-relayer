@@ -14,6 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use agave_validator::admin_rpc_service::StakedNodesOverrides;
 use clap::Parser;
 use crossbeam_channel::tick;
 use dashmap::DashMap;
@@ -47,7 +48,6 @@ use solana_sdk::{
     pubkey::Pubkey,
     signature::{read_keypair_file, Signer},
 };
-use solana_validator::admin_rpc_service::StakedNodesOverrides;
 use tikv_jemallocator::Jemalloc;
 use tokio::{runtime::Builder, signal, sync::mpsc::channel};
 use tonic::transport::Server;
