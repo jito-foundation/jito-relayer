@@ -14,7 +14,7 @@ use solana_client::client_error;
 use solana_sdk::pubkey::Pubkey;
 use solana_streamer::streamer::StakedNodes;
 
-const IP_TO_STAKE_REFRESH_DURATION: Duration = Duration::from_secs(5);
+const PK_TO_STAKE_REFRESH_DURATION: Duration = Duration::from_secs(5);
 
 pub struct StakedNodesUpdaterService {
     thread_hdl: JoinHandle<()>,
@@ -33,7 +33,7 @@ impl StakedNodesUpdaterService {
                 let mut last_stakes = Instant::now();
                 while !exit.load(Ordering::Relaxed) {
                     let mut stake_map = Arc::new(HashMap::new());
-                    if let Ok(true) = Self::try_refresh_ip_to_stake(
+                    if let Ok(true) = Self::try_refresh_pk_to_stake(
                         &mut last_stakes,
                         &mut stake_map,
                         &rpc_load_balancer,
@@ -48,12 +48,12 @@ impl StakedNodesUpdaterService {
         Self { thread_hdl }
     }
 
-    fn try_refresh_ip_to_stake(
+    fn try_refresh_pk_to_stake(
         last_stakes: &mut Instant,
         pubkey_stake_map: &mut Arc<HashMap<Pubkey, u64>>,
         rpc_load_balancer: &Arc<LoadBalancer>,
     ) -> client_error::Result<bool> {
-        if last_stakes.elapsed() > IP_TO_STAKE_REFRESH_DURATION {
+        if last_stakes.elapsed() > PK_TO_STAKE_REFRESH_DURATION {
             let client = rpc_load_balancer.rpc_client();
             let vote_accounts = client.get_vote_accounts()?;
 
