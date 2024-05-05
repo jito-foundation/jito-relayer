@@ -10,6 +10,7 @@ use std::{
 };
 
 use jito_rpc::load_balancer::LoadBalancer;
+use log::warn;
 use solana_client::client_error;
 use solana_sdk::pubkey::Pubkey;
 use solana_streamer::streamer::StakedNodes;
@@ -33,13 +34,21 @@ impl StakedNodesUpdaterService {
                 let mut last_stakes = Instant::now();
                 while !exit.load(Ordering::Relaxed) {
                     let mut stake_map = Arc::new(HashMap::new());
-                    if let Ok(true) = Self::try_refresh_pk_to_stake(
+                    match Self::try_refresh_pk_to_stake(
                         &mut last_stakes,
                         &mut stake_map,
                         &rpc_load_balancer,
                     ) {
-                        let shared = StakedNodes::new(stake_map, staked_nodes_overrides.clone());
-                        *shared_staked_nodes.write().unwrap() = shared;
+                        Ok(true) => {
+                            let shared =
+                                StakedNodes::new(stake_map, staked_nodes_overrides.clone());
+                            *shared_staked_nodes.write().unwrap() = shared;
+                        }
+                        Err(err) => {
+                            warn!("Failed to refresh pk to stake map! Error: {:?}", err);
+                            sleep(PK_TO_STAKE_REFRESH_DURATION);
+                        }
+                        _ => {}
                     }
                 }
             })
