@@ -10,11 +10,12 @@ use std::{
 };
 
 use jito_rpc::load_balancer::LoadBalancer;
+use log::warn;
 use solana_client::client_error;
 use solana_sdk::pubkey::Pubkey;
 use solana_streamer::streamer::StakedNodes;
 
-const IP_TO_STAKE_REFRESH_DURATION: Duration = Duration::from_secs(5);
+const PK_TO_STAKE_REFRESH_DURATION: Duration = Duration::from_secs(5);
 
 pub struct StakedNodesUpdaterService {
     thread_hdl: JoinHandle<()>,
@@ -33,13 +34,21 @@ impl StakedNodesUpdaterService {
                 let mut last_stakes = Instant::now();
                 while !exit.load(Ordering::Relaxed) {
                     let mut stake_map = Arc::new(HashMap::new());
-                    if let Ok(true) = Self::try_refresh_ip_to_stake(
+                    match Self::try_refresh_pk_to_stake(
                         &mut last_stakes,
                         &mut stake_map,
                         &rpc_load_balancer,
                     ) {
-                        let shared = StakedNodes::new(stake_map, staked_nodes_overrides.clone());
-                        *shared_staked_nodes.write().unwrap() = shared;
+                        Ok(true) => {
+                            let shared =
+                                StakedNodes::new(stake_map, staked_nodes_overrides.clone());
+                            *shared_staked_nodes.write().unwrap() = shared;
+                        }
+                        Err(err) => {
+                            warn!("Failed to refresh pk to stake map! Error: {:?}", err);
+                            sleep(PK_TO_STAKE_REFRESH_DURATION);
+                        }
+                        _ => {}
                     }
                 }
             })
@@ -48,12 +57,12 @@ impl StakedNodesUpdaterService {
         Self { thread_hdl }
     }
 
-    fn try_refresh_ip_to_stake(
+    fn try_refresh_pk_to_stake(
         last_stakes: &mut Instant,
         pubkey_stake_map: &mut Arc<HashMap<Pubkey, u64>>,
         rpc_load_balancer: &Arc<LoadBalancer>,
     ) -> client_error::Result<bool> {
-        if last_stakes.elapsed() > IP_TO_STAKE_REFRESH_DURATION {
+        if last_stakes.elapsed() > PK_TO_STAKE_REFRESH_DURATION {
             let client = rpc_load_balancer.rpc_client();
             let vote_accounts = client.get_vote_accounts()?;
 
