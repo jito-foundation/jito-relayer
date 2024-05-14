@@ -28,7 +28,7 @@ pub struct LoadBalancer {
 
 impl LoadBalancer {
     const DISCONNECT_WEBSOCKET_TIMEOUT: Duration = Duration::from_secs(30);
-    const RPC_TIMEOUT: Duration = Duration::from_secs(15);
+    const RPC_TIMEOUT: Duration = Duration::from_secs(120);
     pub const SLOT_QUEUE_CAPACITY: usize = 100;
     pub fn new(
         servers: &[(String, String)], /* http rpc url, ws url */

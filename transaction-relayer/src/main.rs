@@ -359,21 +359,34 @@ fn main() {
 
     let sockets = get_sockets(&args);
 
+    let tpu_quic_ports = sockets
+        .tpu_sockets
+        .transactions_quic_sockets
+        .iter()
+        .map(|s| s.local_addr().unwrap().port())
+        .collect::<Vec<_>>();
+    let tpu_quic_fwd_ports = sockets
+        .tpu_sockets
+        .transactions_quic_sockets
+        .iter()
+        .map(|s| s.local_addr().unwrap().port())
+        .collect::<Vec<_>>();
+
     // make sure to allow your firewall to accept UDP packets on these ports
     // if you're using staked overrides, you can provide one of these addresses
     // to --rpc-send-transaction-tpu-peer
-    for s in &sockets.tpu_sockets.transactions_quic_sockets {
+    for port in &tpu_quic_ports {
         info!(
             "TPU quic socket is listening at: {}:{}",
             public_ip.to_string(),
-            s.local_addr().unwrap().port()
+            port
         );
     }
-    for s in &sockets.tpu_sockets.transactions_forwards_quic_sockets {
+    for port in &tpu_quic_fwd_ports {
         info!(
             "TPU forward quic socket is listening at: {}:{}",
             public_ip.to_string(),
-            s.local_addr().unwrap().port()
+            port
         );
     }
 
@@ -511,9 +524,8 @@ fn main() {
         delay_packet_receiver,
         leader_cache.handle(),
         public_ip,
-        (args.tpu_quic_port..args.tpu_quic_port + args.num_tpu_quic_servers as u16).collect(),
-        (args.tpu_quic_fwd_port..args.tpu_quic_fwd_port + args.num_tpu_fwd_quic_servers as u16)
-            .collect(),
+        tpu_quic_ports,
+        tpu_quic_fwd_ports,
         health_manager.handle(),
         exit.clone(),
         ofac_addresses,
