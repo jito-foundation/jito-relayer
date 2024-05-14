@@ -367,7 +367,7 @@ fn main() {
         .collect::<Vec<_>>();
     let tpu_quic_fwd_ports = sockets
         .tpu_sockets
-        .transactions_quic_sockets
+        .transactions_forwards_quic_sockets
         .iter()
         .map(|s| s.local_addr().unwrap().port())
         .collect::<Vec<_>>();
