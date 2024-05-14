@@ -194,7 +194,7 @@ struct Args {
     aoi_cache_ttl_secs: u64,
 
     /// How frequently to refresh the address lookup table accounts
-    #[arg(long, env, default_value_t = 30)]
+    #[arg(long, env, default_value_t = 600)]
     lookup_table_refresh_secs: u64,
 
     /// Space-separated addresses to drop transactions for OFAC
