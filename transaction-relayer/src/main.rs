@@ -410,7 +410,7 @@ fn main() {
         .unwrap_or_default();
     info!("ofac addresses: {:?}", ofac_addresses);
 
-    let (rpc_load_balancer, slot_receiver) = LoadBalancer::new(&servers, &exit);
+    let (rpc_load_balancer, slot_receiver, highest_slot) = LoadBalancer::new(&servers, &exit);
     let rpc_load_balancer = Arc::new(rpc_load_balancer);
 
     // Lookup table refresher
@@ -426,14 +426,10 @@ fn main() {
     let staked_nodes_overrides = match args.staked_nodes_overrides {
         None => StakedNodesOverrides::default(),
         Some(p) => {
-            let file = fs::File::open(&p).expect(&format!(
-                "Failed to open staked nodes overrides file: {:?}",
-                &p
-            ));
-            serde_yaml::from_reader(file).expect(&format!(
-                "Failed to read staked nodes overrides file: {:?}",
-                &p,
-            ))
+            let file = fs::File::open(&p)
+                .unwrap_or_else(|_| panic!("Failed to open staked nodes overrides file: {p:?}"));
+            serde_yaml::from_reader(file)
+                .unwrap_or_else(|_| panic!("Failed to read staked nodes overrides file: {p:?}"))
         }
     };
     let (tpu, verified_receiver) = Tpu::new(
@@ -494,26 +490,20 @@ fn main() {
         ofac_addresses.clone(),
     );
 
-    // receiver tracked as relayer_metrics.slot_receiver_len
-    // downstream channel gets data that was duplicated by HealthManager
-    let (downstream_slot_sender, downstream_slot_receiver) =
-        crossbeam_channel::bounded(LoadBalancer::SLOT_QUEUE_CAPACITY);
     let health_manager = HealthManager::new(
         slot_receiver,
-        downstream_slot_sender,
         Duration::from_secs(args.missing_slot_unhealthy_secs),
         exit.clone(),
     );
 
     let server_addr = SocketAddr::new(args.grpc_bind_ip, args.grpc_bind_port);
     let relayer_svc = RelayerImpl::new(
-        downstream_slot_receiver,
+        highest_slot,
         delay_packet_receiver,
         leader_cache.handle(),
         public_ip,
-        (args.tpu_quic_port..args.tpu_quic_port + args.num_tpu_quic_servers as u16).collect(),
-        (args.tpu_quic_fwd_port..args.tpu_quic_fwd_port + args.num_tpu_fwd_quic_servers as u16)
-            .collect(),
+        (args.tpu_quic_port..args.tpu_quic_port + args.num_tpu_quic_servers).collect(),
+        (args.tpu_quic_fwd_port..args.tpu_quic_fwd_port + args.num_tpu_fwd_quic_servers).collect(),
         health_manager.handle(),
         exit.clone(),
         ofac_addresses,
@@ -557,9 +547,8 @@ fn main() {
 
     let rt = Builder::new_multi_thread().enable_all().build().unwrap();
     rt.spawn({
-        let relayer_state = relayer_state.clone();
         start_relayer_web_server(
-            relayer_state,
+            relayer_state.clone(),
             args.webserver_bind_addr,
             MAX_BUFFERED_REQUESTS,
             REQUESTS_PER_SECOND,

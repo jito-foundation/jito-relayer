@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crossbeam_channel::{select, tick, Receiver, Sender};
+use crossbeam_channel::{select, tick, Receiver};
 use solana_metrics::datapoint_info;
 use solana_sdk::clock::Slot;
 
@@ -28,7 +28,6 @@ pub struct HealthManager {
 impl HealthManager {
     pub fn new(
         slot_receiver: Receiver<Slot>,
-        slot_sender: Sender<Slot>,
         missing_slot_unhealthy_threshold: Duration,
         exit: Arc<AtomicBool>,
     ) -> HealthManager {
@@ -39,8 +38,6 @@ impl HealthManager {
                 .name("health_manager".to_string())
                 .spawn(move || {
                     let mut last_update = Instant::now();
-                    let mut slot_sender_max_len = 0usize;
-                    let channel_len_tick = tick(Duration::from_secs(5));
                     let check_and_metrics_tick = tick(missing_slot_unhealthy_threshold / 2);
 
                     while !exit.load(Ordering::Relaxed) {
@@ -54,24 +51,14 @@ impl HealthManager {
                                 *health_state.write().unwrap() = new_health_state;
                                 datapoint_info!(
                                     "relayer-health-state",
-                                    ("health_state", new_health_state, i64)
+                                    ("health_state", new_health_state, i64),
+                                    ("slot_receiver_len", slot_receiver.len(), i64),
                                 );
                             }
-                            recv(slot_receiver) -> maybe_slot => {
-                                let slot = maybe_slot.expect("error receiving slot, exiting");
-                                slot_sender.send(slot).expect("error forwarding slot, exiting");
+                            recv(slot_receiver) -> _maybe_slot => {
                                 last_update = Instant::now();
                             }
-                            recv(channel_len_tick) -> _ => {
-                                datapoint_info!(
-                                    "health_manager-channel_stats",
-                                    ("slot_sender_len", slot_sender_max_len, i64),
-                                    ("slot_sender_capacity", slot_sender.capacity().unwrap(), i64),
-                                );
-                                slot_sender_max_len = 0;
-                            }
                         }
-                        slot_sender_max_len = std::cmp::max(slot_sender_max_len, slot_sender.len());
                     }
                 })
                 .unwrap(),
