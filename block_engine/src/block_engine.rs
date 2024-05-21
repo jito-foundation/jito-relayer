@@ -384,7 +384,7 @@ impl BlockEngineRelayerHandler {
 
         let mut heartbeat_interval = interval(Duration::from_millis(500));
         let mut auth_refresh_interval = interval(Duration::from_secs(60));
-        let mut metrics_interval = interval(Duration::from_secs(1));
+        let mut metrics_interval = interval(Duration::from_secs(10));
 
         let mut heartbeat_count = 0;
         while !exit.load(Ordering::Relaxed) {

@@ -33,7 +33,7 @@ impl LoadBalancer {
     pub fn new(
         servers: &[(String, String)], /* http rpc url, ws url */
         exit: &Arc<AtomicBool>,
-    ) -> (LoadBalancer, Receiver<Slot>) {
+    ) -> (LoadBalancer, Receiver<Slot>, Arc<AtomicU64>) {
         let server_to_slot = Arc::new(DashMap::from_iter(
             servers.iter().map(|(_, ws)| (ws.clone(), 0)),
         ));
@@ -50,14 +50,20 @@ impl LoadBalancer {
             if let Err(e) = rpc_client.get_slot() {
                 error!("error warming up rpc: {rpc_url}. error: {e}");
             }
-            // store as ws instead of http so we can lookup by furthest ahead ws subscription
+            // store as ws instead of http, so we can look up by furthest ahead ws subscription
             (ws.clone(), rpc_client)
         }));
 
-        // sender tracked as health_manager-channel_stats.slot_sender_len
+        let highest_slot = Arc::new(AtomicU64::default());
+        // size tracked as relayer-health-state.slot_receiver_len
         let (slot_sender, slot_receiver) = crossbeam_channel::bounded(Self::SLOT_QUEUE_CAPACITY);
-        let subscription_threads =
-            Self::start_subscription_threads(servers, server_to_slot.clone(), slot_sender, exit);
+        let subscription_threads = Self::start_subscription_threads(
+            servers,
+            server_to_slot.clone(),
+            slot_sender,
+            highest_slot.clone(),
+            exit,
+        );
         (
             LoadBalancer {
                 server_to_slot,
@@ -65,6 +71,7 @@ impl LoadBalancer {
                 subscription_threads,
             },
             slot_receiver,
+            highest_slot,
         )
     }
 
@@ -72,10 +79,9 @@ impl LoadBalancer {
         servers: &[(String, String)],
         server_to_slot: Arc<DashMap<String, Slot>>,
         slot_sender: Sender<Slot>,
+        highest_slot: Arc<AtomicU64>,
         exit: &Arc<AtomicBool>,
     ) -> Vec<JoinHandle<()>> {
-        let highest_slot = Arc::new(AtomicU64::default());
-
         servers
             .iter()
             .map(|(_, websocket_url)| {
@@ -104,7 +110,6 @@ impl LoadBalancer {
                                         {
                                             Ok(slot) => {
                                                 last_slot_update = Instant::now();
-
                                                 server_to_slot
                                                     .insert(websocket_url.clone(), slot.slot);
                                                 datapoint_info!(
@@ -113,15 +118,13 @@ impl LoadBalancer {
                                                         ("slot", slot.slot, i64)
                                                 );
 
-                                                {
-                                                    let old_slot = highest_slot.fetch_max(slot.slot, Ordering::Relaxed);
-                                                    if slot.slot > old_slot {
-                                                        if let Err(e) = slot_sender.send(slot.slot)
-                                                        {
-                                                            error!("error sending slot: {e}");
-                                                            break;
-                                                        }
+                                                let old_slot = highest_slot.fetch_max(slot.slot, Ordering::Relaxed);
+                                                if slot.slot > old_slot {
+                                                    if let Err(e) = slot_sender.send(slot.slot) {
+                                                        error!("error sending slot: {e}");
+                                                        break;
                                                     }
+                                                    datapoint_info!("relayer-highest_slot", ("slot", slot.slot, i64));
                                                 }
                                             }
                                             Err(RecvTimeoutError::Timeout) => {

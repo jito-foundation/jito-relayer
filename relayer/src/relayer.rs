@@ -29,11 +29,8 @@ use prost_types::Timestamp;
 use solana_core::banking_trace::BankingPacketBatch;
 use solana_metrics::datapoint_info;
 use solana_sdk::{
-    address_lookup_table::AddressLookupTableAccount,
-    clock::{Slot, NUM_CONSECUTIVE_LEADER_SLOTS},
-    pubkey::Pubkey,
-    saturating_add_assign,
-    transaction::VersionedTransaction,
+    address_lookup_table::AddressLookupTableAccount, clock::NUM_CONSECUTIVE_LEADER_SLOTS,
+    pubkey::Pubkey, saturating_add_assign, transaction::VersionedTransaction,
 };
 use thiserror::Error;
 use tokio::sync::mpsc::{channel, error::TrySendError, Sender as TokioSender};
@@ -59,15 +56,12 @@ struct RelayerMetrics {
     pub num_try_send_channel_full: u64,
     pub packet_latencies_us: Histogram,
 
-    pub crossbeam_slot_receiver_processing_us: Histogram,
     pub crossbeam_delay_packet_receiver_processing_us: Histogram,
     pub crossbeam_subscription_receiver_processing_us: Histogram,
     pub crossbeam_heartbeat_tick_processing_us: Histogram,
     pub crossbeam_metrics_tick_processing_us: Histogram,
 
     // channel stats
-    pub slot_receiver_max_len: usize,
-    pub slot_receiver_capacity: usize,
     pub subscription_receiver_max_len: usize,
     pub subscription_receiver_capacity: usize,
     pub delay_packet_receiver_max_len: usize,
@@ -77,11 +71,7 @@ struct RelayerMetrics {
 }
 
 impl RelayerMetrics {
-    fn new(
-        slot_receiver_capacity: usize,
-        subscription_receiver_capacity: usize,
-        delay_packet_receiver_capacity: usize,
-    ) -> Self {
+    fn new(subscription_receiver_capacity: usize, delay_packet_receiver_capacity: usize) -> Self {
         RelayerMetrics {
             highest_slot: 0,
             num_added_connections: 0,
@@ -92,13 +82,10 @@ impl RelayerMetrics {
             metrics_latency_us: 0,
             num_try_send_channel_full: 0,
             packet_latencies_us: Histogram::default(),
-            crossbeam_slot_receiver_processing_us: Histogram::default(),
             crossbeam_delay_packet_receiver_processing_us: Histogram::default(),
             crossbeam_subscription_receiver_processing_us: Histogram::default(),
             crossbeam_heartbeat_tick_processing_us: Histogram::default(),
             crossbeam_metrics_tick_processing_us: Histogram::default(),
-            slot_receiver_max_len: 0,
-            slot_receiver_capacity,
             subscription_receiver_max_len: 0,
             subscription_receiver_capacity,
             delay_packet_receiver_max_len: 0,
@@ -110,11 +97,9 @@ impl RelayerMetrics {
 
     fn update_max_len(
         &mut self,
-        slot_receiver_len: usize,
         subscription_receiver_len: usize,
         delay_packet_receiver_len: usize,
     ) {
-        self.slot_receiver_max_len = std::cmp::max(self.slot_receiver_max_len, slot_receiver_len);
         self.subscription_receiver_max_len = std::cmp::max(
             self.subscription_receiver_max_len,
             subscription_receiver_len,
@@ -240,27 +225,6 @@ impl RelayerMetrics {
                 i64
             ),
             (
-                "crossbeam_slot_receiver_processing_us_p50",
-                self.crossbeam_slot_receiver_processing_us
-                    .percentile(50.0)
-                    .unwrap_or_default(),
-                i64
-            ),
-            (
-                "crossbeam_slot_receiver_processing_us_p90",
-                self.crossbeam_slot_receiver_processing_us
-                    .percentile(90.0)
-                    .unwrap_or_default(),
-                i64
-            ),
-            (
-                "crossbeam_slot_receiver_processing_us_p99",
-                self.crossbeam_slot_receiver_processing_us
-                    .percentile(99.0)
-                    .unwrap_or_default(),
-                i64
-            ),
-            (
                 "crossbeam_metrics_tick_processing_us_p50",
                 self.crossbeam_metrics_tick_processing_us
                     .percentile(50.0)
@@ -324,8 +288,6 @@ impl RelayerMetrics {
                 i64
             ),
             // channel lengths
-            ("slot_receiver_len", self.slot_receiver_max_len, i64),
-            ("slot_receiver_capacity", self.slot_receiver_capacity, i64),
             (
                 "subscription_receiver_len",
                 self.subscription_receiver_max_len,
@@ -415,7 +377,7 @@ impl RelayerImpl {
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        slot_receiver: Receiver<Slot>,
+        highest_slot: Arc<AtomicU64>,
         delay_packet_receiver: Receiver<RelayerPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
         public_ip: IpAddr,
@@ -434,7 +396,7 @@ impl RelayerImpl {
         let (subscription_sender, subscription_receiver) =
             bounded(LoadBalancer::SLOT_QUEUE_CAPACITY);
 
-        let packet_subscriptions = Arc::new(RwLock::new(HashMap::default()));
+        let packet_subscriptions = Arc::new(RwLock::new(HashMap::with_capacity(1_000)));
 
         let thread = {
             let health_state = health_state.clone();
@@ -443,7 +405,7 @@ impl RelayerImpl {
                 .name("relayer_impl-event_loop_thread".to_string())
                 .spawn(move || {
                     let res = Self::run_event_loop(
-                        slot_receiver,
+                        highest_slot,
                         subscription_receiver,
                         delay_packet_receiver,
                         leader_schedule_cache,
@@ -479,7 +441,7 @@ impl RelayerImpl {
 
     #[allow(clippy::too_many_arguments)]
     fn run_event_loop(
-        slot_receiver: Receiver<Slot>,
+        highest_slot: Arc<AtomicU64>,
         subscription_receiver: Receiver<Subscription>,
         delay_packet_receiver: Receiver<RelayerPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
@@ -492,36 +454,24 @@ impl RelayerImpl {
         validator_packet_batch_size: usize,
         forward_all: bool,
     ) -> RelayerResult<()> {
-        let mut highest_slot = Slot::default();
-
         let heartbeat_tick = crossbeam_channel::tick(Duration::from_millis(500));
-        let metrics_tick = crossbeam_channel::tick(Duration::from_millis(1000));
+        let metrics_tick = crossbeam_channel::tick(Duration::from_secs(10));
 
         let mut relayer_metrics = RelayerMetrics::new(
-            slot_receiver.capacity().unwrap(),
             subscription_receiver.capacity().unwrap(),
             delay_packet_receiver.capacity().unwrap(),
         );
-
-        let mut slot_leaders = HashSet::new();
+        let mut last_observed_slot = highest_slot.load(Ordering::Relaxed);
+        let mut senders: Vec<(
+            Pubkey,
+            TokioSender<Result<SubscribePacketsResponse, Status>>,
+        )> = vec![];
 
         while !exit.load(Ordering::Relaxed) {
             crossbeam_channel::select! {
-                recv(slot_receiver) -> maybe_slot => {
-                    let start = Instant::now();
-
-                    Self::update_highest_slot(maybe_slot, &mut highest_slot, &mut relayer_metrics)?;
-
-                    let slots: Vec<_> = (highest_slot
-                        ..highest_slot + leader_lookahead * NUM_CONSECUTIVE_LEADER_SLOTS)
-                        .collect();
-                    slot_leaders = leader_schedule_cache.leaders_for_slots(&slots);
-
-                    let _ = relayer_metrics.crossbeam_slot_receiver_processing_us.increment(start.elapsed().as_micros() as u64);
-                },
                 recv(delay_packet_receiver) -> maybe_packet_batches => {
                     let start = Instant::now();
-                    let failed_forwards = Self::forward_packets(maybe_packet_batches, packet_subscriptions, &slot_leaders, &mut relayer_metrics, &ofac_addresses, &address_lookup_table_cache, validator_packet_batch_size, forward_all)?;
+                    let failed_forwards = Self::forward_packets(maybe_packet_batches, &senders, &mut relayer_metrics, &ofac_addresses, &address_lookup_table_cache, validator_packet_batch_size)?;
                     Self::drop_connections(failed_forwards, packet_subscriptions, &mut relayer_metrics);
                     let _ = relayer_metrics.crossbeam_delay_packet_receiver_processing_us.increment(start.elapsed().as_micros() as u64);
                 },
@@ -544,7 +494,7 @@ impl RelayerImpl {
                                 &mut relayer_metrics,
                             )
                         },
-                        HealthState::Unhealthy => packet_subscriptions.read().unwrap().keys().cloned().collect(),
+                        HealthState::Unhealthy => packet_subscriptions.read().unwrap().keys().copied().collect(),
                     };
                     Self::drop_connections(pubkeys_to_drop, packet_subscriptions, &mut relayer_metrics);
                     let _ = relayer_metrics.crossbeam_heartbeat_tick_processing_us.increment(start.elapsed().as_micros() as u64);
@@ -563,18 +513,36 @@ impl RelayerImpl {
 
                     relayer_metrics.report();
                     relayer_metrics = RelayerMetrics::new(
-                        slot_receiver.capacity().unwrap(),
                         subscription_receiver.capacity().unwrap(),
                         delay_packet_receiver.capacity().unwrap(),
                     );
                 }
             }
 
-            relayer_metrics.update_max_len(
-                slot_receiver.len(),
-                subscription_receiver.len(),
-                delay_packet_receiver.len(),
-            );
+            // update senders every new slot
+            let new_slot = highest_slot.load(Ordering::Relaxed);
+            if last_observed_slot != new_slot {
+                last_observed_slot = new_slot;
+                let packet_subscriptions = packet_subscriptions.read().unwrap();
+                if forward_all {
+                    senders = packet_subscriptions
+                        .iter()
+                        .map(|(pk, sender)| (*pk, sender.clone()))
+                        .collect()
+                } else {
+                    let slot_leaders =
+                        new_slot..new_slot + leader_lookahead * NUM_CONSECUTIVE_LEADER_SLOTS;
+                    let schedule = leader_schedule_cache.get_schedule().load();
+                    senders = slot_leaders
+                        .filter_map(|s| schedule.get(&s))
+                        .filter_map(|pubkey| {
+                            Some((*pubkey, packet_subscriptions.get(pubkey)?.clone()))
+                        })
+                        .collect()
+                }
+            }
+            relayer_metrics
+                .update_max_len(subscription_receiver.len(), delay_packet_receiver.len());
         }
         Ok(())
     }
@@ -633,13 +601,14 @@ impl RelayerImpl {
     /// Returns pubkeys of subscribers that failed to send
     fn forward_packets(
         maybe_packet_batches: Result<RelayerPacketBatches, RecvError>,
-        subscriptions: &PacketSubscriptions,
-        slot_leaders: &HashSet<Pubkey>,
+        senders: &Vec<(
+            Pubkey,
+            TokioSender<Result<SubscribePacketsResponse, Status>>,
+        )>,
         relayer_metrics: &mut RelayerMetrics,
         ofac_addresses: &HashSet<Pubkey>,
         address_lookup_table_cache: &Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
         validator_packet_batch_size: usize,
-        forward_all: bool,
     ) -> RelayerResult<Vec<Pubkey>> {
         let packet_batches = maybe_packet_batches?;
 
@@ -652,26 +621,22 @@ impl RelayerImpl {
             .banking_packet_batch
             .0
             .iter()
-            .flat_map(|batch| {
-                batch
-                    .iter()
-                    .filter(|p| !p.meta().discard())
-                    .filter_map(|packet| {
-                        if !ofac_addresses.is_empty() {
-                            let tx: VersionedTransaction = packet.deserialize_slice(..).ok()?;
-                            if !is_tx_ofac_related(&tx, ofac_addresses, address_lookup_table_cache)
-                            {
-                                Some(packet)
-                            } else {
-                                None
-                            }
-                        } else {
-                            Some(packet)
-                        }
-                    })
-                    .filter_map(packet_to_proto_packet)
+            .flat_map(|batch| batch.iter().filter(|p| !p.meta().discard()))
+            .filter_map(|packet| {
+                if ofac_addresses.is_empty() {
+                    return Some(packet);
+                }
+                let tx: VersionedTransaction = packet.deserialize_slice(..).ok()?;
+                if is_tx_ofac_related(&tx, ofac_addresses, address_lookup_table_cache) {
+                    return None;
+                }
+                Some(packet)
             })
+            .filter_map(packet_to_proto_packet)
             .collect();
+        if packets.is_empty() {
+            return Ok(vec![]);
+        }
 
         let mut proto_packet_batches =
             Vec::with_capacity(packets.len() / validator_packet_batch_size);
@@ -681,33 +646,19 @@ impl RelayerImpl {
             });
         }
 
-        let l_subscriptions = subscriptions.read().unwrap();
-
-        let senders = if forward_all {
-            l_subscriptions.iter().collect::<Vec<(
-                &Pubkey,
-                &TokioSender<Result<SubscribePacketsResponse, Status>>,
-            )>>()
-        } else {
-            slot_leaders
-                .iter()
-                .filter_map(|pubkey| l_subscriptions.get(pubkey).map(|sender| (pubkey, sender)))
-                .collect()
-        };
-
         let mut failed_forwards = Vec::new();
         for batch in &proto_packet_batches {
             // NOTE: this is important to avoid divide-by-0 inside the validator if packets
-            // get routed to sigverify under the assumption theres > 0 packets in the batch
+            // get routed to sigverify under the assumption there's > 0 packets in the batch
             if batch.packets.is_empty() {
                 continue;
             }
-
-            for (pubkey, sender) in &senders {
+            let now = Timestamp::from(SystemTime::now());
+            for (pubkey, sender) in senders {
                 // try send because it's a bounded channel and we don't want to block if the channel is full
                 match sender.try_send(Ok(SubscribePacketsResponse {
                     header: Some(Header {
-                        ts: Some(Timestamp::from(SystemTime::now())),
+                        ts: Some(now.clone()),
                     }),
                     msg: Some(subscribe_packets_response::Msg::Batch(batch.clone())),
                 })) {
@@ -722,7 +673,7 @@ impl RelayerImpl {
                     }
                     Err(TrySendError::Closed(_)) => {
                         error!("channel is closed for pubkey: {:?}", pubkey);
-                        failed_forwards.push(**pubkey);
+                        failed_forwards.push(*pubkey);
                         break;
                     }
                 }
@@ -759,17 +710,6 @@ impl RelayerImpl {
                 }
             }
         }
-        Ok(())
-    }
-
-    fn update_highest_slot(
-        maybe_slot: Result<u64, RecvError>,
-        highest_slot: &mut Slot,
-        relayer_metrics: &mut RelayerMetrics,
-    ) -> RelayerResult<()> {
-        *highest_slot = maybe_slot?;
-        datapoint_info!("relayer-highest_slot", ("slot", *highest_slot as i64, i64));
-        relayer_metrics.highest_slot = *highest_slot;
         Ok(())
     }
 
