@@ -10,7 +10,7 @@ use std::{
 
 use crossbeam_channel::{select, tick, Receiver, Sender};
 use solana_metrics::datapoint_info;
-use solana_sdk::clock::Slot;
+use solana_sdk::clock::{Slot, DEFAULT_SLOTS_PER_EPOCH};
 
 #[derive(PartialEq, Eq, Copy, Clone)]
 pub enum HealthState {
@@ -42,23 +42,30 @@ impl HealthManager {
                     let mut slot_sender_max_len = 0usize;
                     let channel_len_tick = tick(Duration::from_secs(5));
                     let check_and_metrics_tick = tick(missing_slot_unhealthy_threshold / 2);
+                    let mut outside_epoch_boundary = true;
 
                     while !exit.load(Ordering::Relaxed) {
                         select! {
                             recv(check_and_metrics_tick) -> _ => {
-                                let new_health_state =
-                                    match last_update.elapsed() <= missing_slot_unhealthy_threshold {
-                                        true => HealthState::Healthy,
-                                        false => HealthState::Unhealthy,
-                                    };
-                                *health_state.write().unwrap() = new_health_state;
-                                datapoint_info!(
-                                    "relayer-health-state",
-                                    ("health_state", new_health_state, i64)
-                                );
+                                if outside_epoch_boundary {
+                                    let new_health_state =
+                                        match last_update.elapsed() <= missing_slot_unhealthy_threshold {
+                                            true => HealthState::Healthy,
+                                            false => HealthState::Unhealthy,
+                                        };
+                                        *health_state.write().unwrap() = new_health_state;
+                                        datapoint_info!(
+                                            "relayer-health-state",
+                                            ("health_state", new_health_state, i64)
+                                        );
+                                }
                             }
                             recv(slot_receiver) -> maybe_slot => {
                                 let slot = maybe_slot.expect("error receiving slot, exiting");
+                                // Don't perform health updates within +/- 75 slots of epoch boundary
+                                // Note: This is not necessarily correct for local testing
+                                let slot_index = slot % DEFAULT_SLOTS_PER_EPOCH;
+                                outside_epoch_boundary = 75 < slot_index && slot_index < (DEFAULT_SLOTS_PER_EPOCH - 75);
                                 slot_sender.send(slot).expect("error forwarding slot, exiting");
                                 last_update = Instant::now();
                             }
