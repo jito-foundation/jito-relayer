@@ -428,7 +428,7 @@ impl RelayerImpl {
         validator_packet_batch_size: usize,
         forward_all: bool,
     ) -> Self {
-        const LEADER_LOOKAHEAD: u64 = 2;
+        const LEADER_LOOKAHEAD: u64 = 1;
 
         // receiver tracked as relayer_metrics.subscription_receiver_len
         let (subscription_sender, subscription_receiver) =
