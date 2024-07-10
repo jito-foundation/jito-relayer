@@ -97,7 +97,7 @@ impl Tpu {
                     Duration::from_millis(DEFAULT_TPU_COALESCE_MS),
                 )
                 .unwrap()
-                .1
+                .thread
             })
             .collect::<Vec<_>>();
 
@@ -121,7 +121,7 @@ impl Tpu {
                         Duration::from_millis(DEFAULT_TPU_COALESCE_MS),
                     )
                     .unwrap()
-                    .1
+                        .thread
                 })
                 .collect::<Vec<_>>(),
         );
