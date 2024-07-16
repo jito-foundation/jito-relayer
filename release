@@ -1,2 +1,2 @@
 #!/usr/bin/env sh
-cargo workspaces version --all --exact --no-individual-tags
+cargo workspaces version --all --exact --no-individual-tags --force "jito-*"
