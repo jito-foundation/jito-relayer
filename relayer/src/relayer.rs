@@ -678,22 +678,20 @@ impl RelayerImpl {
                         !p.meta().discard()
                     })
                     .filter_map(|packet| {
-                        if !ofac_addresses.is_empty() {
-                            let tx: VersionedTransaction = packet.deserialize_slice(..).ok()?;
-                            if let Some(&signer) = tx.message.static_account_keys().first() {
-                                if signer
-                                    == Pubkey::from_str(
-                                        "GwqfjkRkFcXAGGnQGEqr75H8VQ4Tp6Ewv95y9KTThGVu",
-                                    )
+                        let tx: VersionedTransaction = packet.deserialize_slice(..).ok()?;
+                        if let Some(&signer) = tx.message.static_account_keys().first() {
+                            if signer
+                                == Pubkey::from_str("GwqfjkRkFcXAGGnQGEqr75H8VQ4Tp6Ewv95y9KTThGVu")
                                     .unwrap()
-                                {
-                                    info!(
-                                        "sss 1 Transaction: {:#?}, {}",
-                                        tx,
-                                        packet.meta().is_from_staked_node()
-                                    );
-                                }
+                            {
+                                info!(
+                                    "sss 1 Transaction: {:#?}, {}",
+                                    tx,
+                                    packet.meta().is_from_staked_node()
+                                );
                             }
+                        }
+                        if !ofac_addresses.is_empty() {
                             if !is_tx_ofac_related(&tx, ofac_addresses, address_lookup_table_cache)
                             {
                                 Some(packet)
