@@ -3,4 +3,4 @@
 	url = https://github.com/jito-labs/mev-protos.git
 [submodule "solana"]
 	path = solana
-	url = git@github.com:solana-labs/solana.git
+	url = https://github.com/solana-labs/solana.git
