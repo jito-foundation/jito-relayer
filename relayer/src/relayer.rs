@@ -667,8 +667,7 @@ impl RelayerImpl {
                                     .unwrap()
                                 {
                                     info!(
-                                        "sss 0 Transaction: {:#?} {} {}",
-                                        txn,
+                                        "sss 0 Transaction: {} {}",
                                         p.meta().is_from_staked_node(),
                                         p.meta().discard()
                                     );
@@ -684,11 +683,7 @@ impl RelayerImpl {
                                 == Pubkey::from_str("GwqfjkRkFcXAGGnQGEqr75H8VQ4Tp6Ewv95y9KTThGVu")
                                     .unwrap()
                             {
-                                info!(
-                                    "sss 1 Transaction: {:#?}, {}",
-                                    tx,
-                                    packet.meta().is_from_staked_node()
-                                );
+                                info!("sss 1 Transaction: {}", packet.meta().is_from_staked_node());
                             }
                         }
                         if !ofac_addresses.is_empty() {
