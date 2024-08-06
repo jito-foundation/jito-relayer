@@ -87,3 +87,5 @@ lto = "thin"
 # enable debug symbols for profiling the heap using jeprof
 # example: jeprof --web target/release/jito-transaction-relayer jeprof.3085546.9823.i24.heap
 #debug = true
+[patch.crates-io]
+solana-program = { path = "solana/sdk/program", version = "=1.18.18" }
