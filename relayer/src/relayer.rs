@@ -669,8 +669,8 @@ impl RelayerImpl {
                                     info!(
                                         "sss 0 Transaction: {:#?} {} {}",
                                         txn,
-                                        packet.meta().is_from_staked_node(),
-                                        packet.meta().discard()
+                                        p.meta().is_from_staked_node(),
+                                        p.meta().discard()
                                     );
                                 }
                             }
