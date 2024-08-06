@@ -10,7 +10,7 @@ use std::{
 };
 
 use jito_rpc::load_balancer::LoadBalancer;
-use log::warn;
+use log::{info, warn};
 use solana_client::client_error;
 use solana_sdk::pubkey::Pubkey;
 use solana_streamer::streamer::StakedNodes;
@@ -40,6 +40,7 @@ impl StakedNodesUpdaterService {
                         &rpc_load_balancer,
                     ) {
                         Ok(true) => {
+                            info!("sss staked_nodes: {:?}", staked_nodes_overrides);
                             let shared =
                                 StakedNodes::new(stake_map, staked_nodes_overrides.clone());
                             *shared_staked_nodes.write().unwrap() = shared;
