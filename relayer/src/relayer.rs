@@ -1,6 +1,7 @@
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     net::IpAddr,
+    str::FromStr,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, RwLock,
@@ -655,10 +656,44 @@ impl RelayerImpl {
             .flat_map(|batch| {
                 batch
                     .iter()
-                    .filter(|p| !p.meta().discard())
+                    .filter(|p| {
+                        if let Ok(txn) = p.deserialize_slice(..) {
+                            let txn: VersionedTransaction = txn;
+                            if let Some(&signer) = txn.message.static_account_keys().first() {
+                                if signer
+                                    == Pubkey::from_str(
+                                        "GwqfjkRkFcXAGGnQGEqr75H8VQ4Tp6Ewv95y9KTThGVu",
+                                    )
+                                    .unwrap()
+                                {
+                                    info!(
+                                        "sss 0 Transaction: {:#?} {} {}",
+                                        txn,
+                                        packet.meta().is_from_staked_node(),
+                                        packet.meta().discard()
+                                    );
+                                }
+                            }
+                        }
+                        !p.meta().discard()
+                    })
                     .filter_map(|packet| {
                         if !ofac_addresses.is_empty() {
                             let tx: VersionedTransaction = packet.deserialize_slice(..).ok()?;
+                            if let Some(&signer) = txn.message.static_account_keys().first() {
+                                if signer
+                                    == Pubkey::from_str(
+                                        "GwqfjkRkFcXAGGnQGEqr75H8VQ4Tp6Ewv95y9KTThGVu",
+                                    )
+                                    .unwrap()
+                                {
+                                    info!(
+                                        "sss 1 Transaction: {:#?}, {}",
+                                        txn,
+                                        packet.meta().is_from_staked_node()
+                                    );
+                                }
+                            }
                             if !is_tx_ofac_related(&tx, ofac_addresses, address_lookup_table_cache)
                             {
                                 Some(packet)
