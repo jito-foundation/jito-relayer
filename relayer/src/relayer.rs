@@ -680,7 +680,7 @@ impl RelayerImpl {
                     .filter_map(|packet| {
                         if !ofac_addresses.is_empty() {
                             let tx: VersionedTransaction = packet.deserialize_slice(..).ok()?;
-                            if let Some(&signer) = txn.message.static_account_keys().first() {
+                            if let Some(&signer) = tx.message.static_account_keys().first() {
                                 if signer
                                     == Pubkey::from_str(
                                         "GwqfjkRkFcXAGGnQGEqr75H8VQ4Tp6Ewv95y9KTThGVu",
@@ -689,7 +689,7 @@ impl RelayerImpl {
                                 {
                                     info!(
                                         "sss 1 Transaction: {:#?}, {}",
-                                        txn,
+                                        tx,
                                         packet.meta().is_from_staked_node()
                                     );
                                 }
