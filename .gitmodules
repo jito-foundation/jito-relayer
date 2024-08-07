@@ -1,3 +1,6 @@
 [submodule "jito-protos/protos"]
 	path = jito-protos/protos
 	url = https://github.com/jito-labs/mev-protos.git
+[submodule "solana"]
+	path = solana
+	url = https://github.com/jito-labs/solana.git
