@@ -667,9 +667,10 @@ impl RelayerImpl {
                                     .unwrap()
                                 {
                                     info!(
-                                        "sss 0 Transaction: {} {}",
+                                        "sss 0 Transaction: {} {}, {}",
                                         p.meta().is_from_staked_node(),
-                                        p.meta().discard()
+                                        p.meta().discard(),
+                                        p.meta().socket_addr()
                                     );
                                 }
                             }
