@@ -24,7 +24,7 @@ axum = "0.5.17"
 bincode = "1.3.3"
 bytes = "1.4.0"
 cached = "0.42.0"
-chrono = "0.4.24"
+chrono = "0.4.38"
 clap = { version = "4", features = ["derive", "env"] }
 crossbeam-channel = "0.5.8"
 dashmap = "5.4.0"
@@ -57,20 +57,22 @@ serde = { version = "1.0.160", features = ["derive"] }
 serde_json = "1.0.96"
 serde_yaml = "0.9.32"
 sha2 = "0.10.6"
-solana-address-lookup-table-program = "=1.18.18"
-solana-client = "=1.18.18"
-solana-core = "=1.18.18"
-solana-gossip = "=1.18.18"
-solana-measure = "=1.18.18"
-solana-metrics = "=1.18.18"
-solana-net-utils = "=1.18.18"
-solana-perf = "=1.18.18"
-solana-program = "=1.18.18"
-solana-rayon-threadlimit = "=1.18.18"
-solana-runtime = "=1.18.18"
-solana-sdk = "=1.18.18"
-solana-streamer = "=1.18.18"
-solana-validator = "=1.18.18"
+solana-address-lookup-table-program = {git = "https://github.com/lijunwangs/solana.git", rev = "25c5322911d8284ded379b4c1d114e6f378707a9"}
+solana-client = {git = "https://github.com/lijunwangs/solana.git", rev = "25c5322911d8284ded379b4c1d114e6f378707a9"}
+solana-core = {git = "https://github.com/lijunwangs/solana.git", rev = "25c5322911d8284ded379b4c1d114e6f378707a9"}
+solana-gossip = {git = "https://github.com/lijunwangs/solana.git", rev = "25c5322911d8284ded379b4c1d114e6f378707a9"}
+solana-measure = {git = "https://github.com/lijunwangs/solana.git", rev = "25c5322911d8284ded379b4c1d114e6f378707a9"}
+solana-metrics = {git = "https://github.com/lijunwangs/solana.git", rev = "25c5322911d8284ded379b4c1d114e6f378707a9"}
+solana-net-utils = {git = "https://github.com/lijunwangs/solana.git", rev = "25c5322911d8284ded379b4c1d114e6f378707a9"}
+solana-perf = {git = "https://github.com/lijunwangs/solana.git", rev = "25c5322911d8284ded379b4c1d114e6f378707a9"}
+solana-program =  {git = "https://github.com/lijunwangs/solana.git", rev = "25c5322911d8284ded379b4c1d114e6f378707a9"}
+solana-rayon-threadlimit = {git = "https://github.com/lijunwangs/solana.git", rev = "25c5322911d8284ded379b4c1d114e6f378707a9"}
+solana-runtime = {git = "https://github.com/lijunwangs/solana.git", rev = "25c5322911d8284ded379b4c1d114e6f378707a9"}
+solana-sdk = {git = "https://github.com/lijunwangs/solana.git", rev = "25c5322911d8284ded379b4c1d114e6f378707a9"}
+solana-streamer = {git = "https://github.com/lijunwangs/solana.git", rev = "25c5322911d8284ded379b4c1d114e6f378707a9"}
+solana-unified-scheduler-logic = {git = "https://github.com/lijunwangs/solana.git", rev = "25c5322911d8284ded379b4c1d114e6f378707a9"}
+agave-validator = {git = "https://github.com/lijunwangs/solana.git", rev = "25c5322911d8284ded379b4c1d114e6f378707a9"}
+solana-zk-token-sdk = {git = "https://github.com/lijunwangs/solana.git", rev = "25c5322911d8284ded379b4c1d114e6f378707a9"}
 thiserror = "1.0.40"
 tikv-jemallocator = { version = "0.4", features = ["profiling"] }
 tokio = { version = "1.29.1", features = ["full"] }
@@ -86,3 +88,8 @@ lto = "thin"
 # enable debug symbols for profiling the heap using jeprof
 # example: jeprof --web target/release/jito-transaction-relayer jeprof.3085546.9823.i24.heap
 #debug = true
+
+[patch.crates-io]
+
+solana-program = {git = "https://github.com/lijunwangs/solana.git", rev = "25c5322911d8284ded379b4c1d114e6f378707a9"}
+solana-zk-token-sdk = {git = "https://github.com/lijunwangs/solana.git", rev = "25c5322911d8284ded379b4c1d114e6f378707a9"}
