@@ -39,15 +39,15 @@ use jito_transaction_relayer::forwarder::start_forward_and_delay_thread;
 use jwt::{AlgorithmType, PKeyWithDigest};
 use log::{debug, error, info, warn};
 use openssl::{hash::MessageDigest, pkey::PKey};
-use solana_address_lookup_table_program::state::AddressLookupTable;
+use solana_sdk::address_lookup_table::state::AddressLookupTable;
 use solana_metrics::{datapoint_error, datapoint_info};
 use solana_net_utils::multi_bind_in_range;
 use solana_sdk::{
-    address_lookup_table_account::AddressLookupTableAccount,
+    address_lookup_table::AddressLookupTableAccount,
     pubkey::Pubkey,
     signature::{read_keypair_file, Signer},
 };
-use solana_validator::admin_rpc_service::StakedNodesOverrides;
+use agave_validator::admin_rpc_service::StakedNodesOverrides;
 use tikv_jemallocator::Jemalloc;
 use tokio::{runtime::Builder, signal, sync::mpsc::channel};
 use tonic::transport::Server;

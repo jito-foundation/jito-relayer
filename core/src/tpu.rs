@@ -19,7 +19,7 @@ use solana_core::{
 };
 use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 use solana_streamer::{
-    nonblocking::quic::{DEFAULT_MAX_STREAMS_PER_MS, DEFAULT_WAIT_FOR_CHUNK_TIMEOUT},
+    nonblocking::quic::{DEFAULT_MAX_CONNECTIONS_PER_IPADDR_PER_MINUTE, DEFAULT_MAX_STREAMS_PER_MS, DEFAULT_WAIT_FOR_CHUNK_TIMEOUT},
     quic::spawn_server,
     streamer::StakedNodes,
 };
@@ -82,10 +82,10 @@ impl Tpu {
             .into_iter()
             .map(|sock| {
                 spawn_server(
+                    "solQuicTpu",
                     "quic_streamer_tpu",
                     sock,
                     keypair,
-                    *tpu_ip,
                     tpu_sender.clone(),
                     exit.clone(),
                     MAX_QUIC_CONNECTIONS_PER_PEER,
@@ -93,6 +93,7 @@ impl Tpu {
                     max_staked_quic_connections,
                     max_unstaked_quic_connections,
                     DEFAULT_MAX_STREAMS_PER_MS,
+                    DEFAULT_MAX_CONNECTIONS_PER_IPADDR_PER_MINUTE,
                     DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
                     Duration::from_millis(DEFAULT_TPU_COALESCE_MS),
                 )
@@ -106,10 +107,10 @@ impl Tpu {
                 .into_iter()
                 .map(|sock| {
                     spawn_server(
+                        "solQuicTpuFwd",
                         "quic_streamer_tpu_forwards",
                         sock,
                         keypair,
-                        *tpu_fwd_ip,
                         tpu_forwards_sender.clone(),
                         exit.clone(),
                         MAX_QUIC_CONNECTIONS_PER_PEER,
@@ -117,6 +118,7 @@ impl Tpu {
                         max_staked_quic_connections.saturating_add(max_unstaked_quic_connections),
                         0, // Prevent unstaked nodes from forwarding transactions
                         DEFAULT_MAX_STREAMS_PER_MS,
+                        DEFAULT_MAX_CONNECTIONS_PER_IPADDR_PER_MINUTE,
                         DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
                         Duration::from_millis(DEFAULT_TPU_COALESCE_MS),
                     )
@@ -133,6 +135,7 @@ impl Tpu {
         let sigverify_stage = SigVerifyStage::new(
             tpu_receiver,
             TransactionSigVerifier::new(banking_packet_sender),
+            "solSigVerTpu",
             "tpu-verifier",
         );
 

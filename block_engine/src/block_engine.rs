@@ -32,7 +32,9 @@ use prost_types::Timestamp;
 use solana_core::banking_trace::BankingPacketBatch;
 use solana_metrics::{datapoint_error, datapoint_info};
 use solana_sdk::{
-    address_lookup_table::AddressLookupTableAccount, pubkey::Pubkey, signature::Signer,
+    address_lookup_table::AddressLookupTableAccount, pubkey::Pubkey, 
+    reserved_account_keys::ReservedAccountKeys,
+    signature::Signer,
     signer::keypair::Keypair, transaction::VersionedTransaction,
 };
 use thiserror::Error;
@@ -723,12 +725,14 @@ fn is_aoi_in_static_keys(
     accounts_of_interest: &mut TimedCache<Pubkey, u8>,
     programs_of_interest: &mut TimedCache<Pubkey, u8>,
 ) -> bool {
+    let reserved_account_keys = ReservedAccountKeys::new_all_activated().active;
+
     tx.message
         .static_account_keys()
         .iter()
         .enumerate()
         .any(|(idx, acc)| {
-            (tx.message.is_maybe_writable(idx) && accounts_of_interest.cache_get(acc).is_some())
+            (tx.message.is_maybe_writable(idx, Some(&reserved_account_keys)) && accounts_of_interest.cache_get(acc).is_some())
                 // note: can't detect CPIs without execution, so aggressively forward txs than contain account in POI
                 || programs_of_interest.cache_get(acc).is_some()
         })
