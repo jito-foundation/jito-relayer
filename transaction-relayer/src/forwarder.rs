@@ -44,7 +44,7 @@ pub fn start_forward_and_delay_thread(
                     let mut buffered_packet_batches: VecDeque<RelayerPacketBatches> =
                         VecDeque::with_capacity(100_000);
 
-                    let metrics_interval = Duration::from_secs(1);
+                    let metrics_interval = Duration::from_secs(10);
                     let mut forwarder_metrics = ForwarderMetrics::new(
                         buffered_packet_batches.capacity(),
                         verified_receiver.capacity().unwrap_or_default(), // TODO (LB): unbounded channel now, remove metric
