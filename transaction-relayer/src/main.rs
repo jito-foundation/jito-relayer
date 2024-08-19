@@ -460,6 +460,9 @@ fn main() {
     let (block_engine_sender, block_engine_receiver) =
         channel(jito_transaction_relayer::forwarder::BLOCK_ENGINE_FORWARDER_QUEUE_CAPACITY);
 
+    let (forward_transaction_signal_tx, forward_transaction_signal_rx) =
+        tokio::sync::watch::channel(false);
+
     let forward_and_delay_threads = start_forward_and_delay_thread(
         verified_receiver,
         delay_packet_sender,
@@ -467,6 +470,7 @@ fn main() {
         block_engine_sender,
         1,
         args.disable_mempool,
+        forward_transaction_signal_rx.clone(),
         &exit,
     );
 
@@ -519,7 +523,8 @@ fn main() {
         ofac_addresses,
         address_lookup_table_cache,
         args.validator_packet_batch_size,
-        args.forward_all,
+        forward_transaction_signal_tx.clone(),
+        false, // do not forward to all validators
     );
 
     let priv_key = fs::read(&args.signing_key_pem_path).unwrap_or_else(|_| {
