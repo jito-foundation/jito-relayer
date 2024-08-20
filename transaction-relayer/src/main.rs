@@ -461,7 +461,7 @@ fn main() {
         channel(jito_transaction_relayer::forwarder::BLOCK_ENGINE_FORWARDER_QUEUE_CAPACITY);
 
     let (forward_transaction_signal_tx, forward_transaction_signal_rx) =
-        tokio::sync::watch::channel(false);
+        crossbeam_channel::bounded(1);
 
     let forward_and_delay_threads = start_forward_and_delay_thread(
         verified_receiver,
@@ -523,7 +523,7 @@ fn main() {
         ofac_addresses,
         address_lookup_table_cache,
         args.validator_packet_batch_size,
-        forward_transaction_signal_tx.clone(),
+        forward_transaction_signal_tx,
         false, // do not forward to all validators
     );
 

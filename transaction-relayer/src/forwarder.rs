@@ -37,7 +37,7 @@ pub fn start_forward_and_delay_thread(
             let verified_receiver = verified_receiver.clone();
             let delay_packet_sender = delay_packet_sender.clone();
             let block_engine_sender = block_engine_sender.clone();
-
+            let forward_transaction_signal = forward_transaction_signal.clone();
             let exit = exit.clone();
             Builder::new()
                 .name(format!("forwarder_thread_{thread_id}"))
@@ -47,7 +47,7 @@ pub fn start_forward_and_delay_thread(
 
                     let metrics_interval = Duration::from_secs(1);
                     let mut forwarder_metrics = ForwarderMetrics::new(
-                        buffered_packet_batches.capacity(),
+                        transaction_queue.capacity(),
                         verified_receiver.capacity().unwrap_or_default(), // TODO (LB): unbounded channel now, remove metric
                         block_engine_sender.capacity(),
                     );
@@ -58,7 +58,7 @@ pub fn start_forward_and_delay_thread(
                             forwarder_metrics.report(thread_id, packet_delay_ms);
 
                             forwarder_metrics = ForwarderMetrics::new(
-                                buffered_packet_batches.capacity(),
+                                transaction_queue.capacity(),
                                 verified_receiver.capacity().unwrap_or_default(), // TODO (LB): unbounded channel now, remove metric
                                 block_engine_sender.capacity(),
                             );
