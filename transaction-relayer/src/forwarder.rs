@@ -26,6 +26,7 @@ pub fn start_forward_and_delay_thread(
     block_engine_sender: tokio::sync::mpsc::Sender<BlockEnginePackets>,
     num_threads: u64,
     disable_mempool: bool,
+    forward_transaction_signal: Receiver<()>,
     exit: &Arc<AtomicBool>,
 ) -> Vec<JoinHandle<()>> {
     const SLEEP_DURATION: Duration = Duration::from_millis(5);
@@ -36,17 +37,17 @@ pub fn start_forward_and_delay_thread(
             let verified_receiver = verified_receiver.clone();
             let delay_packet_sender = delay_packet_sender.clone();
             let block_engine_sender = block_engine_sender.clone();
-
+            let forward_transaction_signal = forward_transaction_signal.clone();
             let exit = exit.clone();
             Builder::new()
                 .name(format!("forwarder_thread_{thread_id}"))
                 .spawn(move || {
-                    let mut buffered_packet_batches: VecDeque<RelayerPacketBatches> =
+                    let mut transaction_queue: VecDeque<RelayerPacketBatches> =
                         VecDeque::with_capacity(100_000);
 
                     let metrics_interval = Duration::from_secs(1);
                     let mut forwarder_metrics = ForwarderMetrics::new(
-                        buffered_packet_batches.capacity(),
+                        transaction_queue.capacity(),
                         verified_receiver.capacity().unwrap_or_default(), // TODO (LB): unbounded channel now, remove metric
                         block_engine_sender.capacity(),
                     );
@@ -57,7 +58,7 @@ pub fn start_forward_and_delay_thread(
                             forwarder_metrics.report(thread_id, packet_delay_ms);
 
                             forwarder_metrics = ForwarderMetrics::new(
-                                buffered_packet_batches.capacity(),
+                                transaction_queue.capacity(),
                                 verified_receiver.capacity().unwrap_or_default(), // TODO (LB): unbounded channel now, remove metric
                                 block_engine_sender.capacity(),
                             );
@@ -100,7 +101,8 @@ pub fn start_forward_and_delay_thread(
                                         }
                                     }
                                 }
-                                buffered_packet_batches.push_back(RelayerPacketBatches {
+
+                                transaction_queue.push_back(RelayerPacketBatches {
                                     stamp: instant,
                                     banking_packet_batch,
                                 });
@@ -111,31 +113,16 @@ pub fn start_forward_and_delay_thread(
                             }
                         }
 
-                        while let Some(packet_batches) = buffered_packet_batches.front() {
-                            if packet_batches.stamp.elapsed() < packet_delay {
-                                break;
+                        // Wait for the signal that it's time to forward transactions
+                        if forward_transaction_signal.try_recv().is_ok() {
+                            // Forward all queued transactions
+                            while let Some(packet_batches) = transaction_queue.pop_front() {
+                                // Send the transaction
+                                delay_packet_sender
+                                    .send(packet_batches)
+                                    .expect("exiting forwarding delayed packets");
                             }
-                            let batch = buffered_packet_batches.pop_front().unwrap();
-
-                            let num_packets = batch
-                                .banking_packet_batch
-                                .0
-                                .iter()
-                                .map(|b| b.len() as u64)
-                                .sum::<u64>();
-
-                            forwarder_metrics.num_relayer_packets_forwarded += num_packets;
-                            delay_packet_sender
-                                .send(batch)
-                                .expect("exiting forwarding delayed packets");
                         }
-
-                        forwarder_metrics.update_queue_lengths(
-                            buffered_packet_batches.len(),
-                            buffered_packet_batches.capacity(),
-                            verified_receiver.len(),
-                            BLOCK_ENGINE_FORWARDER_QUEUE_CAPACITY - block_engine_sender.capacity(),
-                        );
                     }
                 })
                 .unwrap()

@@ -1,12 +1,12 @@
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     net::IpAddr,
+    str::FromStr,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, RwLock,
     },
-    thread,
-    thread::JoinHandle,
+    thread::{self, JoinHandle},
     time::{Duration, Instant, SystemTime},
 };
 
@@ -426,6 +426,7 @@ impl RelayerImpl {
         ofac_addresses: HashSet<Pubkey>,
         address_lookup_table_cache: Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
         validator_packet_batch_size: usize,
+        forward_transaction_signal: Sender<()>,
         forward_all: bool,
     ) -> Self {
         const LEADER_LOOKAHEAD: u64 = 2;
@@ -454,6 +455,7 @@ impl RelayerImpl {
                         ofac_addresses,
                         address_lookup_table_cache,
                         validator_packet_batch_size,
+                        forward_transaction_signal,
                         forward_all,
                     );
                     warn!("RelayerImpl thread exited with result {res:?}")
@@ -490,6 +492,7 @@ impl RelayerImpl {
         ofac_addresses: HashSet<Pubkey>,
         address_lookup_table_cache: Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
         validator_packet_batch_size: usize,
+        forward_transaction_signal: Sender<()>,
         forward_all: bool,
     ) -> RelayerResult<()> {
         let mut highest_slot = Slot::default();
@@ -504,6 +507,8 @@ impl RelayerImpl {
         );
 
         let mut slot_leaders = HashSet::new();
+        let mut is_my_validator_leader = false;
+        let my_validator_pubkey = Pubkey::from_str("validator_pubkey").unwrap(); // get from env ?
 
         while !exit.load(Ordering::Relaxed) {
             crossbeam_channel::select! {
@@ -517,12 +522,20 @@ impl RelayerImpl {
                         .collect();
                     slot_leaders = leader_schedule_cache.leaders_for_slots(&slots);
 
+                    is_my_validator_leader = slot_leaders.contains(&my_validator_pubkey);
+                    if is_my_validator_leader {
+                        forward_transaction_signal.send(()).unwrap(); // here we trigger delay_packet_receiver from tx_relayer
+                    }
+
                     let _ = relayer_metrics.crossbeam_slot_receiver_processing_us.increment(start.elapsed().as_micros() as u64);
                 },
                 recv(delay_packet_receiver) -> maybe_packet_batches => {
                     let start = Instant::now();
-                    let failed_forwards = Self::forward_packets(maybe_packet_batches, packet_subscriptions, &slot_leaders, &mut relayer_metrics, &ofac_addresses, &address_lookup_table_cache, validator_packet_batch_size, forward_all)?;
-                    Self::drop_connections(failed_forwards, packet_subscriptions, &mut relayer_metrics);
+                    // only forward packets if this validator is the leader
+                    if is_my_validator_leader {
+                        let failed_forwards = Self::forward_packets(maybe_packet_batches, packet_subscriptions, &slot_leaders, &mut relayer_metrics, &ofac_addresses, &address_lookup_table_cache, validator_packet_batch_size, forward_all)?;
+                        Self::drop_connections(failed_forwards, packet_subscriptions, &mut relayer_metrics);
+                    }
                     let _ = relayer_metrics.crossbeam_delay_packet_receiver_processing_us.increment(start.elapsed().as_micros() as u64);
                 },
                 recv(subscription_receiver) -> maybe_subscription => {
