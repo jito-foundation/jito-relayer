@@ -29,11 +29,8 @@ use prost_types::Timestamp;
 use solana_core::banking_trace::BankingPacketBatch;
 use solana_metrics::datapoint_info;
 use solana_sdk::{
-    address_lookup_table::AddressLookupTableAccount,
-    clock::{Slot, NUM_CONSECUTIVE_LEADER_SLOTS},
-    pubkey::Pubkey,
-    saturating_add_assign,
-    transaction::VersionedTransaction,
+    address_lookup_table::AddressLookupTableAccount, clock::Slot, pubkey::Pubkey,
+    saturating_add_assign, transaction::VersionedTransaction,
 };
 use thiserror::Error;
 use tokio::sync::mpsc::{channel, error::TrySendError, Sender as TokioSender};
