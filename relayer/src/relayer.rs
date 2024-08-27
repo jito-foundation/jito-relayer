@@ -29,11 +29,8 @@ use prost_types::Timestamp;
 use solana_core::banking_trace::BankingPacketBatch;
 use solana_metrics::datapoint_info;
 use solana_sdk::{
-    address_lookup_table::AddressLookupTableAccount,
-    clock::{Slot, NUM_CONSECUTIVE_LEADER_SLOTS},
-    pubkey::Pubkey,
-    saturating_add_assign,
-    transaction::VersionedTransaction,
+    address_lookup_table::AddressLookupTableAccount, clock::Slot, pubkey::Pubkey,
+    saturating_add_assign, transaction::VersionedTransaction,
 };
 use thiserror::Error;
 use tokio::sync::mpsc::{channel, error::TrySendError, Sender as TokioSender};
@@ -427,9 +424,8 @@ impl RelayerImpl {
         address_lookup_table_cache: Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
         validator_packet_batch_size: usize,
         forward_all: bool,
+        slot_lookahead: u64,
     ) -> Self {
-        const LEADER_LOOKAHEAD: u64 = 2;
-
         // receiver tracked as relayer_metrics.subscription_receiver_len
         let (subscription_sender, subscription_receiver) =
             bounded(LoadBalancer::SLOT_QUEUE_CAPACITY);
@@ -447,7 +443,7 @@ impl RelayerImpl {
                         subscription_receiver,
                         delay_packet_receiver,
                         leader_schedule_cache,
-                        LEADER_LOOKAHEAD,
+                        slot_lookahead,
                         health_state,
                         exit,
                         &packet_subscriptions,
@@ -483,7 +479,7 @@ impl RelayerImpl {
         subscription_receiver: Receiver<Subscription>,
         delay_packet_receiver: Receiver<RelayerPacketBatches>,
         leader_schedule_cache: LeaderScheduleUpdatingHandle,
-        leader_lookahead: u64,
+        slot_lookahead: u64,
         health_state: Arc<RwLock<HealthState>>,
         exit: Arc<AtomicBool>,
         packet_subscriptions: &PacketSubscriptions,
@@ -512,9 +508,7 @@ impl RelayerImpl {
 
                     Self::update_highest_slot(maybe_slot, &mut highest_slot, &mut relayer_metrics)?;
 
-                    let slots: Vec<_> = (highest_slot
-                        ..highest_slot + leader_lookahead * NUM_CONSECUTIVE_LEADER_SLOTS)
-                        .collect();
+                    let slots: Vec<_> = (highest_slot..highest_slot + slot_lookahead).collect();
                     slot_leaders = leader_schedule_cache.leaders_for_slots(&slots);
 
                     let _ = relayer_metrics.crossbeam_slot_receiver_processing_us.increment(start.elapsed().as_micros() as u64);
