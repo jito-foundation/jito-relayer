@@ -242,7 +242,7 @@ struct Args {
     slot_lookahead: u64,
 
     /// Time in milliseconds between heartbeat ticks
-    #[arg(long, env default_value_t = 100)]
+    #[arg(long, env, default_value_t = 100)]
     heartbeat_tick_time: u64,
 }
 
