@@ -425,6 +425,7 @@ impl RelayerImpl {
         validator_packet_batch_size: usize,
         forward_all: bool,
         slot_lookahead: u64,
+        heartbeat_tick_time: u64,
     ) -> Self {
         // receiver tracked as relayer_metrics.subscription_receiver_len
         let (subscription_sender, subscription_receiver) =
@@ -451,6 +452,7 @@ impl RelayerImpl {
                         address_lookup_table_cache,
                         validator_packet_batch_size,
                         forward_all,
+                        heartbeat_tick_time,
                     );
                     warn!("RelayerImpl thread exited with result {res:?}")
                 })
@@ -487,10 +489,11 @@ impl RelayerImpl {
         address_lookup_table_cache: Arc<DashMap<Pubkey, AddressLookupTableAccount>>,
         validator_packet_batch_size: usize,
         forward_all: bool,
+        heartbeat_tick_time: u64,
     ) -> RelayerResult<()> {
         let mut highest_slot = Slot::default();
 
-        let heartbeat_tick = crossbeam_channel::tick(Duration::from_millis(100));
+        let heartbeat_tick = crossbeam_channel::tick(Duration::from_millis(heartbeat_tick_time));
         let metrics_tick = crossbeam_channel::tick(Duration::from_millis(1000));
 
         let mut relayer_metrics = RelayerMetrics::new(
