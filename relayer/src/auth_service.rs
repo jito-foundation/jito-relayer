@@ -236,7 +236,7 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
             ))
         }?;
 
-        // check the
+        // check the client passed in public key against the originally requested public key
         if auth_challenge.0.access_claims.client_pubkey != solana_pubkey {
             return Err(Status::permission_denied(
                 "The pubkey provided does not match the pubkey that generated the challenge.",
