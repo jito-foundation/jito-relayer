@@ -236,6 +236,13 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
             ))
         }?;
 
+        // check the
+        if auth_challenge.0.access_claims.client_pubkey != solana_pubkey {
+            return Err(Status::permission_denied(
+                "The pubkey provided does not match the pubkey that generated the challenge.",
+            ));
+        }
+
         // Prepended with the pubkey to invalidate any tx this server could maliciously send.
         let expected_challenge = format!("{}-{}", solana_pubkey, auth_challenge.0.challenge);
         if expected_challenge != inner_req.challenge {
@@ -308,14 +315,14 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
             access_token: Some(PbToken {
                 value: access_token,
                 expires_at_utc: Some(Timestamp {
-                    seconds: access_expiry.timestamp(),
+                    seconds: access_expiry.and_utc().timestamp(),
                     nanos: 0,
                 }),
             }),
             refresh_token: Some(PbToken {
                 value: refresh_token,
                 expires_at_utc: Some(Timestamp {
-                    seconds: refresh_expiry.timestamp(),
+                    seconds: refresh_expiry.and_utc().timestamp(),
                     nanos: 0,
                 }),
             }),
@@ -369,7 +376,7 @@ impl<V: ValidatorAuther> AuthService for AuthServiceImpl<V> {
             access_token: Some(PbToken {
                 value: access_token,
                 expires_at_utc: Some(Timestamp {
-                    seconds: expires_at_utc.timestamp(),
+                    seconds: expires_at_utc.and_utc().timestamp(),
                     nanos: 0,
                 }),
             }),
