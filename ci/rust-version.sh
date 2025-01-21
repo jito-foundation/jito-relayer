@@ -22,7 +22,7 @@ else
   base="$(dirname "${BASH_SOURCE[0]}")"
   # pacify shellcheck: cannot follow dynamic path
   # shellcheck disable=SC1090,SC1091
-  source "$base/../scripts/read-cargo-variable.sh"
+  source "$base/read-cargo-variable.sh"
   stable_version=$(readCargoVariable channel "$base/../rust-toolchain.toml")
 fi
 
@@ -44,6 +44,7 @@ export rust_nightly=nightly-"$nightly_version"
     if ! cargo +"$toolchain" -V > /dev/null; then
       echo "$0: Missing toolchain? Installing...: $toolchain" >&2
       rustup install "$toolchain" --no-self-update
+      rustup component add rustfmt --toolchain "$toolchain"
       cargo +"$toolchain" -V
     fi
   }
