@@ -1,4 +1,3 @@
-# source this file
 readCargoVariable() {
   declare variable="$1"
   declare Cargo_toml="$2"

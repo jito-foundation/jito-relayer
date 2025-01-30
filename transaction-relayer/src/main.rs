@@ -42,8 +42,7 @@ use log::{debug, error, info, warn};
 use openssl::{hash::MessageDigest, pkey::PKey};
 use solana_metrics::{datapoint_error, datapoint_info};
 use solana_net_utils::multi_bind_in_range;
-use solana_program::address_lookup_table::state::AddressLookupTable;
-use solana_program::address_lookup_table::AddressLookupTableAccount;
+use solana_program::address_lookup_table::{state::AddressLookupTable, AddressLookupTableAccount};
 use solana_sdk::{
     pubkey::Pubkey,
     signature::{read_keypair_file, Signer},

@@ -1,4 +1,3 @@
-#
 # This file maintains the rust versions for use by CI.
 #
 # Obtain the environment variables without any automatic toolchain updating:
