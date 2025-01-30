@@ -28,28 +28,19 @@ runs:
         && rm -f $PROTOC_ZIP
       shell: bash
 
-    - name: Clear all cargo caches
-      run: |
-        rm -rf ~/.cargo/registry/
-        rm -rf ~/.cargo/git/
-        rm -rf ~/.cargo/bin/
-        rm -rf target/
-        cargo clean
-      shell: bash
-
-    - name: cache dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cargo
-        key: ${{ runner.os }}-cargo-${{ steps.cache-key-generator.outputs.cache-key }}-${{ hashFiles('**/Cargo.lock') }}
-
-    - name: cache rust files
-      uses: actions/cache@v3
-      with:
-        path: |
-          target/
-        key: ${{ runner.os }}-cargo-${{ steps.cache-key-generator.outputs.cache-key }}-${{ hashFiles('**/*.rs') }}
+#    - name: cache dependencies
+#      uses: actions/cache@v3
+#      with:
+#        path: |
+#          ~/.cargo
+#        key: ${{ runner.os }}-cargo-${{ steps.cache-key-generator.outputs.cache-key }}-${{ hashFiles('**/Cargo.lock') }}
+#
+#    - name: cache rust files
+#      uses: actions/cache@v3
+#      with:
+#        path: |
+#          target/
+#        key: ${{ runner.os }}-cargo-${{ steps.cache-key-generator.outputs.cache-key }}-${{ hashFiles('**/*.rs') }}
 
     - name: Check rust version before
       run: |
