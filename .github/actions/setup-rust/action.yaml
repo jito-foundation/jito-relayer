@@ -42,6 +42,15 @@ runs:
 #          target/
 #        key: ${{ runner.os }}-cargo-${{ steps.cache-key-generator.outputs.cache-key }}-${{ hashFiles('**/*.rs') }}
 
+    - name: Clear cargo cache
+      run: |
+        rm -rf /home/runner/.cargo/registry/
+        rm -rf /home/runner/.cargo/git/
+        rm -rf /home/runner/.cargo/bin/
+        rm -rf target/
+        cargo clean
+      shell: bash
+
     - name: Check rust version before
       run: |
         rustc --version || true;
