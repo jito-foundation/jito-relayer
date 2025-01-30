@@ -28,6 +28,10 @@ runs:
         && rm -f $PROTOC_ZIP
       shell: bash
 
+    - name: Clear cargo cache
+      run: rm -rf ~/.cargo/registry/
+      shell: bash
+
     - name: cache dependencies
       uses: actions/cache@v3
       with:
