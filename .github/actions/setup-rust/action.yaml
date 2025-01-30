@@ -48,7 +48,6 @@ runs:
         rm -rf /home/runner/.cargo/git/
         rm -rf /home/runner/.cargo/bin/
         rm -rf target/
-        cargo clean
       shell: bash
 
     - name: Check rust version before
