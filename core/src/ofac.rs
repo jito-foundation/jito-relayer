@@ -59,7 +59,7 @@ mod tests {
 
     use dashmap::DashMap;
     use solana_sdk::{
-        address_lookup_table_account::AddressLookupTableAccount,
+        address_lookup_table::AddressLookupTableAccount,
         hash::Hash,
         instruction::{AccountMeta, CompiledInstruction, Instruction},
         message::{v0, v0::MessageAddressTableLookup, MessageHeader, VersionedMessage},
