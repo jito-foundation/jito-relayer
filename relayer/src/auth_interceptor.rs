@@ -1,6 +1,6 @@
 use std::{net::IpAddr, str::FromStr, sync::Arc};
 
-use chrono::{NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use jwt::{AlgorithmType, Header, PKeyWithDigest, Token, Verified, VerifyWithKey};
 use log::*;
 use openssl::pkey::Public;
@@ -33,8 +33,9 @@ impl From<&DeSerClaims> for Claims {
         Self {
             client_ip: IpAddr::from_str(&de_ser_claims.client_ip).unwrap(),
             client_pubkey: Pubkey::from_str(&de_ser_claims.client_pubkey).unwrap(),
-            expires_at_utc: NaiveDateTime::from_timestamp_opt(de_ser_claims.expires_at_unix_ts, 0)
-                .unwrap(),
+            expires_at_utc: DateTime::from_timestamp(de_ser_claims.expires_at_unix_ts, 0)
+                .unwrap()
+                .naive_utc(),
         }
     }
 }
@@ -51,7 +52,7 @@ impl From<Claims> for DeSerClaims {
         Self {
             client_ip: claims.client_ip.to_string(),
             client_pubkey: claims.client_pubkey.to_string(),
-            expires_at_unix_ts: claims.expires_at_utc.timestamp(),
+            expires_at_unix_ts: claims.expires_at_utc.and_utc().timestamp(),
         }
     }
 }
