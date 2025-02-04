@@ -13,6 +13,18 @@
 #   $ cargo +"$rust_stable" build
 #   $ cargo +"$rust_nightly" build
 #
+readCargoVariable() {
+  declare variable="$1"
+  declare Cargo_toml="$2"
+
+  while read -r name equals value _; do
+    if [[ $name = "$variable" && $equals = = ]]; then
+      echo "${value//\"/}"
+      return
+    fi
+  done < <(cat "$Cargo_toml")
+  echo "Unable to locate $variable in $Cargo_toml" 1>&2
+}
 
 if [[ -n $RUST_STABLE_VERSION ]]; then
   stable_version="$RUST_STABLE_VERSION"
@@ -21,14 +33,13 @@ else
   base="$(dirname "${BASH_SOURCE[0]}")"
   # pacify shellcheck: cannot follow dynamic path
   # shellcheck disable=SC1090,SC1091
-  source "$base/read-cargo-variable.sh"
-  stable_version=$(readCargoVariable channel "$base/../rust-toolchain.toml")
+  stable_version=$(readCargoVariable channel "$base/rust-toolchain.toml")
 fi
 
 if [[ -n $RUST_NIGHTLY_VERSION ]]; then
   nightly_version="$RUST_NIGHTLY_VERSION"
 else
-  nightly_version=2024-08-08
+  nightly_version=2024-09-05
 fi
 
 

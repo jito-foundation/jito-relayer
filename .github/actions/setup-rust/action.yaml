@@ -52,9 +52,9 @@ runs:
 
     - name: Install cargo dependencies
       run: |
-        rustup install nightly-2025-01-29
-        rustup component add rustfmt --toolchain nightly-2025-01-29-x86_64-unknown-linux-gnu
-        rustup component add clippy --toolchain nightly-2025-01-29-x86_64-unknown-linux-gnu
+        rustup install nightly-2024-09-05 
+        rustup component add rustfmt --toolchain nightly-2024-09-05-x86_64-unknown-linux-gnu
+        rustup component add clippy --toolchain nightly-2024-09-05-x86_64-unknown-linux-gnu
         cargo install cargo-udeps@0.1.53 --locked
         cargo install cargo-sort
       shell: bash
@@ -63,6 +63,6 @@ runs:
       run: |
         rustc --version;
         cargo --version;
-        cargo +nightly-2025-01-29-x86_64-unknown-linux-gnu clippy --version;
-        cargo +nightly-2025-01-29-x86_64-unknown-linux-gnu fmt --version;
+        cargo +nightly-2024-09-05-x86_64-unknown-linux-gnu clippy --version;
+        cargo +nightly-2024-09-05-x86_64-unknown-linux-gnu fmt --version;
       shell: bash
