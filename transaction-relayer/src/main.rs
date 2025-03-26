@@ -196,6 +196,10 @@ struct Args {
     #[arg(long, env, default_value_t = 600)]
     lookup_table_refresh_secs: u64,
 
+    /// Enables lookup table refreshes
+    #[arg(long, env, default_value_t = false)]
+    enable_lookup_table_refresh: bool,
+
     /// Space-separated addresses to drop transactions for OFAC
     /// If any transaction mentions these addresses, the transaction will be dropped.
     #[arg(long, env, value_delimiter = ' ', value_parser = Pubkey::from_str)]
@@ -396,9 +400,15 @@ fn main() {
         keypair.pubkey()
     ));
     info!("Relayer started with pubkey: {}", keypair.pubkey());
+
+    let major: String = env!("CARGO_PKG_VERSION_MAJOR").parse().unwrap();
+    let minor: String = env!("CARGO_PKG_VERSION_MINOR").parse().unwrap();
+    let patch: String = env!("CARGO_PKG_VERSION_PATCH").parse().unwrap();
+
     datapoint_info!(
-        "relayer-mempool-enabled",
-        ("mempool_enabled", !args.disable_mempool, bool)
+        "relayer-info",
+        ("mempool_enabled", !args.disable_mempool, bool),
+        ("version", format!("{}.{}.{}", major, minor, patch), String),
     );
 
     let exit = graceful_panic(None);
@@ -427,12 +437,16 @@ fn main() {
     // Lookup table refresher
     let address_lookup_table_cache: Arc<DashMap<Pubkey, AddressLookupTableAccount>> =
         Arc::new(DashMap::new());
-    let lookup_table_refresher = start_lookup_table_refresher(
-        &rpc_load_balancer,
-        &address_lookup_table_cache,
-        Duration::from_secs(args.lookup_table_refresh_secs),
-        &exit,
-    );
+    let lookup_table_refresher = if args.enable_lookup_table_refresh {
+        Some(start_lookup_table_refresher(
+            &rpc_load_balancer,
+            &address_lookup_table_cache,
+            Duration::from_secs(args.lookup_table_refresh_secs),
+            &exit,
+        ))
+    } else {
+        None
+    };
 
     let staked_nodes_overrides = match args.staked_nodes_overrides {
         None => StakedNodesOverrides::default(),
@@ -610,7 +624,9 @@ fn main() {
     for t in forward_and_delay_threads {
         t.join().unwrap();
     }
-    lookup_table_refresher.join().unwrap();
+    if let Some(lookup_table_refresher) = lookup_table_refresher {
+        lookup_table_refresher.join().unwrap();
+    }
     block_engine_forwarder.join();
 }
 
