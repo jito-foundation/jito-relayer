@@ -400,9 +400,15 @@ fn main() {
         keypair.pubkey()
     ));
     info!("Relayer started with pubkey: {}", keypair.pubkey());
+
+    let major: String = env!("CARGO_PKG_VERSION_MAJOR").parse().unwrap();
+    let minor: String = env!("CARGO_PKG_VERSION_MINOR").parse().unwrap();
+    let patch: String = env!("CARGO_PKG_VERSION_PATCH").parse().unwrap();
+
     datapoint_info!(
-        "relayer-mempool-enabled",
-        ("mempool_enabled", !args.disable_mempool, bool)
+        "relayer-info",
+        ("mempool_enabled", !args.disable_mempool, bool),
+        ("version", format!("{}.{}.{}", major, minor, patch), String),
     );
 
     let exit = graceful_panic(None);
