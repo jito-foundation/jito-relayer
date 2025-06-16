@@ -129,7 +129,7 @@ struct Args {
     public_ip: Option<IpAddr>,
 
     /// Packet delay in milliseconds
-    #[arg(long, env, default_value_t = 200)]
+    #[arg(long, env, default_value_t = 50)]
     packet_delay_ms: u32,
 
     /// Address for Jito Block Engine.
