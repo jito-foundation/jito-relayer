@@ -244,6 +244,10 @@ struct Args {
     /// The slot lookahead to use when forwarding transactions
     #[arg(long, env, default_value_t = 5)]
     slot_lookahead: u64,
+
+    /// Time in milliseconds between heartbeat ticks
+    #[arg(long, env, default_value_t = 100)]
+    heartbeat_tick_time: u64,
 }
 
 #[derive(Debug)]
@@ -546,6 +550,7 @@ fn main() {
         args.validator_packet_batch_size,
         args.forward_all,
         args.slot_lookahead,
+        args.heartbeat_tick_time,
     );
 
     let priv_key = fs::read(&args.signing_key_pem_path).unwrap_or_else(|_| {
