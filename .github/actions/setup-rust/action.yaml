@@ -2,9 +2,9 @@ name: Setup Rust
 description: Installs rust in a bare metal fashion
 inputs:
   caller-workflow-name:
-    description: 'Name of workflow used for creating a cache key in ASCII format.'
+    description: "Name of workflow used for creating a cache key in ASCII format."
     required: true
-    default: ''
+    default: ""
 
 runs:
   using: composite
@@ -52,10 +52,10 @@ runs:
 
     - name: Install cargo dependencies
       run: |
-        rustup install nightly-2024-02-01 
-        rustup component add rustfmt --toolchain nightly-2024-02-01-x86_64-unknown-linux-gnu
-        rustup component add clippy --toolchain nightly-2024-02-01-x86_64-unknown-linux-gnu
-        cargo install cargo-udeps@0.1.45 --locked
+        rustup install nightly-2024-09-05 
+        rustup component add rustfmt --toolchain nightly-2024-09-05-x86_64-unknown-linux-gnu
+        rustup component add clippy --toolchain nightly-2024-09-05-x86_64-unknown-linux-gnu
+        cargo install cargo-udeps@0.1.53 --locked
         cargo install cargo-sort
       shell: bash
 
@@ -63,6 +63,6 @@ runs:
       run: |
         rustc --version;
         cargo --version;
-        cargo +nightly-2024-02-01-x86_64-unknown-linux-gnu clippy --version;
-        cargo +nightly-2024-02-01-x86_64-unknown-linux-gnu fmt --version;
+        cargo +nightly-2024-09-05-x86_64-unknown-linux-gnu clippy --version;
+        cargo +nightly-2024-09-05-x86_64-unknown-linux-gnu fmt --version;
       shell: bash

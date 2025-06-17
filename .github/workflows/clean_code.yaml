@@ -8,7 +8,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
-          submodules: 'recursive'
+          submodules: "recursive"
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
@@ -16,7 +16,7 @@ jobs:
           caller-workflow-name: clippy_and_udeps_check
 
       - name: cargo clippy
-        run: cargo +nightly-2024-02-01-x86_64-unknown-linux-gnu clippy --all-targets
+        run: cargo +nightly-2024-09-05-x86_64-unknown-linux-gnu clippy --all-targets
 
       - name: cargo udeps
-        run: cargo +nightly-2024-02-01-x86_64-unknown-linux-gnu udeps --locked
+        run: cargo +nightly-2024-09-05-x86_64-unknown-linux-gnu udeps --locked

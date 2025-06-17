@@ -2,7 +2,7 @@
 //! multi-stage transaction processing pipeline in software.
 use std::{
     collections::HashMap,
-    net::{IpAddr, UdpSocket},
+    net::UdpSocket,
     sync::{atomic::AtomicBool, Arc, RwLock},
     thread,
     thread::JoinHandle,
@@ -30,6 +30,7 @@ pub const DEFAULT_TPU_COALESCE_MS: u64 = 5;
 
 // allow multiple connections for NAT and any open/close overlap
 pub const MAX_QUIC_CONNECTIONS_PER_IP: usize = 8;
+pub const MAX_CONNECTIONS_PER_IPADDR_PER_MIN: u64 = 64;
 
 #[derive(Debug)]
 pub struct TpuSockets {
@@ -51,8 +52,6 @@ impl Tpu {
         sockets: TpuSockets,
         exit: &Arc<AtomicBool>,
         keypair: &Keypair,
-        tpu_ip: &IpAddr,
-        tpu_fwd_ip: &IpAddr,
         rpc_load_balancer: &Arc<LoadBalancer>,
         max_unstaked_quic_connections: usize,
         max_staked_quic_connections: usize,
@@ -83,9 +82,9 @@ impl Tpu {
             .map(|sock| {
                 spawn_server(
                     "quic_streamer_tpu",
+                    "quic_streamer_tpu",
                     sock,
                     keypair,
-                    *tpu_ip,
                     tpu_sender.clone(),
                     exit.clone(),
                     MAX_QUIC_CONNECTIONS_PER_PEER,
@@ -93,6 +92,7 @@ impl Tpu {
                     max_staked_quic_connections,
                     max_unstaked_quic_connections,
                     DEFAULT_MAX_STREAMS_PER_MS,
+                    MAX_CONNECTIONS_PER_IPADDR_PER_MIN,
                     DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
                     Duration::from_millis(DEFAULT_TPU_COALESCE_MS),
                 )
@@ -107,9 +107,9 @@ impl Tpu {
                 .map(|sock| {
                     spawn_server(
                         "quic_streamer_tpu_forwards",
+                        "quic_streamer_tpu_forwards",
                         sock,
                         keypair,
-                        *tpu_fwd_ip,
                         tpu_forwards_sender.clone(),
                         exit.clone(),
                         MAX_QUIC_CONNECTIONS_PER_PEER,
@@ -117,6 +117,7 @@ impl Tpu {
                         max_staked_quic_connections.saturating_add(max_unstaked_quic_connections),
                         0, // Prevent unstaked nodes from forwarding transactions
                         DEFAULT_MAX_STREAMS_PER_MS,
+                        MAX_CONNECTIONS_PER_IPADDR_PER_MIN,
                         DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
                         Duration::from_millis(DEFAULT_TPU_COALESCE_MS),
                     )
@@ -133,6 +134,7 @@ impl Tpu {
         let sigverify_stage = SigVerifyStage::new(
             tpu_receiver,
             TransactionSigVerifier::new(banking_packet_sender),
+            "tpu-verifier",
             "tpu-verifier",
         );
 

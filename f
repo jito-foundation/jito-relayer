@@ -11,7 +11,12 @@ GIT_SHA="$(git describe --always --dirty)"
 
 echo "Git hash: $GIT_SHA"
 
-DOCKER_BUILDKIT=1 docker build -t jitolabs/jito-transaction-relayer . --progress=plain
+DEBUG_FLAGS=${1-false}
+
+DOCKER_BUILDKIT=1 docker build \
+                    --build-arg debug=$DEBUG_FLAGS \
+                    --build-arg ci_commit=$GIT_SHA \
+                    -t jitolabs/jito-transaction-relayer . --progress=plain
 
 # Creates a temporary container, copies binaries built inside container and removes the temporary container.
 docker rm temp || true

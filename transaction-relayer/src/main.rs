@@ -14,6 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use agave_validator::admin_rpc_service::StakedNodesOverrides;
 use clap::Parser;
 use crossbeam_channel::tick;
 use dashmap::DashMap;
@@ -39,15 +40,13 @@ use jito_transaction_relayer::forwarder::start_forward_and_delay_thread;
 use jwt::{AlgorithmType, PKeyWithDigest};
 use log::{debug, error, info, warn};
 use openssl::{hash::MessageDigest, pkey::PKey};
-use solana_address_lookup_table_program::state::AddressLookupTable;
 use solana_metrics::{datapoint_error, datapoint_info};
 use solana_net_utils::multi_bind_in_range;
+use solana_program::address_lookup_table::{state::AddressLookupTable, AddressLookupTableAccount};
 use solana_sdk::{
-    address_lookup_table_account::AddressLookupTableAccount,
     pubkey::Pubkey,
     signature::{read_keypair_file, Signer},
 };
-use solana_validator::admin_rpc_service::StakedNodesOverrides;
 use tikv_jemallocator::Jemalloc;
 use tokio::{runtime::Builder, signal, sync::mpsc::channel};
 use tonic::transport::Server;
@@ -130,7 +129,7 @@ struct Args {
     public_ip: Option<IpAddr>,
 
     /// Packet delay in milliseconds
-    #[arg(long, env, default_value_t = 200)]
+    #[arg(long, env, default_value_t = 50)]
     packet_delay_ms: u32,
 
     /// Address for Jito Block Engine.
@@ -197,6 +196,10 @@ struct Args {
     #[arg(long, env, default_value_t = 600)]
     lookup_table_refresh_secs: u64,
 
+    /// Enables lookup table refreshes
+    #[arg(long, env, default_value_t = false)]
+    enable_lookup_table_refresh: bool,
+
     /// Space-separated addresses to drop transactions for OFAC
     /// If any transaction mentions these addresses, the transaction will be dropped.
     #[arg(long, env, value_delimiter = ' ', value_parser = Pubkey::from_str)]
@@ -249,8 +252,6 @@ struct Args {
 #[derive(Debug)]
 struct Sockets {
     tpu_sockets: TpuSockets,
-    tpu_ip: IpAddr,
-    tpu_fwd_ip: IpAddr,
 }
 
 fn get_sockets(args: &Args) -> Sockets {
@@ -310,8 +311,6 @@ fn get_sockets(args: &Args) -> Sockets {
             transactions_quic_sockets: tpu_quic_sockets,
             transactions_forwards_quic_sockets: tpu_fwd_quic_sockets,
         },
-        tpu_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-        tpu_fwd_ip: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
     }
 }
 
@@ -405,9 +404,15 @@ fn main() {
         keypair.pubkey()
     ));
     info!("Relayer started with pubkey: {}", keypair.pubkey());
+
+    let major: String = env!("CARGO_PKG_VERSION_MAJOR").parse().unwrap();
+    let minor: String = env!("CARGO_PKG_VERSION_MINOR").parse().unwrap();
+    let patch: String = env!("CARGO_PKG_VERSION_PATCH").parse().unwrap();
+
     datapoint_info!(
-        "relayer-mempool-enabled",
-        ("mempool_enabled", !args.disable_mempool, bool)
+        "relayer-info",
+        ("mempool_enabled", !args.disable_mempool, bool),
+        ("version", format!("{}.{}.{}", major, minor, patch), String),
     );
 
     let exit = graceful_panic(None);
@@ -436,12 +441,16 @@ fn main() {
     // Lookup table refresher
     let address_lookup_table_cache: Arc<DashMap<Pubkey, AddressLookupTableAccount>> =
         Arc::new(DashMap::new());
-    let lookup_table_refresher = start_lookup_table_refresher(
-        &rpc_load_balancer,
-        &address_lookup_table_cache,
-        Duration::from_secs(args.lookup_table_refresh_secs),
-        &exit,
-    );
+    let lookup_table_refresher = if args.enable_lookup_table_refresh {
+        Some(start_lookup_table_refresher(
+            &rpc_load_balancer,
+            &address_lookup_table_cache,
+            Duration::from_secs(args.lookup_table_refresh_secs),
+            &exit,
+        ))
+    } else {
+        None
+    };
 
     let staked_nodes_overrides = match args.staked_nodes_overrides {
         None => StakedNodesOverrides::default(),
@@ -460,8 +469,6 @@ fn main() {
         sockets.tpu_sockets,
         &exit,
         &keypair,
-        &sockets.tpu_ip,
-        &sockets.tpu_fwd_ip,
         &rpc_load_balancer,
         args.max_unstaked_quic_connections,
         args.max_staked_quic_connections,
@@ -622,7 +629,9 @@ fn main() {
     for t in forward_and_delay_threads {
         t.join().unwrap();
     }
-    lookup_table_refresher.join().unwrap();
+    if let Some(lookup_table_refresher) = lookup_table_refresher {
+        lookup_table_refresher.join().unwrap();
+    }
     block_engine_forwarder.join();
 }
 

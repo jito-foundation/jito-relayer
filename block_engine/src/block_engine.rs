@@ -728,7 +728,7 @@ fn is_aoi_in_static_keys(
         .iter()
         .enumerate()
         .any(|(idx, acc)| {
-            (tx.message.is_maybe_writable(idx) && accounts_of_interest.cache_get(acc).is_some())
+            (tx.message.is_maybe_writable(idx, None) && accounts_of_interest.cache_get(acc).is_some())
                 // note: can't detect CPIs without execution, so aggressively forward txs than contain account in POI
                 || programs_of_interest.cache_get(acc).is_some()
         })
