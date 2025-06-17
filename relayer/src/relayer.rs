@@ -26,7 +26,7 @@ use jito_protos::{
 use jito_rpc::load_balancer::LoadBalancer;
 use log::*;
 use prost_types::Timestamp;
-use solana_core::banking_trace::BankingPacketBatch;
+use agave_banking_stage_ingress_types::BankingPacketBatch;
 use solana_metrics::datapoint_info;
 use solana_sdk::{
     address_lookup_table::AddressLookupTableAccount, clock::Slot, pubkey::Pubkey,
@@ -644,7 +644,6 @@ impl RelayerImpl {
         // remove discards + check for OFAC before forwarding
         let packets: Vec<_> = packet_batches
             .banking_packet_batch
-            .0
             .iter()
             .flat_map(|batch| {
                 batch

@@ -29,7 +29,7 @@ use jito_protos::{
 };
 use log::{error, *};
 use prost_types::Timestamp;
-use solana_core::banking_trace::BankingPacketBatch;
+use agave_banking_stage_ingress_types::BankingPacketBatch;
 use solana_metrics::{datapoint_error, datapoint_info};
 use solana_sdk::{
     address_lookup_table::AddressLookupTableAccount, pubkey::Pubkey, signature::Signer,
@@ -431,7 +431,7 @@ impl BlockEngineRelayerHandler {
                     let now = Instant::now();
 
                     // note: this contains discarded packets too
-                    let num_packets: u64 = block_engine_batches.banking_packet_batch.0.iter().map(|b|b.len() as u64).sum::<u64>();
+                    let num_packets: u64 = block_engine_batches.banking_packet_batch.iter().map(|b|b.len() as u64).sum::<u64>();
                     block_engine_stats.increment_num_packets_received(num_packets);
 
                     let filtered_packets = Self::filter_packets(block_engine_batches, num_packets, &mut accounts_of_interest, &mut programs_of_interest, address_lookup_table_cache, ofac_addresses);
@@ -641,7 +641,7 @@ impl BlockEngineRelayerHandler {
     ) -> Option<ExpiringPacketBatch> {
         let mut filtered_packets = Vec::with_capacity(num_packets as usize);
 
-        for batch in &block_engine_batches.banking_packet_batch.0 {
+        for batch in block_engine_batches.banking_packet_batch.iter() {
             for packet in batch {
                 if packet.meta().discard() {
                     continue;

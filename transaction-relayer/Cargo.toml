@@ -9,6 +9,7 @@ license = { workspace = true }
 publish = false
 
 [dependencies]
+agave-banking-stage-ingress-types = { workspace = true }
 agave-validator = { workspace = true }
 bincode = { workspace = true }
 clap = { workspace = true }
