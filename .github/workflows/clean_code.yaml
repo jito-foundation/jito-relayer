@@ -16,7 +16,7 @@ jobs:
           caller-workflow-name: clippy_and_udeps_check
 
       - name: cargo clippy
-        run: cargo 1.84.1 clippy --all-targets
+        run: cargo 1.84.1-x86_64-unknown-linux-gnu clippy --all-targets
 
       - name: cargo udeps
         run: cargo 1.84.1-x86_64-unknown-linux-gnu udeps --locked
