@@ -3035,7 +3035,6 @@ dependencies = [
  "prost-types 0.12.6",
  "protobuf-src",
  "solana-perf",
- "solana-sdk",
  "tonic 0.10.2",
  "tonic-build 0.10.2",
 ]
