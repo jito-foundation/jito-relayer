@@ -28,6 +28,12 @@ runs:
         && rm -f $PROTOC_ZIP
       shell: bash
 
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libudev-dev pkg-config
+      shell: bash
+
     - name: cache dependencies
       uses: actions/cache@v3
       with:
