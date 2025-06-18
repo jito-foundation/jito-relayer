@@ -59,7 +59,7 @@ runs:
     - name: Install cargo dependencies
       run: |
         rustup install nightly-2024-12-05 # This corresponds to Rust 1.84.1 nightly
-        rustup component add rustfmt --toolchainnightly-2024-12-05-x86_64-unknown-linux-gnu
+        rustup component add rustfmt --toolchain nightly-2024-12-05-x86_64-unknown-linux-gnu
         rustup component add clippy --toolchain nightly-2024-12-05-x86_64-unknown-linux-gnu
         cargo install cargo-udeps@0.1.53 --locked
         cargo install cargo-sort
