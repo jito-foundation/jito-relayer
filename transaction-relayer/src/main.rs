@@ -278,15 +278,12 @@ fn get_sockets(args: &Args) -> Sockets {
         assert!(!tpu_fwd_ports.contains(&tpu_port));
     }
 
-    let sock_config = SocketConfig::default();
-    sock_config.reuseport(true);
-
     let (tpu_p, tpu_quic_sockets): (Vec<_>, Vec<_>) = (0..args.num_tpu_quic_servers)
         .map(|i| {
             let (port, mut sock) = multi_bind_in_range_with_config(
                 IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
                 (tpu_ports.start + i, tpu_ports.start + 1 + i),
-                sock_config.clone(),
+                SocketConfig::default().reuseport(true),
                 1,
             )
             .unwrap();
@@ -300,7 +297,7 @@ fn get_sockets(args: &Args) -> Sockets {
             let (port, mut sock) = multi_bind_in_range_with_config(
                 IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
                 (tpu_fwd_ports.start + i, tpu_fwd_ports.start + 1 + i),
-                sock_config,
+                SocketConfig::default().reuseport(true),
                 1,
             )
             .unwrap();
