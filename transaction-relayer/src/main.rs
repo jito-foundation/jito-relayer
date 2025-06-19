@@ -283,7 +283,7 @@ fn get_sockets(args: &Args) -> Sockets {
             let (port, mut sock) = multi_bind_in_range_with_config(
                 IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
                 (tpu_ports.start + i, tpu_ports.start + 1 + i),
-                SocketConfig::default(),
+                SocketConfig::default().reuseport(true),
                 1,
             )
             .unwrap();
@@ -297,7 +297,7 @@ fn get_sockets(args: &Args) -> Sockets {
             let (port, mut sock) = multi_bind_in_range_with_config(
                 IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
                 (tpu_fwd_ports.start + i, tpu_fwd_ports.start + 1 + i),
-                SocketConfig::default(),
+                SocketConfig::default().reuseport(true),
                 1,
             )
             .unwrap();
