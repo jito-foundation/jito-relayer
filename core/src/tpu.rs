@@ -6,27 +6,24 @@ use std::{
     sync::{atomic::AtomicBool, Arc, RwLock},
     thread,
     thread::JoinHandle,
-    time::Duration,
 };
 
 use crossbeam_channel::Receiver;
 use jito_rpc::load_balancer::LoadBalancer;
+use agave_banking_stage_ingress_types::BankingPacketBatch;
 use solana_core::{
-    banking_trace::{BankingPacketBatch, BankingTracer},
+    banking_trace::BankingTracer,
     sigverify::TransactionSigVerifier,
     sigverify_stage::SigVerifyStage,
     tpu::MAX_QUIC_CONNECTIONS_PER_PEER,
 };
 use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 use solana_streamer::{
-    nonblocking::quic::{DEFAULT_MAX_STREAMS_PER_MS, DEFAULT_WAIT_FOR_CHUNK_TIMEOUT},
-    quic::spawn_server,
+    quic::{spawn_server, QuicServerParams},
     streamer::StakedNodes,
 };
 
 use crate::{fetch_stage::FetchStage, staked_nodes_updater_service::StakedNodesUpdaterService};
-
-pub const DEFAULT_TPU_COALESCE_MS: u64 = 5;
 
 // allow multiple connections for NAT and any open/close overlap
 pub const MAX_QUIC_CONNECTIONS_PER_IP: usize = 8;
@@ -53,8 +50,8 @@ impl Tpu {
         exit: &Arc<AtomicBool>,
         keypair: &Keypair,
         rpc_load_balancer: &Arc<LoadBalancer>,
-        max_unstaked_quic_connections: usize,
-        max_staked_quic_connections: usize,
+        max_unstaked_connections: usize,
+        max_staked_connections: usize,
         staked_nodes_overrides: HashMap<Pubkey, u64>,
     ) -> (Self, Receiver<BankingPacketBatch>) {
         let TpuSockets {
@@ -87,14 +84,14 @@ impl Tpu {
                     keypair,
                     tpu_sender.clone(),
                     exit.clone(),
-                    MAX_QUIC_CONNECTIONS_PER_PEER,
                     staked_nodes.clone(),
-                    max_staked_quic_connections,
-                    max_unstaked_quic_connections,
-                    DEFAULT_MAX_STREAMS_PER_MS,
-                    MAX_CONNECTIONS_PER_IPADDR_PER_MIN,
-                    DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
-                    Duration::from_millis(DEFAULT_TPU_COALESCE_MS),
+                    QuicServerParams{
+                        max_connections_per_peer: MAX_QUIC_CONNECTIONS_PER_PEER,
+                        max_connections_per_ipaddr_per_min: MAX_CONNECTIONS_PER_IPADDR_PER_MIN,
+                        max_staked_connections,
+                        max_unstaked_connections,
+                        ..QuicServerParams::default()
+                    },
                 )
                 .unwrap()
                 .thread
@@ -112,14 +109,14 @@ impl Tpu {
                         keypair,
                         tpu_forwards_sender.clone(),
                         exit.clone(),
-                        MAX_QUIC_CONNECTIONS_PER_PEER,
                         staked_nodes.clone(),
-                        max_staked_quic_connections.saturating_add(max_unstaked_quic_connections),
-                        0, // Prevent unstaked nodes from forwarding transactions
-                        DEFAULT_MAX_STREAMS_PER_MS,
-                        MAX_CONNECTIONS_PER_IPADDR_PER_MIN,
-                        DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
-                        Duration::from_millis(DEFAULT_TPU_COALESCE_MS),
+                        QuicServerParams{
+                            max_connections_per_peer: MAX_QUIC_CONNECTIONS_PER_PEER,
+                            max_connections_per_ipaddr_per_min: MAX_CONNECTIONS_PER_IPADDR_PER_MIN,
+                            max_staked_connections,
+                            max_unstaked_connections: 0, // Prevent unstaked nodes from forwarding transactions
+                            ..QuicServerParams::default()
+                        },
                     )
                     .unwrap()
                     .thread

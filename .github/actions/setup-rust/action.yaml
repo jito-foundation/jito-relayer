@@ -28,6 +28,12 @@ runs:
         && rm -f $PROTOC_ZIP
       shell: bash
 
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libudev-dev pkg-config
+      shell: bash
+
     - name: cache dependencies
       uses: actions/cache@v3
       with:
@@ -52,9 +58,9 @@ runs:
 
     - name: Install cargo dependencies
       run: |
-        rustup install nightly-2024-09-05 
-        rustup component add rustfmt --toolchain nightly-2024-09-05-x86_64-unknown-linux-gnu
-        rustup component add clippy --toolchain nightly-2024-09-05-x86_64-unknown-linux-gnu
+        rustup install nightly-2024-12-05 # This corresponds to Rust 1.84.1 nightly
+        rustup component add rustfmt --toolchain nightly-2024-12-05-x86_64-unknown-linux-gnu
+        rustup component add clippy --toolchain nightly-2024-12-05-x86_64-unknown-linux-gnu
         cargo install cargo-udeps@0.1.53 --locked
         cargo install cargo-sort
       shell: bash
@@ -63,6 +69,6 @@ runs:
       run: |
         rustc --version;
         cargo --version;
-        cargo +nightly-2024-09-05-x86_64-unknown-linux-gnu clippy --version;
-        cargo +nightly-2024-09-05-x86_64-unknown-linux-gnu fmt --version;
+        cargo +nightly-2024-12-05-x86_64-unknown-linux-gnu clippy --version;
+        cargo +nightly-2024-12-05-x86_64-unknown-linux-gnu fmt --version;
       shell: bash

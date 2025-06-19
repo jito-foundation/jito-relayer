@@ -1,3 +1,4 @@
+use solana_net_utils::SocketConfig;
 use std::{
     collections::HashSet,
     fs,
@@ -41,7 +42,7 @@ use jwt::{AlgorithmType, PKeyWithDigest};
 use log::{debug, error, info, warn};
 use openssl::{hash::MessageDigest, pkey::PKey};
 use solana_metrics::{datapoint_error, datapoint_info};
-use solana_net_utils::multi_bind_in_range;
+use solana_net_utils::multi_bind_in_range_with_config;
 use solana_program::address_lookup_table::{state::AddressLookupTable, AddressLookupTableAccount};
 use solana_sdk::{
     pubkey::Pubkey,
@@ -279,9 +280,10 @@ fn get_sockets(args: &Args) -> Sockets {
 
     let (tpu_p, tpu_quic_sockets): (Vec<_>, Vec<_>) = (0..args.num_tpu_quic_servers)
         .map(|i| {
-            let (port, mut sock) = multi_bind_in_range(
+            let (port, mut sock) = multi_bind_in_range_with_config(
                 IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
                 (tpu_ports.start + i, tpu_ports.start + 1 + i),
+                SocketConfig::default(),
                 1,
             )
             .unwrap();
@@ -292,9 +294,10 @@ fn get_sockets(args: &Args) -> Sockets {
 
     let (tpu_fwd_p, tpu_fwd_quic_sockets): (Vec<_>, Vec<_>) = (0..args.num_tpu_fwd_quic_servers)
         .map(|i| {
-            let (port, mut sock) = multi_bind_in_range(
+            let (port, mut sock) = multi_bind_in_range_with_config(
                 IpAddr::V4(Ipv4Addr::from([0, 0, 0, 0])),
                 (tpu_fwd_ports.start + i, tpu_fwd_ports.start + 1 + i),
+                SocketConfig::default(),
                 1,
             )
             .unwrap();

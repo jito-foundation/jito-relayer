@@ -11,7 +11,7 @@ use std::{
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use jito_block_engine::block_engine::BlockEnginePackets;
 use jito_relayer::relayer::RelayerPacketBatches;
-use solana_core::banking_trace::BankingPacketBatch;
+use agave_banking_stage_ingress_types::BankingPacketBatch;
 use solana_metrics::datapoint_info;
 use tokio::sync::mpsc::error::TrySendError;
 
@@ -69,7 +69,6 @@ pub fn start_forward_and_delay_thread(
                                 let instant = Instant::now();
                                 let system_time = SystemTime::now();
                                 let num_packets = banking_packet_batch
-                                    .0
                                     .iter()
                                     .map(|b| b.len() as u64)
                                     .sum::<u64>();
@@ -119,7 +118,6 @@ pub fn start_forward_and_delay_thread(
 
                             let num_packets = batch
                                 .banking_packet_batch
-                                .0
                                 .iter()
                                 .map(|b| b.len() as u64)
                                 .sum::<u64>();
