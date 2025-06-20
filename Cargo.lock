@@ -2980,7 +2980,7 @@ checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
 
 [[package]]
 name = "jito-block-engine"
-version = "0.3.1"
+version = "0.4.2"
 dependencies = [
  "agave-banking-stage-ingress-types",
  "cached",
@@ -3001,7 +3001,7 @@ dependencies = [
 
 [[package]]
 name = "jito-core"
-version = "0.3.1"
+version = "0.4.2"
 dependencies = [
  "agave-banking-stage-ingress-types",
  "bincode",
@@ -3028,7 +3028,7 @@ dependencies = [
 
 [[package]]
 name = "jito-protos"
-version = "0.3.1"
+version = "0.4.2"
 dependencies = [
  "bytes",
  "prost 0.12.6",
@@ -3041,7 +3041,7 @@ dependencies = [
 
 [[package]]
 name = "jito-relayer"
-version = "0.3.1"
+version = "0.4.2"
 dependencies = [
  "agave-banking-stage-ingress-types",
  "chrono",
@@ -3073,7 +3073,7 @@ dependencies = [
 
 [[package]]
 name = "jito-relayer-web"
-version = "0.3.1"
+version = "0.4.2"
 dependencies = [
  "axum 0.5.17",
  "jito-relayer",
@@ -3087,7 +3087,7 @@ dependencies = [
 
 [[package]]
 name = "jito-rpc"
-version = "0.3.1"
+version = "0.4.2"
 dependencies = [
  "crossbeam-channel",
  "dashmap",
@@ -3099,7 +3099,7 @@ dependencies = [
 
 [[package]]
 name = "jito-transaction-relayer"
-version = "0.3.1"
+version = "0.4.2"
 dependencies = [
  "agave-banking-stage-ingress-types",
  "agave-validator",

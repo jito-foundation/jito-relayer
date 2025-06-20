@@ -12,7 +12,7 @@ members = [
 resolver = "1"
 
 [workspace.package]
-version = "0.3.1"
+version = "0.4.2"
 authors = ["Jito Network <support@jito.network>"]
 repository = "https://github.com/jito-foundation/jito-relayer"
 homepage = "https://jito.network/"
@@ -36,12 +36,12 @@ futures-util = "0.3"
 histogram = "0.6.9"
 hostname = "0.3"
 itertools = "0.10.5"
-jito-block-engine = { path = "block_engine", version = "=0.3.1" }
-jito-core = { path = "core", version = "=0.3.1" }
-jito-protos = { path = "jito-protos", version = "=0.3.1" }
-jito-relayer = { path = "relayer", version = "=0.3.1" }
-jito-relayer-web = { path = "web", version = "=0.3.1" }
-jito-rpc = { path = "rpc", version = "=0.3.1" }
+jito-block-engine = { path = "block_engine", version = "=0.4.2" }
+jito-core = { path = "core", version = "=0.4.2" }
+jito-protos = { path = "jito-protos", version = "=0.4.2" }
+jito-relayer = { path = "relayer", version = "=0.4.2" }
+jito-relayer-web = { path = "web", version = "=0.4.2" }
+jito-rpc = { path = "rpc", version = "=0.4.2" }
 jwt = { version = "0.16.0", features = ["openssl"] }
 keyed_priority_queue = "0.4.1"
 lazy_static = "1.4.0"
