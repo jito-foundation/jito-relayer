@@ -719,7 +719,7 @@ impl RelayerImpl {
                     Err(TrySendError::Closed(_)) => {
                         error!("channel is closed for pubkey: {:?}", pubkey);
                         failed_forwards.push(**pubkey);
-                        break;
+                        continue;
                     }
                 }
             }
